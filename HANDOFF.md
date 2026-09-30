@@ -67,6 +67,7 @@ jootm2/
 9. **WebSocket JSON 协议**（与前端一致，见 §7）。
 10. **多地图 + 地图切换**：解析 `MapInfo.txt`（445 地图、2474 门），`GameWorld.getOrLoadMap` 懒加载其它 `.map` 并刷怪；玩家踩到地图门自动换图（协议新增 `changeMap` 快照消息）；死亡复活按 `homeMap`、怪物重生按 `spawnMap` 定位；广播/nearby 均按地图过滤。已用 `/tmp/test_gate.py` 验证 0(309,613)→0121(3,16) 双向换图。
 11. **NPC 系统（对话 + 脚本 + 商店 + 传送）**：`game/npc/` 下新增 `Npc`（实体）/`NpcScript`（脚本解析：`[@标签]` 段 + `#IF/#ACT/#SAY/#ELSESAY/#ELSEACT` 状态机）/`NpcScriptEngine`（执行：条件 `checkgold/checkitem/checklevel/checkpkpoint/checkjob/gender/equal/large/small/random`，动作 `take/give/mapmove/goto/break/close/set/reset/inc/dec`，变量 `<$$USERNAME>`，链接 `<文字/@标签>` 提取）；`resource/NpcData.java` 加载 `Npcs.txt`+`MerChant.txt`（303 个 NPC）及 `Npc_Def/`+`Market_Def/` 脚本（大小写不敏感 + `名-地图` 优先 fallback `名`）；商人 `[@buy]/[@sell]/[goods]` 买卖（金币/物品 give/take，`GameWorld` 新增 `itemTemplateByName/countItem/takeItems/giveItem`，`ItemTemplate` 加 `index`）。协议新增 `npcTalk/npcSelect/buyItem/sellItem`（客户端→）与 `npcSay/npcClose`（服务端→）。已用测试脚本验证：传送员对话+分支、商人 11 件商品列表+买卖、`mapmove` 传送到 T334。
+12. **物品掉落/拾取/使用**：`game/GroundItem.java`（地面物品/金币堆）；`WorldData.loadMonItems` 解析 `MonItems/{怪物名}.txt`（格式 `n/m 物品名 [数量]`，判定 `selPoint>=random(maxPoint)`，金币=`count/2+random(count)`，物品掉 1 个，耐久 `20~100%` 随机）——启动加载 245 张掉落表；`GameWorld.dropLoot` 在怪物死亡时散落掉落并广播，`pickup` 拾取（距离≤1），`mapSnapshot` 附带 `groundItems`；`GameService` 新增 `pickup/useItem` 协议，`useItem` 支持吃药（stdMode 0/1/2，字段语义重载：AC=HP 恢复量、MAC=MP 恢复量）与穿装备（`slotFor` 装备位 + `needLevel` 等级检查 + `recompute`）。已用测试脚本验证：杀鸡掉鸡肉→拾取→吃药。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`。
 
@@ -76,7 +77,6 @@ jootm2/
 
 - [ ] **技能/魔法释放**：`Magic.DB` 已导入 SQLite（`game/common/MagicTemplate.java` + `Database.loadMagicTemplates()`），但战斗未消费。需接字段语义（`LocalDB.pas` 里 `LoadMagic` 的 `FieldByName` 顺序）→ 魔法效果/伤害/冷却。
 - [ ] **完整战斗属性**：装备位、DC/MC/SC 三段、命中/敏捷、buff/毒等（老 `TStdItem`/`TMonster` 语义 + `M2Share.pas` 的 `MakeWord` 打包）。
-- [ ] **物品掉落/拾取/使用**：`MonItems/`（爆率）、`MakeItem.txt`、吃药/穿装备。
 - [ ] **任务系统**：`MapQuest.txt` + `MapQuest_Def/`。
 - [ ] **攻城/行会（Guild/Castle）**：`GuildBase/`、`Castle.pas`。
 - [ ] **地图对象/门**：.map 里的 door 数据（`MapFileReader` 目前只取可行走，未取门/对象）。
@@ -86,8 +86,9 @@ jootm2/
 
 1. ~~多地图 + 地图切换~~（已完成，见 §3 第 10 条）。
 2. ~~NPC 系统~~（已完成，见 §3 第 11 条）。
-3. 下一步做「技能/魔法释放」——`Magic.DB` 已导入 SQLite 但战斗未消费；或「物品掉落/拾取/使用」（`MonItems/` 爆率、吃药/穿装备）。
-4. 任务系统、行会/攻城最后做。
+3. ~~物品掉落/拾取/使用~~（已完成，见 §3 第 12 条）。
+4. 下一步做「技能/魔法释放」——`Magic.DB` 已导入 SQLite（`MagicTemplate.attrs` 保留原始字段）但战斗未消费。
+5. 任务系统、行会/攻城最后做。
 
 ## 6. 数据依赖（重要，不在 git 里）
 
@@ -104,9 +105,9 @@ jootm2/
 
 ## 7. WebSocket JSON 协议
 
-客户端 → 服务端：`login{username,password}` `register` `listCharacters` `createCharacter{name,sex,hair,job}` `deleteCharacter{name}` `enterGame{name}` `move{dir}` `say{text}` `attack{targetId}` `npcTalk{npcId}` `npcSelect{npcId,value}` `buyItem{npcId,index,count}` `sellItem{npcId,makeIndex}` `logout` `ping`
+客户端 → 服务端：`login{username,password}` `register` `listCharacters` `createCharacter{name,sex,hair,job}` `deleteCharacter{name}` `enterGame{name}` `move{dir}` `say{text}` `attack{targetId}` `npcTalk{npcId}` `npcSelect{npcId,value}` `buyItem{npcId,index,count}` `sellItem{npcId,makeIndex}` `pickup{itemId}` `useItem{makeIndex}` `logout` `ping`
 
-服务端 → 客户端：`loginResult` `registerResult` `characterList` `createCharacterResult` `deleteCharacterResult` `enterGameResult` `enterGame{map,player,nearby}` `changeMap{map,player,nearby}` `entityAdd` `entityRemove` `move` `stats` `attack` `death` `chat` `systemMessage` `npcSay{npcId,name,text,options[{label,value}],shop?,goods[{index,name,price,stock}]}` `npcClose{npcId}` `pong`
+服务端 → 客户端：`loginResult` `registerResult` `characterList` `createCharacterResult` `deleteCharacterResult` `enterGameResult` `enterGame{map,player,nearby,groundItems}` `changeMap{map,player,nearby,groundItems}` `entityAdd` `entityRemove` `move` `stats` `attack` `death` `chat` `systemMessage` `itemDrop{id,name,looks,x,y,gold}` `itemRemove{id}` `npcSay{npcId,name,text,options[{label,value}],shop?,goods[{index,name,price,stock}]}` `npcClose{npcId}` `pong`
 
 方向常量 0..7（`game/common/Direction.java`）：0上 1右上 2右 3右下 4下 5左下 6左 7左上。
 

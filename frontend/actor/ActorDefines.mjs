@@ -638,3 +638,5 @@ function GetNpcOffset(appr) {
         return 1470 + MERCHANTFRAME * (appr - 24);
     }
 }
+
+export { HA, RaceByPM, GetMonImg, GetOffset, GetNpcOffset }

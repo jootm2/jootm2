@@ -1,8 +1,11 @@
 import * as PIXI from "../pixi.mjs"
 import * as SDK from "../SDK.mjs"
+import { MapActor } from "../actor/MapActor.mjs"
+import { HA, RaceByPM, GetMonImg, GetOffset, GetNpcOffset } from "../actor/ActorDefines.mjs"
+import { Images } from "../image/Images.mjs"
 
 // 8 方向移动映射（与服务器 Direction 一致）
-const TILE = 40        // 每个格子像素
+const TILE = 40        // 每个格子像素（等距视角用 48x32，见 _screen）
 const VIEW = 7         // 以玩家为中心，上下左右可见的格子数
 const GRID = VIEW * 2 + 1
 
@@ -25,6 +28,7 @@ class PlayScene {
         this.world_container = null
         this.grid = null
         this.entity_layer = null
+        this.map_actor = null
         this.hud_text = null
 
         this.keys = new Set()
@@ -74,6 +78,9 @@ class PlayScene {
             this.ground_items[gi.id] = gi
         }
         this._render_bag()
+        if (this.map_actor && this.map) {
+            this.map_actor.enter(this.map.name)
+        }
     }
 
     _set_bag(items) {
@@ -165,10 +172,13 @@ update() {
 
     _render() {
         if (!this.entity_layer || !this.self) return
-        this.entity_layer.removeChildren()
-
         const cx = this.self.x
         const cy = this.self.y
+        if (this.map_actor) {
+            this.map_actor.setCenter(cx, cy)
+            this.map_actor.update()
+        }
+        this.entity_layer.removeChildren()
         for (const id in this.entities) {
             this._draw_entity(this.entities[id], cx, cy)
         }
@@ -179,52 +189,89 @@ update() {
     }
 
     _screen(e, cx, cy) {
+        // 等距视角：地图块 48x32，玩家所在块居中
         return {
-            x: (e.x - cx + VIEW) * TILE + TILE / 2,
-            y: (e.y - cy + VIEW) * TILE + TILE / 2
+            x: (this.view_width - 48) / 2 + (e.x - cx) * 48 + 24,
+            y: (this.view_height - 32) / 2 + (e.y - cy) * 32 + 16
         }
     }
 
     _draw_entity(e, cx, cy) {
         const s = this._screen(e, cx, cy)
-        if (s.x < -TILE || s.y < -TILE || s.x > GRID * TILE + TILE || s.y > GRID * TILE + TILE) {
+        if (s.x < -48 || s.y < -48 || s.x > this.view_width + 48 || s.y > this.view_height + 48) {
             return
         }
 
         const is_self = this.self && e.id === this.self.id
         const is_monster = e.type === 'monster'
-        const color = is_self ? 0x38bdf8 : (is_monster ? 0xef4444 : 0x60a5fa)
 
-        const body = new PIXI.Graphics()
-        body.beginFill(color)
-        body.drawCircle(s.x, s.y, TILE * 0.4)
-        body.endFill()
-        this.entity_layer.addChild(body)
+        // 精灵渲染（纹理未加载时回退为圆点）
+        const frame = this._sprite_frame(e)
+        const key = `${frame.lib}/${frame.no}`
+        const tex = globalThis.BaseTextureCache[key]
+        if (tex) {
+            const sprite = new PIXI.Sprite(new PIXI.Texture(tex))
+            sprite.anchor.set(0.5, 0.8)
+            sprite.x = s.x
+            sprite.y = s.y
+            this.entity_layer.addChild(sprite)
+        } else {
+            Images.load(frame.lib, frame.no)
+            const body = new PIXI.Graphics()
+            body.beginFill(is_self ? 0x38bdf8 : (is_monster ? 0xef4444 : 0x60a5fa))
+            body.drawCircle(s.x, s.y, 12)
+            body.endFill()
+            this.entity_layer.addChild(body)
+        }
 
-        // 血条
-        const max_hp = e.maxHp || 1
-        const hp = Math.max(0, e.hp != null ? e.hp : max_hp)
-        const bw = TILE
-        const bh = 3
-        const bg = new PIXI.Graphics()
-        bg.beginFill(0x000000)
-        bg.drawRect(s.x - bw / 2, s.y - TILE * 0.6, bw, bh)
-        bg.endFill()
-        this.entity_layer.addChild(bg)
+        // 血条（玩家/怪物）
+        if (is_self || is_monster) {
+            const max_hp = e.maxHp || 1
+            const hp = Math.max(0, e.hp != null ? e.hp : max_hp)
+            const bw = 40
+            const bh = 3
+            const barY = s.y - 40
+            const bg = new PIXI.Graphics()
+            bg.beginFill(0x000000)
+            bg.drawRect(s.x - bw / 2, barY, bw, bh)
+            bg.endFill()
+            this.entity_layer.addChild(bg)
+            const bar = new PIXI.Graphics()
+            bar.beginFill(is_self ? 0x0ea5e9 : 0xef4444)
+            bar.drawRect(s.x - bw / 2, barY, bw * (hp / max_hp), bh)
+            bar.endFill()
+            this.entity_layer.addChild(bar)
+        }
 
-        const bar = new PIXI.Graphics()
-        bar.beginFill(is_self ? 0x0ea5e9 : 0xef4444)
-        bar.drawRect(s.x - bw / 2, s.y - TILE * 0.6, bw * (hp / max_hp), bh)
-        bar.endFill()
-        this.entity_layer.addChild(bar)
-
+        // 名字
         const name = new PIXI.Text(e.name || ('#' + e.id), {
             fontFamily: 'monospace', fontSize: 10, fill: 0xffffff, align: 'center'
         })
         name.anchor.set(0.5, 0)
         name.x = s.x
-        name.y = s.y + TILE * 0.45
+        name.y = s.y + 12
         this.entity_layer.addChild(name)
+    }
+
+    /** 计算实体的精灵纹理（图片库 + 帧号）。 */
+    _sprite_frame(e) {
+        const dir = (e.dir || 0) & 7
+        if (e.type === 'monster') {
+            const appr = e.appr || 0
+            const raceImg = e.raceImg || 0
+            const ma = RaceByPM(raceImg, appr)
+            const act = ma ? ma.ActStand : null
+            const lib = GetMonImg(appr)
+            const no = GetOffset(appr) + (act ? act.start : 0) + dir * (act ? act.frame : 4)
+            return { lib, no }
+        } else if (e.type === 'npc') {
+            const appr = e.appr || 0
+            return { lib: 'npc', no: GetNpcOffset(appr) + dir * 4 }
+        } else {
+            // 玩家：hum 库，按 job/sex 分块（每块 600 帧）
+            const base = ((e.job || 0) * 2 + (e.sex || 0)) * 600
+            return { lib: 'hum', no: base + HA.ActStand.start + dir * HA.ActStand.frame }
+        }
     }
 
     _draw_ground_item(gi, cx, cy) {
@@ -479,31 +526,16 @@ _on_key_down(e) {
     _build_scene() {
         this.pixi_parent.removeChildren()
 
-        this.world_container = new PIXI.Container()
-        this.grid = new PIXI.Graphics()
         this.entity_layer = new PIXI.Container()
+        this.map_actor = new MapActor(
+            { stage: this.pixi_parent, width: this.view_width, height: this.view_height },
+            this.entity_layer
+        )
+
         this.hud_text = new PIXI.Text('', { fontFamily: 'monospace', fontSize: 14, fill: 0xffffff })
-
-        this.world_container.x = this.view_width / 2 - VIEW * TILE
-        this.world_container.y = this.view_height / 2 - VIEW * TILE
-
-        this.world_container.addChild(this.grid)
-        this.world_container.addChild(this.entity_layer)
-
         this.hud_text.x = 12
         this.hud_text.y = 8
-
-        this.pixi_parent.addChild(this.world_container)
         this.pixi_parent.addChild(this.hud_text)
-
-        this.grid.lineStyle(1, 0x333333, 0.5)
-        const size = GRID * TILE
-        for (let i = 0; i <= GRID; ++i) {
-            this.grid.moveTo(i * TILE, 0)
-            this.grid.lineTo(i * TILE, size)
-            this.grid.moveTo(0, i * TILE)
-            this.grid.lineTo(size, i * TILE)
-        }
     }
 
     enter_scene() {
@@ -535,6 +567,7 @@ _on_key_down(e) {
         this.self = null
         this.entities = {}
         this.ground_items = {}
+        this.map_actor = null
         this.pixi_parent.removeChildren()
     }
 }

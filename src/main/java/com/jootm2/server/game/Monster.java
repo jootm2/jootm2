@@ -25,6 +25,7 @@ public final class Monster extends Actor {
         this.template = template;
         this.name = template.name;
         this.race = template.race;
+        this.raceImg = template.raceImg;
         this.appr = template.appr;
         this.level = template.level;
         this.hp = template.hp;

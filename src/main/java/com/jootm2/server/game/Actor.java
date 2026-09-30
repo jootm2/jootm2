@@ -21,6 +21,7 @@ public class Actor {
     public int level = 1;
     public long exp;
     public int race;   // MessageIds.RC_*
+    public int raceImg;   // image race id (maps to monN sprite library)
     public int appr;   // image index used for rendering
     public boolean alive = true;
     public GameMap map;
@@ -45,6 +46,7 @@ public class Actor {
         o.addProperty("hp", hp);
         o.addProperty("maxHp", maxHp);
         o.addProperty("race", race);
+        o.addProperty("raceImg", raceImg);
         o.addProperty("appr", appr);
         o.addProperty("level", level);
         return o;

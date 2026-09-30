@@ -1,0 +1,828 @@
+;本配置文件不存在后门   我本沉默版本验证
+[@main]
+#IF
+gender man
+#SAY
+我以前是位打捆员,现在改行啦...专收栗子果.\
+如果您为我收集美味和功效卓越的特殊栗子果我会给你好的装备.\
+对了尊敬的先生,你有栗子果吗？ \ \ 
+<出售带字的栗子果/@check1>  <出售特殊的栗子果/@color0>\
+<将金色栗子果换钱/@gold1>   <将银色栗子果换钱/@silver1>\
+<将铜色栗子果换钱/@copper1>   <将褐色栗子果换钱/@brown1>\
+<我~马上去打/@exit>
+#ELSESAY
+我以前是位打捆员,现在改行啦..如果您为我收集美味和功效卓越的\
+特殊栗子果我会给你好的物品.对了这位漂亮的小姐,你有栗子果吗？ \ \
+<出售带字的栗子果/@check1>  <出售特殊的栗子果/@color0>\
+<金色栗子果要出售/@gold1>  <银色栗子果要出售/@silver1>\
+<铜色栗子果要出售/@copper1>  <褐色栗子果要出售/@brown1>\
+<什么啊~我还是去寻求救济算了/@exit>
+[@check1]
+#IF
+checkitem 栗子1 1
+#ACT
+goto @check2
+#ELSEACT
+goto @check3_1
+[@check2]
+#IF
+checkitem 栗子2 1
+#ACT
+goto @check3
+#ELSEACT
+goto @check3_2
+[@check3]
+#IF
+checkitem 栗子3 1
+#ACT
+goto @check4
+#ELSEACT
+goto @check3_2
+[@check3_1]
+#IF
+checkitem 栗子4 1
+#ACT
+goto @check20
+#ELSESAY
+对不起,您包里没有<一套>带字的栗子果,我只收连号的栗子果.\
+快些去找齐了再来吧...\ \
+<离  开/@exit>
+[@check3_2]
+#IF
+checkitem 栗子4 1
+#ACT
+goto @check20
+#ELSESAY
+对不起,您包里没有<一套>带字的栗子果,我只收连号的栗子果.\
+快些去找齐了再来吧...\ \
+<离  开/@exit>
+[@check4]
+#IF
+checkitem 栗子4 1
+#ACT
+goto @check5
+#ELSESAY
+您的包袱有三个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<现在出售/@sell1>\
+<等我收集全了一起卖/@check4_1>
+[@check4_1]
+#IF
+#SAY
+如果是怎样那你快些去寻找, 找到了好的栗果尽快卖给我吧．\
+此次的收购时间非常紧..\ \
+<离  开/@exit>
+[@check5]
+#IF
+checkitem 栗子5 1
+#ACT
+goto @check6
+#ELSESAY
+您的包袱有三个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell1>\
+<等我收集全了一起卖/@check4_1>
+[@check6]
+#IF
+checkitem 栗子6 1
+#ACT
+goto @check7
+#ELSESAY
+您的包袱有3个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell1>\
+<等我收集全了一起卖/@check4_1>
+[@check7]
+#IF
+checkitem 栗子7 1
+#ACT
+goto @check8
+#ELSESAY
+您的包袱有6个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell3>\
+<等我收集全了一起卖/@check4_1>
+[@check8]
+#IF
+checkitem 栗子8 1
+#ACT
+goto @check9
+#ELSESAY
+您的包袱有六个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell3>\
+<等我收集全了一起卖/@check4_1>
+[@check9]
+#IF
+checkitem 栗子9 1
+#ACT
+goto @check10
+#ELSESAY
+您的包袱有六个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell3>\
+<等我收集全了一起卖/@check4_1>
+[@check10]
+#IF
+checkitem 栗子10 1
+#SAY
+好厉害啊~! 您已经收集到了10个-全套有着字的栗子果, \
+对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell5>
+#ELSESAY
+您的包袱有六个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell3>\
+<等我收集全了一起卖/@check4_1>
+[@check20]
+#IF
+checkitem 栗子5 1
+#ACT
+goto @check21
+#ELSESAY
+您都没有一组连号的栗子果,来我这里做什么呢?快些去打些栗子来吧...\ \
+<离  开/@exit>
+[@check21]
+#IF
+checkitem 栗子6 1
+#ACT
+goto @check22
+#ELSESAY
+您都没有一组连号的栗子果,来我这里做什么呢?快些去打些栗子来吧...\ \
+<离  开/@exit>
+[@check22]
+#IF
+checkitem 栗子7 1
+#ACT
+goto @check23
+#ELSESAY
+您的包袱有三个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell2>\
+<等我收集全了一起卖/@check4_1>
+[@check23]
+#IF
+checkitem 栗子8 1
+#ACT
+goto @check24
+#ELSESAY
+您的包袱有三个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell2>\
+<等我收集全了一起卖/@check4_1>
+[@check24]
+#IF
+checkitem 栗子9 1
+#ACT
+goto @check25
+#ELSESAY
+您的包袱有三个有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell2>\
+<等我收集全了一起卖/@check4_1>
+[@check25]
+#IF
+checkitem 栗子10 1
+#SAY
+您的包袱有7个 有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell4>\
+<等我收集全了一起卖/@check4_1>
+#ELSESAY
+您的包袱有3个 有着字的栗子果, 对了您是要卖这些栗子果给我吗？\ \
+<立即出售/@sell2>\
+<等我收集全了一起卖/@check4_1>
+[@sell1]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+give 金币 5000
+#SAY
+这是5千金币 请收下.怎样了?难道我这样的人不老实忠厚?哈哈.\
+以后如果寻求到了很好的栗子果无论什么时候又来我一样收购．\ \
+<离  开/@exit>
+[@sell2]
+#IF
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+#ACT
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+give 金币 10000
+#SAY
+这是金币 1万 请收下.怎样了?难道我这样的人不老实忠厚？哈哈.\
+以后如果寻求到了很好的栗子果无论什么时候又来我一样收购．\ \
+<离  开/@exit>
+[@sell3]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+give 金币 20000
+#SAY
+这是金币 2万 请收下. 怎样了?难道我这样的人不老实忠厚？哈哈.\
+以后如果寻求到了很好的栗子果无论什么时候又来我一样收购．\ \
+<离  开/@exit>
+[@sell4]
+#IF
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 30000
+#SAY
+这是金币 3万 请收下.怎样了?难道我这样的人不老实忠厚?哈哈.\
+以后如果寻求到了很好的栗子果无论什么时候又来我一样收购．\ \
+<离  开/@exit>
+[@sell5]
+#IF
+#SAY
+真的卖给我吗?如果不是为了土产生意会我才不愿意在这收果子,\
+这里有个猜拳的小游戏赢了我的话另外还可给您一份好的礼物.\
+那么现在开始好吗？
+<立即出售/@sell5-1>\
+[@sell5-1]
+#IF
+#ACT
+movr d0 3
+#SAY
+(您出什么?)\ \
+<剪刀/@sell6-1>  <石头/@sell6-2>  <布/@sell6-3>\
+[@sell6-1]
+#IF
+equal d0 0
+#ACT
+goto @sell6-1-1
+break
+#IF
+equal d0 1
+#ACT
+goto @sell6-1-2
+break
+#IF
+equal d0 2
+#ACT
+goto @sell6-1-3
+break
+#ELSEACT
+goto @sell6-1
+[@sell6-1-1]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 20000
+give 祝福油 1
+#SAY
+我出了石头, 你好象赢了.这是金币 2万和祝福油一瓶.\
+以后有好栗子果记得来卖给我.\ \
+<离  开/@exit>
+[@sell6-1-2]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 80000
+#SAY
+我也出了剪刀,看来是平局. 这是金币 8万请收下.\
+  以后有好栗子果记得来卖给我.\ \
+<离  开/@exit>
+[@sell6-1-3]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 80000
+#SAY
+我出了石头,我好象赢了. 这是金币 8万请收下.\
+ 以后有好栗子果记得来卖给我.\ \
+<离  开/@exit>
+[@sell6-2]
+#IF
+equal d0 0
+#ACT
+goto @sell6-2-1
+break
+#IF
+equal d0 1
+#ACT
+goto @sell6-2-2
+break
+#IF
+equal d0 2
+#ACT
+goto @sell6-2-3
+break
+#ELSEACT
+goto @sell6-2
+[@sell6-2-1]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 20000
+give 祝福油 1
+#SAY
+我出了剪子,您赢了. 这是金币 2万和祝福油一瓶.\
+ 以后有好栗子果记得来卖给我.\ \
+<离  开/@exit>
+[@sell6-2-2]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 80000
+#SAY
+我也出了石头,好象是平局. 这是金币 8万请收下. \
+以后有好栗子果记得来卖给我.\ \
+<离  开/@exit>
+[@sell6-2-3]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 80000
+#SAY
+我出了布,看来我赢了. 这是金币8万请收下.  \
+以后有好栗子果记得来卖给我.\ \
+<离  开/@exit>
+[@sell6-3]
+#IF
+equal d0 0
+#ACT
+goto @sell6-3-1
+break
+#IF
+equal d0 1
+#ACT
+goto @sell6-3-2
+break
+#IF
+equal d0 2
+#ACT
+goto @sell6-3-3
+break
+#ELSEACT
+goto @sell6-3
+[@sell6-3-1]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 20000
+give 祝福油 1
+#SAY
+我出了石头,您好象赢了. 这是金币 2万和祝福油一瓶.  \
+以后有好栗子果记得来卖给我.\ \
+<离  开/@exit>
+[@sell6-3-2]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 80000
+#SAY
+我也出了布,好象是平局. 这是金币 8万请收下.  \
+以后有好栗子果记得来卖给我.\ \
+<离  开/@exit>
+[@sell6-3-3]
+#IF
+checkitem 栗子1 1
+checkitem 栗子2 1
+checkitem 栗子3 1
+checkitem 栗子4 1
+checkitem 栗子5 1
+checkitem 栗子6 1
+checkitem 栗子7 1
+checkitem 栗子8 1
+checkitem 栗子9 1
+checkitem 栗子10 1
+#ACT
+take 栗子1 1
+take 栗子2 1
+take 栗子3 1
+take 栗子4 1
+take 栗子5 1
+take 栗子6 1
+take 栗子7 1
+take 栗子8 1
+take 栗子9 1
+take 栗子10 1
+give 金币 80000
+#SAY
+我出了剪子,好象是我赢了.这是金币 8万请收下.\
+以后有好栗子果记得来卖给我.\ \
+<离  开/@exit>
+[@color0]
+#IF
+check [901] 1
+#SAY
+你不是已经来换过了吗？\
+从这件事可以看出您是一个非常贪婪的人哟.\ \
+<离  开/@exit>
+#ELSEACT
+goto @color1
+[@color1]
+#IF
+checkitem 金色栗子 3
+#ACT
+goto @color2
+#ELSESAY
+您都没有一套栗子果,无法换到装备,如果你单卖给我也可以,\
+要么再去打些栗子来吧...\
+并且要将雕刻字的栗子果和不同特别的颜色的栗子果都必须带来哟,\
+最好多带几个一样的颜色的栗子果.\ \
+<返  回/@main>\
+<离  开/@exit>
+[@color2]
+#IF
+checkitem 银色栗子 3
+#ACT
+goto @color3
+#ELSESAY
+您都没有一套栗子果,无法换到装备,如果你单卖给我也可以,\
+要么再去打些栗子来吧...\
+并且要将雕刻字的栗子果和不同特别的颜色的栗子果都必须带来哟,\
+最好多带几个一样的颜色的栗子果.\ \
+<返  回/@main>\
+<离  开/@exit>
+[@color3]
+#IF
+checkitem 铜色栗子 6
+#ACT
+goto @color4
+#ELSESAY
+您都没有一套栗子果,无法换到装备,如果你单卖给我也可以,\
+要么再去打些栗子来吧...\
+并且要将雕刻字的栗子果和不同特别的颜色的栗子果都必须带来哟,\
+最好多带几个一样的颜色的栗子果.\ \
+<返  回/@main>\
+<离  开/@exit>
+[@color4]
+#IF
+checkitem 褐色栗子 12
+#SAY
+您现在有:金色栗子3个, 银色栗子3个, 铜色栗子6个,\
+褐色栗子12个全部收集到了哟,对了您是要卖这些栗子果给我吗？\ \
+<立即换装备/@change1>\
+#ELSESAY
+您都没有一套栗子果,无法换到装备,如果你单卖给我也可以,\
+要么再去打些栗子来吧...\
+并且要将雕刻字的栗子果和不同特别的颜色的栗子果都必须带来哟,\
+最好多带几个一样的颜色的栗子果.\ \
+<返  回/@main>\
+<离  开/@exit>
+[@change1]
+#IF
+checkjob warrior
+#ACT
+goto @change1-1
+break
+#IF
+checkjob wizard
+#ACT
+goto @change1-2
+break
+#IF
+checkjob taoist
+#ACT
+goto @change1-3
+break
+#ELSEACT
+goto @change1
+[@change1-1]
+#IF
+checkitem 金色栗子 3
+checkitem 银色栗子 3
+checkitem 铜色栗子 6
+checkitem 褐色栗子 12
+#ACT
+take 金色栗子 3
+take 银色栗子 3
+take 铜色栗子 6
+take 褐色栗子 12
+give 统帅之刃 1
+set [901] 1
+#SAY
+这是统帅之刃指请收下.不可再换到了..\
+尽管如此您也会感到通过这个游戏带给您的乐趣.\ \ 
+<离  开/@exit>
+[@change1-2]
+#IF
+checkitem 金色栗子 3
+checkitem 银色栗子 3
+checkitem 铜色栗子 6
+checkitem 褐色栗子 12
+#ACT
+take 金色栗子 3
+take 银色栗子 3
+take 铜色栗子 6
+take 褐色栗子 12
+give 疆域之杖 1
+set [901] 1
+#SAY
+这是疆域之杖请收下.请收下.不能再换到..\
+尽管如此您也会感到通过这个游戏所带给您的乐趣.\ \
+<离  开/@exit>
+[@change1-3]
+#IF
+checkitem 金色栗子 3
+checkitem 银色栗子 3
+checkitem 铜色栗子 6
+checkitem 褐色栗子 12
+#ACT
+take 金色栗子 3
+take 银色栗子 3
+take 铜色栗子 6
+take 褐色栗子 12
+give 玉竹扇 1
+set [901] 1
+#SAY
+这是特玉竹扇指请收下请收下.不可能长期使用..\
+尽管如此您也会感到通过这个游戏所带给您的乐趣.\ \
+<离  开/@exit>
+[@gold1]
+#IF
+checkitem 金色栗子 1
+#ACT
+goto @gold2
+#ELSESAY
+您都没有金色栗子还来做什么呢?等有了再来卖给我吧...\ \
+<离  开/@exit>
+[@gold1-1]
+#IF
+checkitem 金色栗子 1
+#ACT
+goto @gold3
+#ELSESAY
+您都没有金色栗子还来做什么呢?等有了再来卖给我吧...\ \
+<离  开/@exit>
+[@gold2]
+#IF
+#SAY
+您的金色栗子 5000金币一个,您确定要出售吗?\ \
+<立即出售/@gold3>\
+[@gold3]
+#IF
+checkitem 金色栗子 1
+#ACT
+take 金色栗子 1
+give 金币 5000
+#SAY
+这是5000金币 请收下.\ \
+<继续卖栗子果/@gold1-1>\ \
+<离  开/@exit>
+[@silver1]
+#IF
+checkitem 银色栗子 1
+#ACT
+goto @silver2
+#ELSESAY
+您都没有银色栗子还来做什么呢?等有了再来卖给我吧...\ \
+<离  开/@exit>
+[@silver1-1]
+#IF
+checkitem 银色栗子 1
+#ACT
+goto @silver3
+#ELSESAY
+您都没有银色栗子还来做什么呢?等有了再来卖给我吧...\ \
+<离  开/@exit>
+[@silver2]
+#IF
+#SAY
+您的银色栗子 2000金币一个,您确定要出售吗?\ \
+<立即出售/@silver3>\
+[@silver3]
+#IF
+checkitem 银色栗子 1
+#ACT
+take 银色栗子 1
+give 金币 2000
+#SAY
+这是2000金币 请收下.\ \
+<继续卖栗子果/@silver1-1>\ \
+<离  开/@exit>
+[@copper1]
+#IF
+checkitem 铜色栗子 1
+#ACT
+goto @copper2
+#ELSESAY
+您都没有铜色栗子还来做什么呢?等有了再来卖给我吧...\ \
+<离  开/@exit>
+[@copper1-1]
+#IF
+checkitem 铜色栗子 1
+#ACT
+goto @copper3
+#ELSESAY
+您都没有铜色栗子还来做什么呢?等有了再来卖给我吧...\ \
+<离  开/@exit>
+[@copper2]
+#IF
+#SAY
+您的铜色栗子 1000金币一个,您确定要出售吗?\ \
+<立即出售/@copper3>\
+[@copper3]
+#IF
+checkitem 铜色栗子 1
+#ACT
+take 铜色栗子 1
+give 金币 1000
+#SAY
+这是1000金币 请收下.\ \
+<继续卖栗子果/@copper1-1>\ \
+<离  开/@exit>
+[@brown1]
+#IF
+checkitem 褐色栗子 1
+#ACT
+goto @brown2
+#ELSESAY
+您都没有褐色栗子还来做什么呢?等有了再来卖给我吧...\ \
+<离  开/@exit>
+[@brown1-1]
+#IF
+checkitem 褐色栗子 1
+#ACT
+goto @brown3
+#ELSESAY
+您都没有褐色栗子还来做什么呢?等有了再来卖给我吧...\ \
+<离  开/@exit>
+[@brown2]
+#IF
+#SAY
+您的褐色栗子 500金币一个,您确定要出售吗?\ \
+<立即出售/@brown3>\
+[@brown3]
+#IF
+checkitem 褐色栗子 1
+#ACT
+take 褐色栗子 1
+give 金币 500
+#SAY
+这是500金币 请收下.\ \
+<继续卖栗子果/@brown1-1>\ \
+<离  开/@exit>

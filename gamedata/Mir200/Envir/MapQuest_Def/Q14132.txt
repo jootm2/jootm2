@@ -1,0 +1,18 @@
+[@main]
+#IF
+check [414] 1
+#ACT
+break
+
+#IF
+check [413] 1
+checkitem 赤月恶魔油 1
+checkitem 邪恶巨人心脏 1
+
+#ACT
+give 赤血魔剑 1
+take 赤月恶魔油 1
+take 邪恶巨人心脏 1
+SET [414] 1
+#SAY
+赤血恶魔已经死亡, 现在世界恢复平静...\ \

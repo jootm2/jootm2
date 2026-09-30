@@ -1,0 +1,86 @@
+;本配置文件不存在后门   我本沉默版本验证
+%100
++26
+[@main]
+#IF
+checkpkpoint 2
+#SAY
+我不想和你这样的人打交道.. \ \
+<离 开/@exit>
+#ELSEACT
+goto @main-1
+[@main-1]
+欢迎！这里有你想要的手套。\ \
+ <买/@buy> 手套\
+ <卖/@sell> 手套\
+ <修补/@repair> 手套\
+ <离 开/@exit>
+[@Tmove]
+#IF
+random 8
+#ACT
+mapmove 3 320 303
+break
+#IF
+random 8
+#ACT
+mapmove 3 320 304
+break
+#IF
+random 8
+#ACT
+mapmove 3 321 304
+break
+#IF
+random 8
+#ACT
+mapmove 3 321 303
+break
+#IF
+random 8
+#ACT
+mapmove 3 310 293
+break
+#IF
+random 8
+#ACT
+mapmove 3 310 294
+break
+#IF
+random 8
+#ACT
+mapmove 3 311 294
+break
+#IF
+random 8
+#ACT
+mapmove 3 311 293
+break
+#ELSEACT
+goto @Tmove
+[@buy]
+你想买点什么？\ \ \
+ <返 回/@Main>
+[@sell]
+把你要卖的东西给我看看，我会给你一个估价...\
+ <返 回/@Main>
+[@repair]
+这里你可以修补手套.\ \ \
+ <返 回/@Main>
+[~@repair]
+这个看上去已经补好了。\ \ \
+ <返 回/@Main>
+[goods]
+小手镯 	      10      3
+银手镯	      10      3
+铁手镯        10      3
+钢手镯        10      3
+皮手套        10      3
+大手镯        10      3
+坚固手套      10      3 
+铂金手镯      10      3
+魔法手镯      10      3
+魔力手镯      10      3
+道士手镯      10      3
+黑檀手镯      10      3 
+死神手套      10      3

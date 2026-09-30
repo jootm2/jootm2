@@ -1,0 +1,19 @@
+[@main]
+#IF
+check [408] 1
+#ACT
+break
+
+#IF
+check [405] 1
+#ACT
+break
+
+#IF
+check [404] 1
+checkitem 命运水晶 1 
+#ACT
+take 命运水晶 40
+SET [405] 1
+#ELSESAY
+(这么恐怖的地方，你来这里做什么？)

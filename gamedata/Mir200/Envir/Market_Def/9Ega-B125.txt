@@ -1,0 +1,6 @@
+;本配置文件不存在后门   我本沉默版本验证
+[@main]
+#IF
+#ACT
+BreakTimeRecall 
+mapmove T125 8 10

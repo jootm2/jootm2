@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>JootM2</title>
+    <style>
+        #game_area {
+            position: relative;
+        }
+        #game_area * {
+            position: absolute;
+        }
+        #game_area > div {
+            visibility: hidden;
+        }
+        /* 初始状态下绘制游戏内ui的canvas不显示，不然会阻塞登录等界面的事件 */
+        #ui_canvas {
+            visibility: hidden;
+        }
+        #login_id, #login_psw, #chgpwd_id, #chgpwd_cur_pw, #chgpwd_new_pw, #chgpwd_repeat_pw {
+            width: 140px;
+        }
+        #new_account_help {
+            width: 200px;
+            height: 260px;
+        }
+        #chrsel_svr_title {
+            transform: translateX(-50%);
+            top: 5px;
+        }
+        #chrsel_new_window {
+            visibility: hidden;
+        }
+        #chrsel_new_name {
+            width: 137px;
+        }
+    
+        /* 游戏内聊天窗口 */
+        #game_chat_window {
+            width: 340px;
+            height: 150px;
+            left: 8px;
+            top: 440px;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid #444;
+        }
+        #game_chat_log {
+            left: 4px;
+            top: 4px;
+            width: 332px;
+            height: 112px;
+            overflow-y: auto;
+            color: #fff;
+            font-size: 12px;
+            line-height: 16px;
+        }
+        #game_chat_input {
+            left: 4px;
+            top: 120px;
+            width: 332px;
+            height: 24px;
+            background: #111;
+            color: #fff;
+            border: 1px solid #555;
+        }
+</style>
+    <link rel="stylesheet" href="common.css" />
+</head>
+
+<body>
+    <div id="game_area">
+        <!-- 游戏地图、精灵、特效绘制canvas -->
+        <canvas id="game_canvas">Loading...</canvas>
+        <!-- 游戏内文字标签等包裹块，例如名字、血量 -->
+        <div id="game_control"></div>
+        <!-- 游戏内聊天窗口 -->
+        <div id="game_chat_window">
+            <div id="game_chat_log"></div>
+            <input id="game_chat_input" maxlength="200" />
+        </div>
+
+        <!-- 登录窗体 -->
+        <div id="login_window">
+            <input id="login_id" maxlength="10"/>
+            <input id="login_psw" type="password" maxlength="10"/>
+            <button id="login_ok">ok</button>
+            <button id="login_close">x</button>
+            <button id="new_account">new</button>
+            <button id="chpsw">chpsw</button>
+        </div>
+        <!-- 创建账号窗体 -->
+        <div id="new_account_window">
+            <button id="new_account_close">x</button>
+            <button id="new_account_ok">ok</button>
+            <button id="new_account_cancel">cancel</button>
+            <input id="new_account_id" maxlength="10" />
+            <input id="new_account_psw" type="password" maxlength="10" />
+            <input id="new_account_psw2" type="password" maxlength="10" />
+            <input id="new_account_yourname" maxlength="20" />
+            <input id="new_account_birthday" maxlength="10" />
+            <input id="new_account_quiz1" maxlength="20" />
+            <input id="new_account_answer1" maxlength="12" />
+            <input id="new_account_quiz2" maxlength="20" />
+            <input id="new_account_answer2" maxlength="12" />
+            <input id="new_account_phone" maxlength="14" />
+            <input id="new_account_mobphone" maxlength="13" />
+            <input id="new_account_email" maxlength="40" />
+            <textarea id="new_account_help" readonly></textarea>
+        </div>
+        <!-- 修改密码窗体 -->
+        <div id="chgpwd_window">
+            <input id="chgpwd_id" maxlength="10"/>
+            <input id="chgpwd_cur_pw" type="password" maxlength="10"/>
+            <input id="chgpwd_new_pw" type="password" maxlength="10"/>
+            <input id="chgpwd_repeat_pw" type="password" maxlength="10"/>
+            <button id="chgpwd_ok">ok</button>
+            <button id="chgpwd_cancel">x</button>
+        </div>
+        <!-- 角色选择窗体 -->
+        <div id="chrsel_window">
+            <label id="chrsel_svr_title">x</label>
+            <button id="chrsel_start">start</button>
+            <button id="chrsel_new">new</button>
+            <button id="chrsel_del">del</button>
+            <button id="chrsel_contact">qq</button>
+            <button id="chrsel_exit">exit</button>
+            <button id="chrsel_select1">1</button>
+            <button id="chrsel_select2">2</button>
+            <label id="chrsel_name1">x</label>
+            <label id="chrsel_level1">x</label>
+            <label id="chrsel_jogb1">x</label>
+            <label id="chrsel_name2">x</label>
+            <label id="chrsel_level2">x</label>
+            <label id="chrsel_jogb2">x</label>
+            <div id="chrsel_new_window">
+                <input id="chrsel_new_name" maxlength="14" />
+                <button id="chrsel_new_close">x</button>
+                <button id="chrsel_new_job0">x</button>
+                <button id="chrsel_new_job1">x</button>
+                <button id="chrsel_new_job2">x</button>
+                <button id="chrsel_new_sex0">x</button>
+                <button id="chrsel_new_sex1">x</button>
+                <button id="chrsel_new_ok">ok</button>
+            </div>
+        </div>
+
+        <!-- 消息对话框、输入框（公告、退出确认、商铺购买个数） -->
+        <div id="frm_dlg">
+            <canvas id="frm_dlg_canvas">Loading...</canvas>
+            <div id="frm_dlg_window">
+                <p id="frm_dlg_label">x</p>
+                <input id="frm_dlg_input" maxlength="11" />
+                <button id="frm_dlg_ok">ok</button>
+                <button id="frm_dlg_cancel">cancel</button>
+            </div>
+        </div>
+    </div>
+    <script type="module">
+        import * as JootM2 from "./JootM2.mjs"
+        import { Images } from "./image/Images.mjs"
+        import * as PIXI from "./pixi.mjs"
+        import { SceneManager } from "./scene/SceneManager.mjs"
+
+        const game_width = 800
+        const game_height = 600
+        const resource_json_url = "/resources/resources.json"
+        const server_base_url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws"
+        const server_name = "雷霆"
+        const server_titile = "测试区" // 用于用户展示，server_name为服务器真实名称
+
+        await JootM2.init(resource_json_url)
+
+        const scene_manager = new SceneManager({
+            width: game_width
+            , height: game_height
+            , server_base_url: server_base_url
+            , server_name: server_name
+            , server_titile: server_titile})
+        scene_manager.change_scene(0)
+
+        PIXI.Ticker.shared.add((delta) => {
+            scene_manager.update()
+        })
+    </script>
+    <script>
+      // 页面加载完成后，给所有input设置autocomplete=off
+      window.addEventListener('DOMContentLoaded', () => {
+        // 获取所有input元素
+        const allInputs = document.querySelectorAll('input')
+        allInputs.forEach(input => {
+          input.autocomplete = "off"
+          input.autocorrect = "off"
+          input.autocapitalize = "off"
+          input.spellcheck = false
+        });
+    });
+  </script>
+</body>

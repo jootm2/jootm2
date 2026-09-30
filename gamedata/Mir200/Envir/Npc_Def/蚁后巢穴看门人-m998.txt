@@ -1,0 +1,20 @@
+;本配置文件不存在后门   我本沉默版本验证
+[@main]
+#IF
+checkpkpoint 2
+#SAY
+我不会接触双手沾满鲜血的人!\ 
+<取消/@exit>
+#ELSEACT
+goto @main-1
+
+[@main-1]
+后面就是<蚁后巢穴>了，你确定你要进去??\
+<是的/@go>\
+<取消/@exit>
+
+[@go]
+#IF
+#ACT
+mapmove M999 11 10
+break

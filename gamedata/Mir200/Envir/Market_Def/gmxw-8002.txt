@@ -1,0 +1,842 @@
+;本配置文件不存在后门   我本沉默版本验证
+[@main]
+#IF
+#SAY
+欢迎加入我为你准备的一个小游戏. \ \
+<我想了解一下这个游戏的规则./@display> \
+<让我去试试运气./@play_dice> \
+<我不想参加./@exit> \
+#ACT
+mov p2 0
+[@display]
+#IF
+#SAY
+<$USERNAME>：这是一个比大小的游戏，我们在游戏中给你两 \
+次投骰子的机会，第一次比第二次大，那么你就赢得了奖金反之 \
+我们就得扣除你下注的本金，如果遇到二次相同那么我们互不赔付 \
+要说明的是三个骰子点数超过十点就以个位数的计算如: 投出了10点\
+实际就是0点，游戏中设立了大奖赔付第一次投出9点会赔付三赔本金 \
+第二次投9点你得付出一些金币。好了 <$USERNAME> 我就介绍到这。 \ \
+<返回./@main>
+[@play_dice]
+#IF
+#SAY
+<$USERNAME>：感谢你的光顾，看我象不象财主？ \ \
+呵呵~~~从事一项职业每天也得纳税啊...所以参加\
+这个游戏你每一次必须支付1000金币的服务费. \ \
+<1000算什么，给你就是./@event> \
+<赚点钱不容易，我还得养家糊口./@exit>
+[@event]
+#IF
+checkgold 1000
+random 5
+#SAY
+这是一个随机运气，如果你在这次投注中二次投出的点数\
+相同，我们将赔付你 5 赔的奖金，但是你必须多交纳一次\
+的入场费用，你愿意再交纳 1000金币吗？ \ \
+<机会难得，管它中不中我决定要参加./@event1> \
+<我才不上你当，这种事情也会有？我不信./@play_dices>
+#ELSEACT
+goto @play_dice1
+[@event1]
+#IF
+#ACT
+mov p2 1
+goto @play_dice1
+[@play_dice1]
+#IF
+checkgold 1000
+#ACT
+take 金币 1000
+#SAY
+现在请挑选一项你能接受的方式下注. \ \
+<马上下注./@play_dices>
+#ELSESAY
+你都没有金币了还来玩？我也得靠收点服务费来吃饭。 \
+快去准备好足够的金币再来玩吧。\ \
+<关闭./@exit>
+[@play_dices]
+仔细看清除哦~!\
+<下注2000金币./@M2000> \
+<下注5000金币./@M5000> \
+<下注10000金币./@M10000> \
+<下注20000金币./@M20000> \
+<下注50000金币./@M50000> \
+<下注100000金币./@M100000> \
+<后悔还来得急./@exit>
+[@M2000]
+#IF
+checkgold 2000
+#SAY
+你选择的是2000金币下注方式. \
+现在你可以开始游戏了. \ \
+<开始./@play_dice2>
+#ACT
+take 金币 2000
+mov p0 0
+#ELSESAY
+开玩笑...2000金币都没有还来玩？ \ \
+<离开./@exit>
+[@M5000]
+#IF
+checkgold 5000
+#SAY
+你选择的是5000金币下注方式. \
+现在你可以开始游戏了. \ \
+<开始./@play_dice2>
+#ACT
+take 金币 5000
+mov p0 1
+#ELSESAY
+你已经没有5000金币来支付这项投注.. \ \
+<我去投注2000金币的./@play_dices>
+[@M10000]
+#IF
+checkgold 10000
+#SAY
+你选择的是10000金币下注方式. \
+现在你可以开始游戏了. \ \
+<开始./@play_dice2>
+#ACT
+take 金币 10000
+mov p0 2
+#ELSESAY
+你已经没有10000金币来支付这项投注.. \ \
+<去投注其它的看看./@play_dices>
+[@M20000]
+#IF
+checkgold 20000
+#SAY
+你选择的是20000金币下注方式. \
+现在你可以开始游戏了. \ \
+<开始./@play_dice2>
+#ACT
+take 金币 20000
+mov p0 3
+#ELSESAY
+你已经没有20000金币来支付这项投注.. \ \
+<去投注其它的看看./@play_dices>
+[@M50000]
+#IF
+checkgold 50000
+#SAY
+你选择的是50000金币下注方式. \
+现在你可以开始游戏了. \ \
+<开始./@play_dice2>
+#ACT
+take 金币 50000
+mov p0 4
+#ELSESAY
+你已经没有50000金币来支付这项投注.. \ \
+<去投注其它的看看./@play_dices>
+[@M100000]
+#IF
+checkgold 100000
+#SAY
+你选择的是100000金币下注方式. \
+现在你可以开始游戏了. \ \
+<开始./@play_dice2>
+#ACT
+take 金币 100000
+mov p0 5
+#ELSESAY
+你已经没有100000金币来支付这项投注.. \ \
+<去投注其它的看看./@play_dices>
+[@play_dice2]
+#IF
+#SAY
+现在开始一次投注，请仔细观注三个骰子的点数。\ \
+#ACT
+movr d0 6
+movr d1 6
+movr d2 6
+inc d0 1
+inc d1 1
+inc d2 1
+mov d9 0
+sum d0 d1
+sum d2
+playdice 3 @check_event
+[@check_event]
+#IF
+equal p2 1
+#ACT
+goto @event_next
+#ELSEACT
+goto @check_gold
+[@event_next]
+#IF
+check d0 9
+check d1 9
+check d2 9
+#ACT
+goto @event_result
+#ELSEACT
+goto @check_gold
+[@check_gold]
+#IF
+large d9 9
+#ACT
+dec d9 10
+goto @play_dice3
+#ELSEACT
+goto @play_dice3
+[@play_dice3]
+#IF
+equal d9 0
+#ACT
+mov p1 0
+goto @check_message
+break
+#IF
+equal d9 1
+#ACT
+mov p1 1
+goto @check_message
+break
+#IF
+equal d9 2
+#ACT
+mov p1 2
+goto @check_message
+break
+#IF
+equal d9 3
+#ACT
+mov p1 3
+goto @check_message
+break
+#IF
+equal d9 4
+#ACT
+mov p1 4
+goto @check_message
+break
+#IF
+equal d9 5
+#ACT
+mov p1 5
+goto @check_message
+break
+#IF
+equal d9 6
+#ACT
+mov p1 6
+goto @check_message
+break
+#IF
+equal d9 7
+#ACT
+mov p1 7
+goto @check_message
+break
+#IF
+equal d9 8
+#ACT
+mov p1 8
+goto @check_message
+break
+#IF
+equal d9 9
+#ACT
+mov p1 9
+goto @check_message
+break
+[@check_message]
+#IF
+#SAY
+你这次投出的点数是 <$STR(P1)> 点。\
+现在开始投第二次，祝你好运。 \ \
+<继续./@play_dice4>
+[@play_dice4]
+#IF
+#SAY
+现在是第二次投注，请仔细注意三个骰子的点数。\ \
+#ACT
+movr d0 6
+movr d1 6
+movr d2 6
+inc d0 1
+inc d1 1
+inc d2 1
+mov d9 0
+sum d0 d1
+sum d2
+playdice 3 @play_dice5
+[@play_dice5]
+#IF
+large d9 9
+#ACT
+dec d9 10
+goto @play_dice6
+#ELSEACT
+goto @play_dice6
+[@play_dice6]
+#IF
+equal d9 0
+#ACT
+goto @result0
+break
+#IF
+equal d9 1
+#ACT
+goto @result1
+break
+#IF
+equal d9 2
+#ACT
+goto @result2
+break
+#IF
+equal d9 3
+#ACT
+goto @result3
+break
+#IF
+equal d9 4
+#ACT
+goto @result4
+break
+#IF
+equal d9 5
+#ACT
+goto @result5
+break
+#IF
+equal d9 6
+#ACT
+goto @result6
+break
+#IF
+equal d9 7
+#ACT
+goto @result7
+break
+#IF
+equal d9 8
+#ACT
+goto @result8
+break
+#IF
+equal d9 9
+#ACT
+goto @result9
+break
+[@result0]
+#IF
+equal p0 0
+#ACT
+goto @draw
+break
+#IF
+large p0 0
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@result1]
+#IF
+equal p1 1
+#ACT
+goto @draw
+break
+#IF
+large p1 1
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@result2]
+#IF
+equal p1 2
+#ACT
+goto @draw
+break
+#IF
+large p1 2
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@result3]
+#IF
+equal p1 3
+#ACT
+goto @draw
+break
+#IF
+large p1 3
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@result4]
+#IF
+equal p1 4
+#ACT
+goto @draw
+break
+#IF
+large p1 4
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@result5]
+#IF
+equal p1 5
+#ACT
+goto @draw
+break
+#IF
+large p1 5
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@result6]
+#IF
+equal p1 6
+#ACT
+goto @draw
+break
+#IF
+large p1 6
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@result7]
+#IF
+equal p1 7
+#ACT
+goto @draw
+break
+#IF
+large p1 7
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@result8]
+#IF
+equal p1 8
+#ACT
+goto @draw
+break
+#IF
+large p1 8
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@result9]
+#IF
+equal p1 9
+#ACT
+goto @draw
+break
+#IF
+large p1 9
+#ACT
+goto @win 
+#ELSEACT
+goto @defeat
+[@draw]
+#IF
+equal p0 0
+#ACT
+give 金币 2000
+break
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数与第二次相同，我们已经退回给你2000本金。坚持住哟..\ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#IF
+equal p0 1
+#ACT
+give 金币 5000
+break
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数与第二次相同，我们已经退回给你5000本金。坚持住哟..\ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#IF
+equal p0 2
+#ACT
+give 金币 10000
+break
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数与第二次相同，我们已经退回给你10000本金。坚持住哟..\ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#IF
+equal p0 3
+#ACT
+give 金币 20000
+break
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数与第二次相同，我们已经退回给你20000本金。坚持住哟..\ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#IF
+equal p0 4
+#ACT
+give 金币 50000
+break
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数与第二次相同，我们已经退回给你50000本金。坚持住哟..\ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#IF
+equal p0 5
+#ACT
+give 金币 100000
+break
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数与第二次相同，我们已经退回给你100000本金。坚持住哟..\ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+[@win]
+#IF
+equal p0 0
+#ACT
+goto @win0
+break
+#IF
+equal p0 1
+#ACT
+goto @win1
+break
+#IF
+equal p0 2
+#ACT
+goto @win2
+#IF
+equal p0 3
+#ACT
+goto @win3
+#IF
+equal p0 4
+#ACT
+goto @win4
+#IF
+equal p0 5
+#ACT
+goto @win5
+[@defeat]
+#IF
+equal p0 0
+#ACT
+goto @defeat0
+break
+#IF
+equal p0 1
+#ACT
+goto @defeat1
+break
+#IF
+equal p0 2
+#ACT
+goto @defeat2
+#IF
+equal p0 3
+#ACT
+goto @defeat3
+#IF
+equal p0 4
+#ACT
+goto @defeat4
+#IF
+equal p0 5
+#ACT
+goto @defeat5
+[@win0]
+#IF
+equal p1 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第一次投出了 9 点，第二次的点数又比 9 小. \
+ 按照我们规定双倍奖励的原则..(嘻嘻。。) \
+你另外获得了2000金币的加奖. \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ACT
+give 金币 4000
+give 金币 2000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数比的二次大，这样你获得了我们为你准备4000金币的奖励 \
+呵呵~运气不错啊，有没有兴趣再来一把？ \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ELSEACT
+give 金币 4000
+[@win1]
+#IF
+equal p1 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第一次投出了 9 点，第二次的点数又比 9 小. \
+ 按照我们规定双倍奖励的原则..(嘻嘻。。) \
+你另外获得了5000金币的加奖. \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ACT
+give 金币 10000
+give 金币 5000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数大于第二次，，这样你获得了10000金币的奖励 \
+呵呵~运气不错啊，有没有兴趣再来一把？ \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ELSEACT
+give 金币 10000
+[@win2]
+#IF
+equal p1 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第一次投出了 9 点，第二次的点数又比 9 小. \
+按照我们规定双倍奖励的原则..(嘻嘻。。) \
+你另外获得了10000金币的加奖. \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ACT
+give 金币 20000
+give 金币 10000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数大于第二次，，这样你获得了20000金币的奖励 \
+呵呵~运气不错啊，有没有兴趣再来一把？ \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ELSEACT
+give 金币 20000
+[@win3]
+#IF
+equal p1 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第一次投出了 9 点，第二次的点数又比 9 小. \
+按照我们规定双倍奖励的原则..(嘻嘻。。) \
+你另外获得了200000金币的加奖. \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ACT
+give 金币 40000
+give 金币 20000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数大于第二次，，这样你获得了40000金币的奖励 \
+呵呵~运气不错啊，有没有兴趣再来一把？ \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ELSEACT
+give 金币 40000
+[@win4]
+#IF
+equal p1 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第一次投出了 9 点，第二次的点数又比 9 小. \
+按照我们规定双倍奖励的原则..(嘻嘻。。) \
+你另外获得了50000金币的加奖. \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ACT
+give 金币 100000
+give 金币 50000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数大于第二次，，这样你获得了100000金币的奖励 \
+呵呵~运气不错啊，有没有兴趣再来一把？ \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ELSEACT
+give 金币 100000
+[@win5]
+#IF
+equal p1 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第一次投出了 9 点，第二次的点数又比 9 小. \
+按照我们规定双倍奖励的原则..(嘻嘻。。) \
+你另外获得了100000金币的加奖. \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ACT
+give 金币 200000
+give 金币 100000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+第一次点数大于第二次，你获得了200000金币的奖励 \
+呵呵~运气不错啊，有没有兴趣再来一把？ \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ELSEACT
+give 金币 200000
+[@defeat0]
+#IF
+equal d9 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第二次投出了 9 点，第一次的点数比 9 小. \
+按照我们规定输赢奖惩的原则..(呜呜。。) \
+必须再扣除你的 2000金币... \ \
+<别拦我!我要继续玩下去./@event> \
+<不玩了，走人./@exit>
+#ACT
+take 金币 2000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+你在第二次所投出的点数大于第一次，我们无法给你奖励.. \ \
+<2000算什么，我要继续玩下去./@event> \
+<好伤心啊..走人./@exit>
+[@defeat1]
+#IF
+equal d9 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第二次投出了 9 点，第一次的点数比 9 小. \
+按照我们规定输赢奖惩的原则..(呜呜。。) \
+必须再扣除你的 5000金币... \ \
+<别拦我!我要翻本./@event> \
+<好伤心啊..走人./@exit>
+#ACT
+take 金币 5000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+你在第二次所投出的点数大于第一次，我们无法给你奖励.. \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+[@defeat2]
+#IF
+equal d9 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第二次投出了 9 点，第一次的点数比 9 小. \
+按照我们规定输赢奖惩的原则..(呜呜。。) \
+必须再扣除你的 10000金币... \ \
+<别拦我!我要翻本./@event> \
+<好伤心啊..走人./@exit>
+#ACT
+take 金币 10000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+你在第二次所投出的点数大于第一次，我们无法给你奖励.. \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+[@defeat3]
+#IF
+equal d9 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第二次投出了 9 点，第一次的点数比 9 小. \
+按照我们规定输赢奖惩的原则..(呜呜。。) \
+必须再扣除你的 20000金币... \ \
+<别拦我!我要翻本./@event> \
+<好伤心啊..走人./@exit>
+#ACT
+take 金币 20000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+你在第二次所投出的点数大于第一次，我们无法给你奖励.. \ \
+<很有意思，继续玩下去./@event> \
+<不玩了，走人./@exit>
+[@defeat4]
+#IF
+equal d9 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第二次投出了 9 点，第一次的点数比 9 小. \
+按照我们规定输赢奖惩的原则..(呜呜。。) \
+必须再扣除你的 50000金币... \ \
+<别拦我!我要翻本./@event> \
+<悲痛万分..走人./@exit>
+#ACT
+take 金币 50000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+你在第二次所投出的点数大于第一次，我们无法给你奖励.. \ \
+<继续玩，运气不等人./@event> \
+<没意思，走人./@exit>
+[@defeat5]
+#IF
+equal d9 9
+#SAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+由于你在第二次投出了 9 点，第一次的点数比 9 小. \
+按照我们规定输赢奖惩的原则..(呜呜。。) \
+必须再扣除你的 100000金币... \ \
+<打死我也不敢相信~!让我翻本./@event> \
+<我去跳楼了，再见./@exit>
+#ACT
+take 金币 100000
+#ELSESAY
+你第一次投出的是：<$STR(P1)> 点，第二次是：<$STR(D9)> 点。 \
+你在第二次所投出的点数大于第一次，我们无法给你奖励.. \ \
+<继续玩，运气不等人./@event> \
+<没意思，走人./@exit>
+[@event_result]
+#IF
+equal p0 0
+#ACT
+give 金币 10000
+break
+#SAY
+恭喜你，你这次赢得了1万金币。 \ \
+<继续玩，运气不等人./@event> \
+<不玩了，走人./@exit>
+#IF
+equal p0 1
+#ACT
+give 金币 25000
+break
+#SAY
+恭喜你，你这次赢得了2.5万金币。 \ \
+<继续玩，运气不等人./@event> \
+<见好就收，我走人./@exit>
+#IF
+equal p0 2
+#ACT
+give 金币 50000
+break
+#SAY
+恭喜你，你这次赢得了5万金币。 \ \
+<继续玩，运气不等人./@event> \
+<见好就收，走了哦./@exit>
+#IF
+equal p0 3
+#ACT
+give 金币 100000
+break
+#SAY
+呵呵~10万？运气不错啊，真羡慕你有这样好的手气. \ \
+<这算什么？我继续玩./@event> \
+<见好就收，拜拜./@exit>
+#IF
+equal p0 4
+#ACT
+give 金币 250000
+break
+#SAY
+天啊~25万？运气真不错，真羡慕你有这样好的手气. \ \
+<我要赢得更多的金币./@event> \
+<见好就收，再见./@exit>
+#IF
+equal p0 5
+#ACT
+give 金币 500000
+break
+#SAY
+晕死~50万？囍从天降!!真羡慕你有这样好的手气. \ \
+<财运挡不住，我继续玩./@event> \
+<好累哦...我明天再来./@exit>

@@ -1,0 +1,14 @@
+# --- build artifacts ---
+target/
+dependency-reduced-pom.xml
+
+# --- runtime data ---
+data/
+
+# --- symlinked data (not versioned) ---
+resources
+gamedata/Mir200/Map
+
+# --- macOS ---
+.DS_Store
+**/.DS_Store

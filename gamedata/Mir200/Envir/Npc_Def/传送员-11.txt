@@ -1,0 +1,362 @@
+;本配置文件不存在后门   我本沉默版本验证
+[@main]
+#IF
+checkpkpoint 2
+#SAY
+我不想和一个杀人狂做生意!请走开。\ \
+<关闭/@exit>\
+#ELSEACT
+goto @main-1
+
+
+[@main-1]
+<$USERNAME> 你好，奉静寂之城城主的命令。\
+我将传送你到你需要的地方。花费是5000金币。\
+你想去什么地方?\ \
+<比奇城堡/@bwmove>    <银杏山谷/@ginmove>    <新手村/@brdmove>  \
+<毒蛇山村/@svmove>    <盟重土城/@mwmove>    <白日门/@wwmove>\
+<封魔谷/@fmgmove>        <静寂之城/@jjzcmove>    <超级传送/@scomap>  \
+<关闭/@exit>\
+
+
+
+[@scomap]
+冒险传送必须满足条件才能够顺利到达\
+去冒险地图强烈建议您随身携带回城包\ \
+<回城卷包/@hcgive>    <比奇赌场/@dcmove>    <蜈蚣洞/@wgdongmove>    <祖玛寺庙/@zumasimove>\
+<沃玛寺庙/@womasimove>    <死亡棺材/@swgcmove>    <石墓七层/@zdmove>     <尸王殿/@swmove>\
+<赤月魔穴/@cymove>    <未知暗殿/@wzmove>    <神秘商店/@smsdmove>\
+<沃玛教主大厅/@wmmove>    <祖玛教主大厅/@zmmove>    \ \ 
+<关闭/@exit>\
+
+
+[@bwmove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 0 333 268
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \
+<关闭/@exit>\
+
+[@ginmove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 0 634 612
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \
+<关闭/@exit>\
+
+[@brdmove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 0 288 615
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \
+<关闭/@exit>\
+
+
+
+[@svmove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 2 504 484
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \
+<关闭/@exit>\
+
+
+
+[@mwmove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 3 330 330
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \
+<关闭/@exit>\
+
+
+
+[@wwmove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 11 177 324
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \
+<关闭/@exit>\
+
+
+
+[@fmgmove]
+#IF
+checkitem 封魔谷凭证 1
+#ACT
+take 封魔谷凭证 1
+mapmove 4 240  200
+#ELSESAY
+对不起，您还没有封魔谷凭证呢，我不能传送您\
+不过您可以通过沃玛森林步行到达那里，不过那里最近出现了\
+一种被恶魔附身的树木，请您一定要小心哦。\
+  \
+  \
+<了解更多/@jjzcmore>   <返回/@main>    <关闭/@exit>\\
+
+[@jjzcmore]
+<$USERNAME> 由于你在本站的出色表现\
+我决定指给你一条可以到达封魔谷的秘密道路\
+不过那里现在也是有强大的怪物把持着的\
+您要小心哦,建议您带好回城卷,邀请朋友结伴而行\
+
+<去秘密道路/@mimidaolu>   <我再考虑考虑/@main>
+
+[@mimidaolu]
+#IF
+#ACT
+mapmove T334 50  50
+
+[@jjzcmove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 28   193  238
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \ <取消/@exit>\
+
+[@hcgive]
+#IF
+checkgold 500
+#ACT
+take 金币 500
+give 回城卷包 1
+#ELSESAY
+回城虽然没什么用，不过有时候还是可以救你性命的\
+你不会连500金币也没有吧,要善于理财哦:)\ 
+<取消/@exit>\
+
+[@dcmove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 0101 10 10
+break
+#ELSESAY
+去赌场也是要花钱的哦,什么你没钱?那您只好步行去了\ <取消/@exit>\
+
+
+[@wgdongmove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 3 141 91
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \
+<关闭/@exit>\
+
+
+
+[@zumasimove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 3 830 218
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \
+<关闭/@exit>\
+
+
+[@womasimove]
+#IF
+checkgold 5000
+#ACT
+take 金币 5000
+mapmove 1 86 281
+break
+#ELSESAY
+你没有足够的金币用来支付我们的服务费用!\
+请努力赚钱哦:)\ \
+<关闭/@exit>\
+
+
+
+
+[@swgcmove] 
+#IF 
+checkgold 10000
+checkitem 死亡棺材凭证 1
+#ACT 
+take 金币 10000
+take 死亡棺材凭证 1
+mapmove D606 72 172
+break 
+#ELSESAY 
+<$USERNAME> 你是否具备下列条件就想使用我们的服务!\ 
+①：你有10000个金币吗？②：你有死亡棺材凭证吗？？
+3:你有36级了吗？那是个危险地带啊，您想直接到达那里可以\
+不过您需要先证明您的实力,请去那些极品怪兽身上寻找凭证吧\
+找到凭证之后 我会为你打开传送之门。\ \
+<离开/@exit>\
+
+
+[@smsdmove]
+#IF
+checkgold 20000
+checkitem 神秘商店凭证 1
+#ACT 
+take 金币 20000
+take 神秘商店凭证 1
+mapmove Q016
+break
+#ELSESAY
+<$USERNAME> 你是否具备下列条件就想使用我们的服务!\ 
+①：你有20000个金币吗？②：你有神秘商店凭证吗？\
+神秘商店凭证？我从来没听说过呀？\
+大概是在某处的极品勇士身上可以爆出的...\
+好了！我就说到这里了，自己去找吧！\ \
+<取消/@exit>
+
+
+
+[@cymove] 
+#IF 
+checkgold 30000
+checkitem 赤月恶魔凭证 1
+#ACT 
+take 金币 30000
+take 赤月恶魔凭证 1
+mapmove d10062
+break 
+#ELSESAY 
+<$USERNAME> 你是否具备下列条件就想使用我们的服务!\ 
+①：你有30000个金币吗？②：你有赤月恶魔凭证吗？\
+赤月恶魔凭证？我从来没听说过呀？\
+大概是在白日门丛林里极品蜘蛛身上爆出的...\
+好了！我就说到这里了，自己找去吧！\ \
+<离开/@exit>\ 
+
+
+
+[@zdmove] 
+#IF 
+checkgold 10000
+checkitem 石墓七凭证 1
+#ACT 
+take 金币 10000
+take 石墓七凭证 1
+mapmove d717 28 75
+break 
+#ELSESAY 
+<$USERNAME> 你是否具备下列条件就想使用我们的服务!\ 
+①：你有10000个金币吗？②：你有石墓七凭证吗？？\
+石墓七凭证？我从来没听说过呀？\
+大概是在盟重省四周巨型多角虫身上爆出的...\
+好了！我就说到这里了，自己去获取吧！\ \
+<离开/@exit>\ 
+
+
+[@swmove] 
+#IF 
+checkgold 20000
+checkitem 尸王殿凭证 1
+#ACT 
+take 金币 20000
+take 尸王殿凭证 1
+mapmove Q004  
+break 
+#ELSESAY 
+<$USERNAME> 你是否具备下列条件就想使用我们的服务!\ 
+①你有20000个金币吗？②你有尸王殿凭证吗？\
+尸王殿凭证？我从来没听说过呀？\
+我想可能会在普通僵尸身上出现，不过很难..\
+你可找比齐城屠夫问问还有什么其它方法获取.\
+好了！我就说到这里了，请自己考虑吧！\ \
+<离开/@exit>\ 
+
+
+
+[@wzmove]
+#IF
+checkgold 20000
+checkitem 未知暗殿凭证 1
+#ACT 
+take 金币 20000
+take 未知暗殿凭证 1
+mapmove M001 202 11
+#ELSESAY
+<$USERNAME> 你是否具备下列条件就想使用我们的服务!\ 
+①：你有20000个金币吗？②：你有未知暗殿凭证吗？\
+未知暗殿凭证？我从来没听说过呀？\
+大概是在某处的极品勇士身上可以爆出的...\
+好了！我就说到这里了，自己去找吧！\ \
+<取消/@exit>
+
+
+
+
+
+[@zmmove] 
+#IF 
+checkgold 20000
+checkitem 祖玛教主凭证 1
+#ACT 
+take 金币 20000
+take 祖玛教主凭证 1 
+mapmove d515 
+break 
+#ELSESAY 
+<$USERNAME> 你是否具备下列条件就想使用我们的服务!\ 
+①：你有20000个金币吗？②：已经拿到祖玛教主凭证？\
+祖玛教主凭证？我从来没听说过呀？\
+大概是在祖玛阁迷宫内怪物身上可以出...\
+好了！我就说到这里了，自己去找吧！\ \ 
+<离开/@exit>\ 
+
+
+[@wmmove] 
+#IF 
+checkgold 20000
+checkitem 沃玛教主凭证 1
+#ACT 
+take 金币 20000
+take 沃玛教主凭证 1
+mapmove D023 50 364 
+break 
+#ELSESAY 
+<$USERNAME> 你是否具备下列条件就想使用我们的服务!\ 
+①：你有20000个金币吗？②：你有沃玛教主凭证吗？\
+沃玛教主凭证？我从来没听说过呀？\
+大概是在沃玛森林里的极品勇士身上可以爆出的...\
+好了！我就说到这里了，自己去找吧！\ \
+<离开/@exit>\ 

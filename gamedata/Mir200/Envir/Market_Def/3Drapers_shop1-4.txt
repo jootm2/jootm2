@@ -1,0 +1,53 @@
+;本配置文件不存在后门   我本沉默版本验证
+%100
++10
++11
++15
+[@main]
+"虹魔教主"有时懒得杀你们,就让我把你们放走,\
+拿钱来,我把你们扔回去!\\
+   <去比奇/@move1> \
+   <想去商店/@talkwith> \
+   <返回/@exit>
+[@talkwith]
+你想到哪个商店?这可是免费体验服务阿\\
+   <服装店/@fzmove>\
+   <武器店/@wqmove>\
+   <首饰店/@ssmove>\
+   <药书店/@ysmove>\
+   <返回/@main>
+[@move1]
+移动到比奇需要金币\
+不能让你免费使用\
+你必须支付2000金币
+你想花这笔钱吗?\\
+   
+   <移动/@pay1> \ 
+   <返回/@main>   
+[@pay1]
+#IF
+checkgold 2000
+#ACT
+take 金币 2000
+map 0
+#ELSESAY
+你开玩笑吗？你没钱还想移动？\
+我再也不想见到你。\ 
+break
+<返回/@main>
+[@fzmove]
+#IF
+#ACT
+map b345
+[@wqmove]
+#IF
+#ACT
+map b342
+[@ssmove]
+#IF
+#ACT
+map b344
+[@ysmove]
+#IF
+#ACT
+map b343

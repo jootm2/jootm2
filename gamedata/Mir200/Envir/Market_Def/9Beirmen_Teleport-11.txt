@@ -1,0 +1,31 @@
+;本配置文件不存在后门   我本沉默版本验证
+[@main]
+#IF
+#SAY
+我可以把你送到白日门附近的几家店铺. \ \ 
+<兵器铺/@Gwe>  <布料铺/@Gpo>   <首饰铺/@Gza>\
+ <杂货铺/@Gwh>  <药铺/@Gzo>   <书铺/@Gbo> \
+[@Gwe]
+#IF
+#ACT
+map 1001
+[@Gpo]
+#IF
+#ACT
+map 1003
+[@Gza]
+#IF
+#ACT
+map 1005
+[@Gwh]
+#IF
+#ACT
+map 1007
+[@Gbo]
+#IF
+#ACT
+map 1004
+[@Gzo]
+#IF
+#ACT
+map 1006

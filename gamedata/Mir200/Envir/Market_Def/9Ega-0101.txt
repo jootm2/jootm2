@@ -1,0 +1,24 @@
+;本配置文件不存在后门   我本沉默版本验证
+[@main]
+你好? 你想进赌场吗? \
+提醒您小赌怡神,大赌伤身哦：） \
+<确认./@pre> \
+<退出./@exit>
+[@pre]
+#IF
+random 3
+#ACT
+mapmove B010 17 17
+break
+#IF
+random 3
+#ACT
+mapmove B010 17 61
+break
+#IF
+random 3
+#ACT
+mapmove B010 67 31
+break
+#ELSEACT
+goto @pre

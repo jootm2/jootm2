@@ -1,0 +1,12 @@
+services:
+  jootm2:
+    build: .
+    container_name: jootm2
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      # 传奇资源目录：把 Legend of Mir 的 Data/Map/Wav/resources.json 放到该目录，
+      # 或直接把挂载源改成你本机的资源路径。
+      - ./resources:/app/resources
+    restart: unless-stopped

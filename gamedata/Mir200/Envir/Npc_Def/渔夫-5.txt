@@ -1,0 +1,64 @@
+;本配置文件不存在后门   我本沉默版本验证
+[@main]
+#IF
+check [105] 1
+#SAY
+觉得月崕岛风景如何 :) 欢迎下次再来.\
+你决定返回比奇码头吗?\ \
+回<比奇码头/@seamove>需支付10000金币\
+<退 出/@exit>\
+#ELSEACT
+goto @main_1
+
+[@seamove]
+#IF
+checkgold 10000
+#ACT
+take 金币 10000
+SET [105] 0
+mapmove 0 255 675
+break
+#ELSESAY
+10000金币在我们这可轻轻松松赚到,做人要学会赚钱.\ 
+希望你还是准备好足够的金币再来.\ \
+<退 出/@exit>\
+
+[@main_1]
+#IF
+#SAY
+欢迎来到月崕岛做客.\
+我可以免费把你送到我们这里的几家店铺. \ 
+<武器库/@Gwe>    <布料铺/@Gpo> \
+<首饰铺/@Gza>    <保管室/@Gwh> \
+<特产收购铺/@Gbo> \ \
+<返回比奇码头/@seamove>
+
+[@Gwe]
+#IF
+#ACT
+SET [105] 1
+map B351
+
+[@Gpo]
+#IF
+#ACT
+SET [105] 1
+map B353
+
+[@Gza]
+#IF
+#ACT
+SET [105] 1
+map B352
+
+[@Gwh]
+#IF
+#ACT
+SET [105] 1
+map B354
+
+[@Gbo]
+#IF
+#ACT
+SET [105] 1
+map B355

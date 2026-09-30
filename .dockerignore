@@ -1,0 +1,7 @@
+target
+data
+resources
+.git
+.DS_Store
+**/.DS_Store
+scripts

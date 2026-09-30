@@ -1,0 +1,182 @@
+;本配置文件不存在后门   我本沉默版本验证
+%100
++5
++6
++43
+[@main]
+#IF
+checkpkpoint 2
+#SAY
+遇到你这种坏蛋我不想做你生意.. \ \
+<关 闭/@exit>
+#ELSEACT
+goto @main-1
+[@main-1]
+欢迎光临。请问有什么事情帮忙吗？\ \
+ <买/@buy>武器\
+ <卖/@sell>武器\
+ <修理/@repair>武器\
+ <询问/@qweapon>有关武器\
+ 与卫家店<对话/@talk>\
+ 往外 <移动/@Tmove> \
+ <关 闭/@exit>
+[@Tmove]
+#IF
+random 4
+#ACT
+mapmove 0 345 310
+break
+#IF
+random 4
+#ACT
+mapmove 0 344 309
+break
+#IF
+random 4
+#ACT
+mapmove 0 334 300
+break
+#IF
+random 4
+#ACT
+mapmove 0 334 301
+break
+#ELSEACT
+goto @Tmove
+[@buy]
+请挑选要购买的物品。\ \ \
+ <返 回/@main-1>
+[@sell]
+请放上去要卖的武器。\ \ \
+ <返 回/@main-1>
+[@repair]
+要修理武器吗？\ \
+ <返 回/@main-1>
+[~@repair]
+已经修好了。\ \
+ <返 回/@main-1>
+[@qweapon]
+店里卖的武器其能力值是定值。\
+但是妖魔身上的武器，有时根据不同情况，\
+具有特殊功能。\
+这种武器拿到店里来，会卖好价钱。\
+对了，武器的价格按种类不同，其价格也不同，\
+但是大体上，耐力越高越昂贵\ \
+ <返 回/@main-1>
+[goods]
+木剑            10          10
+青铜剑          10          10
+铁剑            10          10
+短剑            10          10
+匕首            10          10
+乌木剑          10          10
+青铜斧          10          10
+海魂	        10          10
+凌风	        10          10
+金矿            20          10
+黑铁矿石        20          10
+破魂	        10	    10
+斩马刀	        10          10
+八荒	        10	    10
+半月		10	    10
+偃月		10	    10
+降魔		10	    10
+凝霜            10          10
+修罗	        10          10
+[@talk]
+#IF
+check [205] 1
+#ACT
+goto @end
+break
+#IF
+check [203] 1
+#ACT
+goto @end
+break
+#IF
+check [202] 1
+#ACT
+goto @kang
+break
+#IF
+check [201] 1
+#ACT
+goto @talkwith
+break
+#ELSEACT
+goto @needgold
+break
+[@end]
+#IF
+#SAY
+与你没有话说... \ \
+<关 闭/@exit>
+[@needgold]
+#IF
+checkitem 金矿 1
+#SAY
+你包里发光的是什么？难道是金矿？\
+是来卖金矿吗？我最近正在开始利用金矿研究新的武器。\
+所以需要很多金矿，不知你能不能帮我找金矿？\
+拿金矿来，我会给你好价钱。\ \
+ <返 回/@main-1>
+#ACT
+reset [201] 50
+set [201] 1
+#ELSESAY
+跟你没什么话说... \ \
+<关 闭/@exit>
+[@talkwith]
+#IF
+checkitem 金矿 3
+checkdura 金矿 15
+#SAY
+哦, 你今天运气不错。\
+那个金矿看上去品质不错。\
+但是，今天我没有足够的钱来购买这些金矿，\
+不知你能不能给我赊账？\ \
+  <免费/@freegive>\
+  <拒绝/@nogive>\
+#ELSESAY
+与你没什么话说... \ \ 
+<关 闭/@exit>
+[@freegive]
+#IF
+checkitem 金矿 3
+checkdura 金矿 10
+#ACT
+take 金矿 2
+takecheckitem
+set [202] 1
+#SAY
+啊？你真的把这些白给我？\
+真没想到现如今还有你这样的人，看来还有人情啊。\
+我不能白拿这么贵重的东西。\
+你有没有听说过命运之刃？\
+还有在北门街道小店修理武器之后，有没有仔细看过人？\ \
+ <返 回/@kang>
+[@nogive]
+什么？不能那样做？哦，看来年轻人常被人骗过啊。\
+这么不相信人啊？呵呵。。。\
+你如果还这样坚持，以后我也有可能不再和你做交易。\
+你还坚持拒绝吗？\ \
+ <免费/@freegive>\
+ <还是拒绝/@r_nogive>
+[@r_nogive]
+#IF
+#SAY
+金矿那么珍贵吗?? \
+这样不就没办法了吗？你走吧 \ \
+<关 闭/@exit>
+[@kang]
+#IF
+#SAY
+我说的人就是在北门街道铁匠铺做事的铁匠铺老板，\
+别看他现在在小店做事没什么出息，\
+曾经可是很有名气的铁匠，\
+用那时候学到的技术，现在给别人做特殊修理。\
+你去找一下他吧，我会事先和他讲好的。\ \
+ <关 闭/@exit>
+#ACT
+set [203] 1

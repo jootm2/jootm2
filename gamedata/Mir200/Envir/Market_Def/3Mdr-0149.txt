@@ -1,0 +1,82 @@
+;本配置文件不存在后门   我本沉默版本验证
+%100
++10
++11
+[@main]
+#IF
+checkpkpoint 2
+#SAY
+我不想和你这样的人打交道.. \ \
+<离 开/@exit>
+#ELSEACT
+goto @main-1
+[@main-1]
+欢迎，你需要点什么？\ \
+ <买/@buy>  衣服\
+ <卖/@sell>  衣服\
+ <修补/@repair> 衣服\
+ <离 开/@exit>
+[@Tmove]
+#IF
+random 8
+#ACT
+mapmove 3 320 303
+break
+#IF
+random 8
+#ACT
+mapmove 3 320 304
+break
+#IF
+random 8
+#ACT
+mapmove 3 321 304
+break
+#IF
+random 8
+#ACT
+mapmove 3 321 303
+break
+#IF
+random 8
+#ACT
+mapmove 3 310 293
+break
+#IF
+random 8
+#ACT
+mapmove 3 310 294
+break
+#IF
+random 8
+#ACT
+mapmove 3 311 294
+break
+#IF
+random 8
+#ACT
+mapmove 3 311 293
+break
+#ELSEACT
+goto @Tmove
+[@buy]
+你想买什么样的衣服？\ \ \
+ <返 回/@Main>
+[@sell]
+把你要卖的衣服给我看看，我会给你个估价。\
+ <返 回/@Main>
+[@repair]
+请放上去要修补的衣服.\ \ \
+ <返 回/@Main>
+[~@repair]
+看来修补得很不错.\ \ \
+ <返 回/@Main>
+[goods]
+轻型盔甲(男)    10     10
+轻型盔甲(女)    10     10
+重盔甲(男)      10     10
+重盔甲(女)      10     10
+魔法长袍(男)    10     10
+魔法长袍(女)    10     10
+灵魂战衣(男)    10     10
+灵魂战衣(女)    10     10

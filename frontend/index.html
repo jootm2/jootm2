@@ -63,6 +63,82 @@
             color: #fff;
             border: 1px solid #555;
         }
+
+        /* 背包面板 */
+        #game_bag_panel {
+            left: 540px;
+            top: 60px;
+            width: 250px;
+            height: 460px;
+            background: rgba(0, 0, 0, 0.72);
+            border: 1px solid #666;
+            overflow-y: auto;
+        }
+        .bag_item {
+            display: block;
+            width: 220px;
+            margin: 4px 10px;
+            padding: 6px;
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .bag_item:hover {
+            background: #334155;
+        }
+
+        /* NPC 对话框 */
+        #npc_dialog {
+            left: 150px;
+            top: 330px;
+            width: 500px;
+            background: rgba(10, 10, 20, 0.9);
+            border: 2px solid #8a6d3b;
+            padding: 10px;
+        }
+        #npc_dialog_name {
+            display: block;
+            color: #fbbf24;
+            font-size: 14px;
+            margin-bottom: 6px;
+        }
+        #npc_dialog_text {
+            color: #fff;
+            font-size: 12px;
+            line-height: 18px;
+            min-height: 60px;
+            margin-bottom: 8px;
+        }
+        .npc_option {
+            margin: 3px 6px 3px 0;
+            padding: 4px 10px;
+            background: #3b2f1a;
+            color: #fbbf24;
+            border: 1px solid #8a6d3b;
+            cursor: pointer;
+        }
+        .npc_option:hover {
+            background: #5a4526;
+        }
+        #npc_shop_goods {
+            max-height: 120px;
+            overflow-y: auto;
+            border-top: 1px solid #555;
+            margin-top: 6px;
+            padding-top: 6px;
+        }
+        .shop_item {
+            display: inline-block;
+            margin: 3px;
+            padding: 3px 8px;
+            background: #1e3a2a;
+            color: #a7f3d0;
+            border: 1px solid #2f6b4f;
+            cursor: pointer;
+            font-size: 11px;
+        }
 </style>
     <link rel="stylesheet" href="common.css" />
 </head>
@@ -77,6 +153,19 @@
         <div id="game_chat_window">
             <div id="game_chat_log"></div>
             <input id="game_chat_input" maxlength="200" />
+        </div>
+
+        <!-- 背包面板 -->
+        <div id="game_bag_panel">
+            <div id="game_bag_list"></div>
+        </div>
+
+        <!-- NPC 对话框 -->
+        <div id="npc_dialog">
+            <label id="npc_dialog_name">NPC</label>
+            <div id="npc_dialog_text"></div>
+            <div id="npc_dialog_options"></div>
+            <div id="npc_shop_goods"></div>
         </div>
 
         <!-- 登录窗体 -->

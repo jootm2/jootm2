@@ -412,6 +412,10 @@ class SceneManager {
             case 'death':
             case 'chat':
             case 'systemMessage':
+            case 'itemDrop':
+            case 'itemRemove':
+            case 'npcSay':
+            case 'npcClose':
                 if (this.scene == 4) {
                     this.play_scene.on_server_msg(msg)
                 }
@@ -463,6 +467,22 @@ class SceneManager {
 
     send_attack(target_id) {
         this.send_json({ type: 'attack', targetId: target_id })
+    }
+
+    send_pickup(item_id) {
+        this.send_json({ type: 'pickup', itemId: item_id })
+    }
+
+    send_use_item(make_index) {
+        this.send_json({ type: 'useItem', makeIndex: make_index })
+    }
+
+    send_npc_talk(npc_id) {
+        this.send_json({ type: 'npcTalk', npcId: npc_id })
+    }
+
+    send_npc_select(npc_id, value) {
+        this.send_json({ type: 'npcSelect', npcId: npc_id, value: value })
     }
 
     send_logout() {

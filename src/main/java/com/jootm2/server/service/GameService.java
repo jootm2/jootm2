@@ -520,6 +520,7 @@ public final class GameService {
         p.gold -= total;
         world.giveItem(p, t.name, count);
         world.sendSystem(p, "购买了 " + t.name + " x" + count + "，花费 " + total + " 金币。");
+        sendBagUpdate(p);
     }
 
     private int buyPrice(Npc npc, ItemTemplate t) {
@@ -560,6 +561,7 @@ public final class GameService {
         p.bag.remove(found);
         p.gold += price;
         world.sendSystem(p, "出售了 " + t.name + "，获得 " + price + " 金币。");
+        sendBagUpdate(p);
     }
 
     private void pickup(PlayerSession session, JsonObject msg) {
@@ -579,6 +581,7 @@ public final class GameService {
             }
             world.sendSystem(p, "拾取了 " + label + "。");
             world.sendStats(p, null);
+            sendBagUpdate(p);
         }
     }
 
@@ -633,6 +636,7 @@ public final class GameService {
             p.bag.remove(it);
             world.sendStats(p, null);
             world.sendSystem(p, "使用了 " + t.name + "。");
+            sendBagUpdate(p);
         } else {
             world.sendSystem(p, "现在无法使用该物品。");
         }
@@ -657,6 +661,19 @@ public final class GameService {
         p.recompute(world);
         world.sendStats(p, null);
         world.sendSystem(p, "装备了 " + t.name + "。");
+        sendBagUpdate(p);
+    }
+
+    /** Pushes the full inventory + gold to the player's client. */
+    private void sendBagUpdate(Player p) {
+        if (p.session == null) {
+            return;
+        }
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "bagUpdate");
+        o.addProperty("gold", p.gold);
+        o.add("items", p.itemsJson(world));
+        p.session.sendText(o.toString());
     }
 
     private void say(PlayerSession session, JsonObject msg) {

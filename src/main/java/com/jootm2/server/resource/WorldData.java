@@ -121,6 +121,41 @@ public final class WorldData {
         return new int[]{x, y};
     }
 
+    /**
+     * Parses a {@code MonItems/{monster}.txt} drop table: each row is
+     * {@code n/m  itemName  [count]}. {@code selPoint = n-1}, {@code maxPoint = m},
+     * the item drops when {@code selPoint >= random(maxPoint)}.
+     */
+    public static List<DropEntry> loadMonItems(Path file) {
+        List<DropEntry> list = new ArrayList<>();
+        try {
+            for (String line : Files.readAllLines(file, GBK)) {
+                String t = line.trim();
+                if (t.isEmpty() || t.startsWith(";")) {
+                    continue;
+                }
+                String[] tokens = t.split("\\s+");
+                if (tokens.length < 2) {
+                    continue;
+                }
+                String[] prob = tokens[0].split("/");
+                if (prob.length != 2) {
+                    continue;
+                }
+                int n = parseInt(prob[0]);
+                int m = parseInt(prob[1]);
+                String name = tokens[1];
+                int count = tokens.length > 2 ? parseInt(tokens[2]) : 1;
+                if (n > 0 && m > 0 && !name.isEmpty()) {
+                    list.add(new DropEntry(n - 1, m, name, count));
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[world] cannot read MonItems (" + e.getMessage() + ")");
+        }
+        return list;
+    }
+
     public static final class MapDef {
         public final String mapId;
         public final String name;
@@ -187,6 +222,21 @@ public final class WorldData {
             this.y = y;
             this.monsterName = monsterName;
             this.range = range;
+            this.count = count;
+        }
+    }
+
+    /** One drop-table row ({@code selPoint = n-1}, {@code maxPoint = m}). */
+    public static final class DropEntry {
+        public final int selPoint;
+        public final int maxPoint;
+        public final String itemName;
+        public final int count;
+
+        public DropEntry(int selPoint, int maxPoint, String itemName, int count) {
+            this.selPoint = selPoint;
+            this.maxPoint = maxPoint;
+            this.itemName = itemName;
             this.count = count;
         }
     }

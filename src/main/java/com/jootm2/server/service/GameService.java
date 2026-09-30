@@ -12,6 +12,7 @@ import com.jootm2.server.db.Database;
 import com.jootm2.server.game.Actor;
 import com.jootm2.server.game.GameMap;
 import com.jootm2.server.game.GameWorld;
+import com.jootm2.server.game.GroundItem;
 import com.jootm2.server.game.Monster;
 import com.jootm2.server.game.Player;
 import com.jootm2.server.game.common.Direction;
@@ -120,6 +121,12 @@ public final class GameService {
                     break;
                 case "sellItem":
                     sellItem(session, msg);
+                    break;
+                case "pickup":
+                    pickup(session, msg);
+                    break;
+                case "useItem":
+                    useItem(session, msg);
                     break;
                 default:
                     break;
@@ -553,6 +560,103 @@ public final class GameService {
         p.bag.remove(found);
         p.gold += price;
         world.sendSystem(p, "出售了 " + t.name + "，获得 " + price + " 金币。");
+    }
+
+    private void pickup(PlayerSession session, JsonObject msg) {
+        Player p = findBySession(session);
+        if (p == null) {
+            return;
+        }
+        long itemId = longVal(msg, "itemId", -1);
+        GroundItem gi = world.groundItem(itemId);
+        if (world.pickup(p, itemId)) {
+            String label = "物品";
+            if (gi != null && gi.isGold()) {
+                label = gi.gold + " 金币";
+            } else if (gi != null && gi.item != null) {
+                ItemTemplate t = world.itemTemplates.get(gi.item.index);
+                label = t != null ? t.name : "物品";
+            }
+            world.sendSystem(p, "拾取了 " + label + "。");
+            world.sendStats(p, null);
+        }
+    }
+
+    private void useItem(PlayerSession session, JsonObject msg) {
+        Player p = findBySession(session);
+        if (p == null) {
+            return;
+        }
+        int makeIndex = integer(msg, "makeIndex", -1);
+        ItemInstance found = null;
+        for (ItemInstance it : p.bag) {
+            if (it.makeIndex == makeIndex) {
+                found = it;
+                break;
+            }
+        }
+        if (found == null) {
+            world.sendSystem(p, "物品不存在。");
+            return;
+        }
+        ItemTemplate t = world.itemTemplates.get(found.index);
+        if (t == null) {
+            return;
+        }
+        if (t.stdMode >= 0 && t.stdMode <= 2) {
+            consume(p, t, found);
+        } else if (Player.slotFor(t) >= 0) {
+            equip(p, t, found);
+        } else {
+            world.sendSystem(p, "无法使用该物品。");
+        }
+    }
+
+    private void consume(Player p, ItemTemplate t, ItemInstance it) {
+        boolean used = false;
+        if (t.stdMode <= 2) {
+            // 消耗品语义重载：AC = HP 恢复量，MAC = MP 恢复量（TStdItem 对药水/食物的字段复用）
+            if (t.acMin > 0) {
+                p.hp = Math.min(p.maxHp, p.hp + t.acMin);
+                used = true;
+            }
+            if (t.macMin > 0) {
+                p.mp = Math.min(p.maxMp, p.mp + t.macMin);
+                used = true;
+            }
+            if (!used) {
+                p.hp = p.maxHp;   // 食物类：回满 HP
+                used = true;
+            }
+        }
+        if (used) {
+            p.bag.remove(it);
+            world.sendStats(p, null);
+            world.sendSystem(p, "使用了 " + t.name + "。");
+        } else {
+            world.sendSystem(p, "现在无法使用该物品。");
+        }
+    }
+
+    private void equip(Player p, ItemTemplate t, ItemInstance it) {
+        int slot = Player.slotFor(t);
+        if (slot < 0) {
+            world.sendSystem(p, "无法装备该物品。");
+            return;
+        }
+        if (t.needLevel > p.level) {
+            world.sendSystem(p, "等级不足，需要 " + t.needLevel + " 级。");
+            return;
+        }
+        p.bag.remove(it);
+        ItemInstance old = p.equipment[slot];
+        if (old != null) {
+            p.bag.add(old);
+        }
+        p.equipment[slot] = it;
+        p.recompute(world);
+        world.sendStats(p, null);
+        world.sendSystem(p, "装备了 " + t.name + "。");
     }
 
     private void say(PlayerSession session, JsonObject msg) {

@@ -61,6 +61,8 @@ public final class GameWorld {
     private List<WorldData.MonGenEntry> monGenEntries = new ArrayList<>();
     private final Map<Long, Npc> npcs = new HashMap<>();
     private final Map<String, List<Npc>> npcsByMap = new HashMap<>();
+    private final Map<String, List<WorldData.DropEntry>> dropTables = new HashMap<>();
+    private final Map<Long, GroundItem> groundItems = new HashMap<>();
 
     private long lastRegenAt = System.currentTimeMillis();
 
@@ -84,8 +86,32 @@ public final class GameWorld {
         loadMapInfo();
         this.monGenEntries = WorldData.loadMonGen(envDir.resolve("MonGen.txt"));
         loadNpcs();
+        loadDropTables();
         spawnMonsters(defaultMap);
         attachNpcs(defaultMap);
+    }
+
+    private void loadDropTables() {
+        Path dir = envDir.resolve("MonItems");
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir)) {
+            for (Path p : ds) {
+                String fn = p.getFileName().toString();
+                if (!fn.toLowerCase().endsWith(".txt")) {
+                    continue;
+                }
+                String monName = fn.substring(0, fn.length() - 4);
+                List<WorldData.DropEntry> list = WorldData.loadMonItems(p);
+                if (!list.isEmpty()) {
+                    dropTables.put(monName, list);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[world] cannot list MonItems (" + e.getMessage() + ")");
+        }
+        System.out.println("[world] loaded " + dropTables.size() + " monster drop tables");
     }
 
     private void loadNpcs() {
@@ -610,6 +636,15 @@ public final class GameWorld {
             }
         }
         o.add("nearby", nearby);
+        JsonArray ground = new JsonArray();
+        for (GroundItem gi : groundItems.values()) {
+            if (gi.map == p.map
+                    && Math.max(Math.abs(gi.x - p.x), Math.abs(gi.y - p.y)) <= SIGHT_RANGE) {
+                ItemTemplate t = gi.item != null ? itemTemplates.get(gi.item.index) : null;
+                ground.add(gi.toJson(t != null ? t.name : "?", t != null ? t.looks : 0));
+            }
+        }
+        o.add("groundItems", ground);
         return o;
     }
 
@@ -621,10 +656,100 @@ public final class GameWorld {
         m.hp = 0;
         m.targetId = -1;
 
+        dropLoot(m);
+
         JsonObject death = new JsonObject();
         death.addProperty("type", "death");
         death.addProperty("id", m.id);
         broadcastAround(m.map, death, m.x, m.y, SIGHT_RANGE);
+    }
+
+    // -- item drops / pickup -------------------------------------------------
+
+    public GroundItem groundItem(long id) {
+        return groundItems.get(id);
+    }
+
+    /** Rolls the monster's MonItems table and scatters drops around its corpse. */
+    private void dropLoot(Monster m) {
+        List<WorldData.DropEntry> table = dropTables.get(m.template.name);
+        if (table == null) {
+            return;
+        }
+        for (WorldData.DropEntry e : table) {
+            if (e.selPoint < (int) (Math.random() * e.maxPoint)) {
+                continue;
+            }
+            int[] pos = scatterPos(m.map, m.x, m.y);
+            if (pos == null) {
+                continue;
+            }
+            if ("金币".equals(e.itemName)) {
+                int gold = (e.count / 2) + (int) (Math.random() * e.count);
+                if (gold <= 0) {
+                    gold = 1;
+                }
+                GroundItem gi = GroundItem.ofGold(newId(), gold, pos[0], pos[1]);
+                gi.map = m.map;
+                groundItems.put(gi.id, gi);
+                broadcastItemDrop(gi);
+            } else {
+                ItemTemplate t = itemTemplateByName(e.itemName);
+                if (t == null) {
+                    continue;
+                }
+                int dura = Math.max(1, t.duraMax * (20 + (int) (Math.random() * 81)) / 100);
+                ItemInstance it = new ItemInstance(nextItemMakeIndex(), t.index, dura, t.duraMax);
+                GroundItem gi = GroundItem.ofItem(newId(), it, pos[0], pos[1]);
+                gi.map = m.map;
+                groundItems.put(gi.id, gi);
+                broadcastItemDrop(gi);
+            }
+        }
+    }
+
+    private int[] scatterPos(GameMap map, int cx, int cy) {
+        for (int attempt = 0; attempt < 50; attempt++) {
+            int x = cx + (int) (Math.random() * 7) - 3;
+            int y = cy + (int) (Math.random() * 7) - 3;
+            if (map.canWalk(x, y)) {
+                return new int[]{x, y};
+            }
+        }
+        return map.canWalk(cx, cy) ? new int[]{cx, cy} : null;
+    }
+
+    private void broadcastItemDrop(GroundItem gi) {
+        ItemTemplate t = gi.item != null ? itemTemplates.get(gi.item.index) : null;
+        JsonObject o = gi.toJson(t != null ? t.name : "?", t != null ? t.looks : 0);
+        o.addProperty("type", "itemDrop");
+        broadcastAround(gi.map, o, gi.x, gi.y, SIGHT_RANGE);
+    }
+
+    private void broadcastItemRemove(GroundItem gi) {
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "itemRemove");
+        o.addProperty("id", gi.id);
+        broadcastAround(gi.map, o, gi.x, gi.y, SIGHT_RANGE);
+    }
+
+    /** Player picks up a ground item within 1 tile. Returns true on success. */
+    public boolean pickup(Player p, long itemId) {
+        GroundItem gi = groundItems.get(itemId);
+        if (gi == null || gi.map != p.map) {
+            return false;
+        }
+        if (Math.max(Math.abs(p.x - gi.x), Math.abs(p.y - gi.y)) > 1) {
+            return false;
+        }
+        groundItems.remove(itemId);
+        if (gi.isGold()) {
+            p.gold += gi.gold;
+        } else {
+            p.bag.add(gi.item);
+        }
+        broadcastItemRemove(gi);
+        return true;
     }
 
     private void respawnDead(long now) {

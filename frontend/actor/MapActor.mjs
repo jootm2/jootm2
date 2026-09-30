@@ -143,8 +143,9 @@ class MapActor {
         // 对象图层（树木、房屋）
         this.objContainer = new PIXI.Container
         // 精灵图层（玩家、NPC、怪物、掉落物以及相关特效包括技能等）
+        // 注意：不能把 spriteContainer 用作 objContainer 的 mask——
+        // PIXI 中被用作 mask 的容器自身不会渲染，会导致实体层整体不可见。
         this.spriteContainer = sprite_container
-        this.objContainer.mask = this.spriteContainer
         this.container.addChild(this.spriteContainer)
         this.container.addChild(this.objContainer)
         // 调试层

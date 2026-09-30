@@ -175,6 +175,11 @@ update() {
         const cx = this.self.x
         const cy = this.self.y
         if (this.map_actor) {
+            // enter 是幂等的（相同 mapNo 直接返回），放在这里避免
+            // on_enter_game 早于 _build_scene 执行导致 map_actor 未创建
+            if (this.map) {
+                this.map_actor.enter(this.map.name)
+            }
             this.map_actor.setCenter(cx, cy)
             this.map_actor.update()
         }

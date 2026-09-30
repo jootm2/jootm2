@@ -117,10 +117,63 @@ public final class HttpServerHandler extends SimpleChannelInboundHandler<FullHtt
             return;
         }
 
+        String ct = contentType(file.getFileName().toString());
+        String rangeHeader = req.headers().get(HttpHeaderNames.RANGE);
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            long[] range = parseRange(rangeHeader, bytes.length);
+            if (range != null) {
+                int start = (int) range[0];
+                int end = (int) range[1];
+                ByteBuf buf = Unpooled.wrappedBuffer(bytes, start, end - start + 1);
+                FullHttpResponse resp = new DefaultFullHttpResponse(
+                        HttpVersion.HTTP_1_1, HttpResponseStatus.PARTIAL_CONTENT, buf);
+                resp.headers().set(HttpHeaderNames.CONTENT_TYPE, ct);
+                resp.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes");
+                resp.headers().set(HttpHeaderNames.CONTENT_RANGE,
+                        "bytes " + start + "-" + end + "/" + bytes.length);
+                respond(ctx, req, resp);
+                return;
+            }
+        }
+
         ByteBuf buf = Unpooled.wrappedBuffer(bytes);
         FullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, buf);
-        resp.headers().set(HttpHeaderNames.CONTENT_TYPE, contentType(file.getFileName().toString()));
+        resp.headers().set(HttpHeaderNames.CONTENT_TYPE, ct);
+        resp.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes");
         respond(ctx, req, resp);
+    }
+
+    /** Parses {@code bytes=start-end} / {@code bytes=start-} / {@code bytes=-suffix}. */
+    private static long[] parseRange(String header, long fileSize) {
+        String spec = header.substring("bytes=".length()).trim();
+        int dash = spec.indexOf('-');
+        if (dash < 0 || fileSize <= 0) {
+            return null;
+        }
+        String startStr = spec.substring(0, dash).trim();
+        String endStr = spec.substring(dash + 1).trim();
+        long start;
+        long end;
+        try {
+            if (startStr.isEmpty()) {
+                long suffix = Long.parseLong(endStr);
+                if (suffix <= 0) {
+                    return null;
+                }
+                start = Math.max(0, fileSize - suffix);
+                end = fileSize - 1;
+            } else {
+                start = Long.parseLong(startStr);
+                end = endStr.isEmpty() ? fileSize - 1 : Long.parseLong(endStr);
+            }
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        if (start < 0 || start >= fileSize || end < start) {
+            return null;
+        }
+        end = Math.min(end, fileSize - 1);
+        return new long[]{start, end};
     }
 private void respond(ChannelHandlerContext ctx, FullHttpRequest req, FullHttpResponse resp) {
         resp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");

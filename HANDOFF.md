@@ -150,6 +150,12 @@ jootm2/
     - `map/pathfind.mjs`：8 方向 A* 寻路（切比雪夫启发式 + 斜线 1.4 代价），返回方向序列（与服务器 Direction 一致）。
     - `PlayScene`：canvas 点击 → cell 换算（`tx=round((mx-ox)/48+self.x)`，ox=376/oy=206）→ 目标判定（怪物→走近攻击、NPC→走近 npcTalk、地面物品→走近 pickup、空地→寻路移动）；`moveTimer` 支持 path 队列 + 到达回调（覆盖键盘移动）；维护地面物品（enterGame/changeMap 快照 `groundItems` + `itemDrop/itemRemove` 消息）；地面物品渲染（金币金色圆点/物品绿块+名字）。
     - 验证：点击移动成功（(289,618)→(290,623)）；findPath 到可站格返回正确方向序列、到墙格（canStand=false）返回 null。
+28. **背包/装备/NPC 对话框 GUI**（前端阶段 2 最后一块）：
+    - 背包面板（B 键）：DOM 面板 = 金币 + 装备区（13 槽 `SLOT_NAMES`）+ 背包物品网格；点击物品 `useItem{makeIndex}`（服务端按 stdMode 分发：吃药/穿装备/学技能书/祝福油）。
+    - NPC 对话框：`npcSay` → 面板（标题/正文/选项按钮/`goods` 购买列表/`sell` 出售列表/关闭按钮）；选项→`npcSelect{npcId,value}`、购买→`buyItem{npcId,index,count}`、出售→`sellItem{npcId,makeIndex}`、关闭→`npcSelect exit`；`npcClose` 关闭。
+    - `bagUpdate` → 更新 `self.gold/self.items` 并刷新背包面板。
+    - 修 bug：点击 cell 换算 `round`→`floor`（格子中心点原会偏移 1 格，导致点怪/NPC 命中偏差 1 格）。
+    - 验证（Playwright）：背包显示 6 件初始物品（命运之书/金创药/魔法药×2/肉×2）；点击「招财树」NPC 触发 npcSay + 4 选项 + 点选项后 npcSelect 回复正常。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -167,11 +173,13 @@ jootm2/
 
 **后端（M2Server 移植）已 100% 完成**（§3 第 1-22 条覆盖全部核心玩法子系统），`mvn package` + smoke test 通过，无待办。
 
-**前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）+ **实体真实 sprite**（§3 第 26 条）+ **行走/攻击动画 + 点击交互**（§3 第 27 条）。**下一步主线**（按序）：
+**前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）+ **实体真实 sprite**（§3 第 26 条）+ **行走/攻击动画 + 点击交互**（§3 第 27 条）+ **背包/装备/NPC 对话框 GUI**（§3 第 28 条）。**前端阶段 2 主线已全部完成**，游戏可玩闭环打通（登录→选角→进图→移动/点击→战斗→拾取→使用物品→NPC 对话/买卖）。
 
-1. **背包/装备/NPC 对话框 GUI**：`gui/` 框架（DWindow/DGrid/DButton）已就绪，接服务端 `bagUpdate/npcSay` 协议即可；背包格点击 useItem/穿装备、NPC 商店 buy/sell 列表。
-2. **卖出**：NPC 商店 sellItem 接口（`sellItem{npcId,makeIndex}` 已就绪，客户端接 GUI）。
-3. **装备外观/技能栏**：穿装备后 dress 跟随 U_DRESS 外观（当前 `dress=job*2+sex` 初始外观）；技能栏 F1-F8 施法（castMagic 已就绪）。
+**下一步主线**（按序，进入「打磨/进阶」阶段）：
+1. **装备外观**：穿装备后 `dress` 跟随 U_DRESS 外观（当前 `dress=job*2+sex` 初始外观；服务端需在 toBriefJson 补 dress 字段）。
+2. **技能栏 F1-F8 施法**：`castMagic{magicId,targetId}` 已就绪，客户端接技能栏 UI + 施法目标选择。
+3. **卖出去重/数量**：NPC 出售目前单件点击；可加数量选择（sellItem 协议已支持 makeIndex 单件）。
+4. **音效系统**（§14）、**优化项**（§14）。
 
 详细待办与优化项见 §14。
 
@@ -260,7 +268,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [x] **实体真实 sprite**（已完成，见 §3 第 26 条）。
 - [x] **行走/攻击动画**（已完成，见 §3 第 27 条）。
 - [x] **点击交互**（点地走/点怪攻击/点 NPC 对话/点物拾取，已完成，见 §3 第 27 条）。
-- [ ] **背包/装备/NPC 对话框 GUI**：`gui/` 框架已就绪（DWindow/DGrid/DButton），接服务端 `bagUpdate/npcSay` 协议即可。
+- [x] **背包/装备/NPC 对话框 GUI**（已完成，见 §3 第 28 条）。
 - [ ] **点墙就近寻路**：点击不可站格（canStand=false）目前不移动；应就近找一个可站格作为寻路目标。
 - [ ] **血条/名字与 sprite 重叠**：血条画在格顶（sy-4）而 sprite 向上延伸超出格顶，二者重叠；应改为「头顶上方」固定偏移（按 sprite 实际高度计算）。
 - [ ] **装备外观**：穿装备后 dress 未跟随 U_DRESS 外观（当前 `dress=job*2+sex` 初始外观）。

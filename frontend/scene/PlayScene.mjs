@@ -13,6 +13,9 @@ const DIRMAP = {
     '0,1': 4, '-1,1': 5, '-1,0': 6, '-1,-1': 7,
 };
 
+// 装备槽名（对应 MessageIds U_DRESS..U_CHARM）
+const SLOT_NAMES = ['衣服', '武器', '右手', '项链', '头盔', '手镯L', '手镯R', '戒指L', '戒指R', '护身符', '腰带', '靴子', '宝石'];
+
 export class PlayScene extends Scene {
     constructor(manager, snapshot) {
         super(manager);
@@ -124,6 +127,7 @@ export class PlayScene extends Scene {
         }
         this.keys.add(e.code);
         if (e.code === 'Space') this._attackNearest();
+        if (e.code === 'KeyB') this._toggleBag();
     }
 
     _attackNearest() {
@@ -146,8 +150,8 @@ export class PlayScene extends Scene {
         const my = e.clientY - rect.top;
         const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
         const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
-        const tx = Math.round((mx - ox) / 48 + this.self.x);
-        const ty = Math.round((my - oy) / 32 + this.self.y);
+        const tx = Math.floor((mx - ox) / 48) + this.self.x;
+        const ty = Math.floor((my - oy) / 32) + this.self.y;
 
         const monster = this._actorAt(tx, ty, 'monster');
         if (monster && monster.hp > 0) {
@@ -271,6 +275,19 @@ export class PlayScene extends Scene {
             case 'itemRemove':
                 this.groundItems.delete(msg.id);
                 break;
+            case 'bagUpdate':
+                if (this.self) {
+                    this.self.gold = msg.gold;
+                    this.self.items = msg.items || [];
+                }
+                this._refreshBag();
+                break;
+            case 'npcSay':
+                this._showNpcDialog(msg);
+                break;
+            case 'npcClose':
+                this._closeNpcDialog();
+                break;
             case 'changeMap': {
                 // 换图快照：重建实体 + 地面物品 + 切地图
                 this.entities.clear();
@@ -295,6 +312,169 @@ export class PlayScene extends Scene {
         this.chatLog.appendChild(line);
         this.chatLog.scrollTop = this.chatLog.scrollHeight;
         while (this.chatLog.children.length > 100) this.chatLog.removeChild(this.chatLog.firstChild);
+    }
+
+    // ---- 背包面板（B 键）----
+    _toggleBag() {
+        if (!this.bagPanel) this._buildBag();
+        const open = this.bagPanel.style.display === 'block';
+        this.bagPanel.style.display = open ? 'none' : 'block';
+        if (!open) this._refreshBag();
+    }
+
+    _buildBag() {
+        if (this.bagPanel) return;
+        const gui = this.manager.winManager.container;
+        const panel = document.createElement('div');
+        panel.style.cssText = 'position:absolute;right:8px;top:8px;width:280px;max-height:500px;overflow-y:auto;'
+            + 'background:rgba(0,0,0,0.9);border:1px solid #8a6d3b;border-radius:6px;padding:12px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
+        panel.style.display = 'none';
+
+        const head = document.createElement('div');
+        head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;';
+        const title = document.createElement('span');
+        title.textContent = '背 包';
+        title.style.cssText = 'font-size:16px;color:#ffd76a;';
+        this.goldEl = document.createElement('span');
+        this.goldEl.style.cssText = 'font-size:13px;color:#fbbf24;';
+        head.appendChild(title);
+        head.appendChild(this.goldEl);
+        panel.appendChild(head);
+
+        this.equipEl = document.createElement('div');
+        this.equipEl.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px;'
+            + 'padding-bottom:10px;border-bottom:1px solid #5a4a2a;';
+        panel.appendChild(this.equipEl);
+
+        this.bagGridEl = document.createElement('div');
+        this.bagGridEl.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:4px;';
+        panel.appendChild(this.bagGridEl);
+
+        this.bagPanel = panel;
+        gui.appendChild(panel);
+    }
+
+    _refreshBag() {
+        if (!this.bagPanel || !this.self) return;
+        this.goldEl.textContent = '金币 ' + (this.self.gold || 0);
+        const items = this.self.items || [];
+
+        // 装备区
+        this.equipEl.innerHTML = '';
+        for (let slot = 0; slot < 13; slot++) {
+            const it = items.find(x => x.slot === slot);
+            const cell = document.createElement('div');
+            cell.style.cssText = 'background:#171209;border:1px solid #4a3d22;border-radius:3px;padding:4px;'
+                + 'font-size:11px;text-align:center;min-height:32px;';
+            cell.innerHTML = `<div style="color:#9a8b6a;font-size:10px;">${SLOT_NAMES[slot] || slot}</div>`
+                + (it ? `<div style="color:#e8d9b0;margin-top:2px;">${it.name}</div>` : '');
+            this.equipEl.appendChild(cell);
+        }
+
+        // 背包物品
+        this.bagGridEl.innerHTML = '';
+        const bagItems = items.filter(x => x.slot === undefined);
+        for (const it of bagItems) {
+            const cell = document.createElement('div');
+            cell.style.cssText = 'background:#171209;border:1px solid #4a3d22;border-radius:3px;padding:5px;'
+                + 'font-size:11px;text-align:center;cursor:pointer;min-height:34px;';
+            cell.title = it.name + '（点击使用）';
+            cell.textContent = it.name;
+            cell.addEventListener('click', () => this.conn.send('useItem', { makeIndex: it.makeIndex }));
+            this.bagGridEl.appendChild(cell);
+        }
+        if (!bagItems.length) {
+            const empty = document.createElement('div');
+            empty.textContent = '（空）';
+            empty.style.cssText = 'grid-column:1/-1;text-align:center;color:#9a8b6a;padding:12px;';
+            this.bagGridEl.appendChild(empty);
+        }
+    }
+
+    // ---- NPC 对话框 ----
+    _showNpcDialog(msg) {
+        this._closeNpcDialog();
+        const gui = this.manager.winManager.container;
+        const dlg = document.createElement('div');
+        dlg.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:360px;max-height:430px;'
+            + 'overflow-y:auto;background:rgba(0,0,0,0.94);border:1px solid #8a6d3b;border-radius:6px;padding:16px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
+
+        const title = document.createElement('div');
+        title.textContent = msg.name || 'NPC';
+        title.style.cssText = 'font-size:18px;color:#ffd76a;margin-bottom:10px;';
+        dlg.appendChild(title);
+
+        const text = document.createElement('div');
+        text.textContent = msg.text || '';
+        text.style.cssText = 'font-size:13px;line-height:1.6;margin-bottom:12px;white-space:pre-wrap;';
+        dlg.appendChild(text);
+
+        // 商店：buy 显示 goods，sell 显示背包物品
+        if (msg.shop === 'buy' && msg.goods) {
+            const grid = document.createElement('div');
+            grid.style.cssText = 'margin-bottom:12px;max-height:180px;overflow-y:auto;';
+            for (const g of msg.goods) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;'
+                    + 'padding:4px 0;border-bottom:1px dashed #4a3d22;font-size:12px;';
+                const nm = document.createElement('span');
+                nm.textContent = `${g.name}（${g.price} 金币）`;
+                const btn = document.createElement('button');
+                btn.textContent = '购买';
+                btn.style.cssText = 'font-size:12px;padding:2px 8px;cursor:pointer;';
+                btn.addEventListener('click', () => this.conn.send('buyItem', { npcId: msg.npcId, index: g.index, count: 1 }));
+                row.appendChild(nm);
+                row.appendChild(btn);
+                grid.appendChild(row);
+            }
+            dlg.appendChild(grid);
+        } else if (msg.shop === 'sell') {
+            const grid = document.createElement('div');
+            grid.style.cssText = 'margin-bottom:12px;max-height:180px;overflow-y:auto;';
+            const bagItems = (this.self.items || []).filter(x => x.slot === undefined);
+            for (const it of bagItems) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;'
+                    + 'padding:4px 0;border-bottom:1px dashed #4a3d22;font-size:12px;';
+                const nm = document.createElement('span');
+                nm.textContent = it.name;
+                const btn = document.createElement('button');
+                btn.textContent = '出售';
+                btn.style.cssText = 'font-size:12px;padding:2px 8px;cursor:pointer;';
+                btn.addEventListener('click', () => this.conn.send('sellItem', { npcId: msg.npcId, makeIndex: it.makeIndex }));
+                row.appendChild(nm);
+                row.appendChild(btn);
+                grid.appendChild(row);
+            }
+            dlg.appendChild(grid);
+        }
+
+        // 选项按钮
+        for (const op of msg.options || []) {
+            const btn = document.createElement('button');
+            btn.textContent = op.label;
+            btn.style.cssText = 'display:block;width:100%;margin-bottom:6px;padding:7px;font-size:13px;cursor:pointer;'
+                + 'border:1px solid #5a4a2a;background:#221c12;color:#c9b98a;border-radius:3px;text-align:left;';
+            btn.addEventListener('click', () => this.conn.send('npcSelect', { npcId: msg.npcId, value: op.value }));
+            dlg.appendChild(btn);
+        }
+
+        // 关闭按钮
+        const close = document.createElement('button');
+        close.textContent = '关 闭';
+        close.style.cssText = 'display:block;width:100%;margin-top:8px;padding:7px;font-size:13px;cursor:pointer;'
+            + 'border:1px solid #6b3a3a;background:#2a1414;color:#e08a80;border-radius:3px;';
+        close.addEventListener('click', () => this.conn.send('npcSelect', { npcId: msg.npcId, value: 'exit' }));
+        dlg.appendChild(close);
+
+        this.npcDlg = dlg;
+        gui.appendChild(dlg);
+    }
+
+    _closeNpcDialog() {
+        if (this.npcDlg) { this.npcDlg.remove(); this.npcDlg = null; }
     }
 
     update() {}
@@ -388,6 +568,8 @@ export class PlayScene extends Scene {
         this.keys.clear();
         this.path = [];
         this._onArrive = null;
+        this.bagPanel = null;
+        this.npcDlg = null;
         const gui = this.manager.winManager.container;
         gui.innerHTML = '';
     }

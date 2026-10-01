@@ -117,7 +117,10 @@ public final class HttpServerHandler extends SimpleChannelInboundHandler<FullHtt
             return;
         }
 
-        String ct = contentType(file.getFileName().toString());
+        String name = file.getFileName().toString();
+        String ct = contentType(name);
+        // 前端代码/资源索引不缓存（改动能即时生效）；图片库/地图/音频走长缓存
+        String cache = cacheControl(name);
         String rangeHeader = req.headers().get(HttpHeaderNames.RANGE);
         if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
             long[] range = parseRange(rangeHeader, bytes.length);
@@ -131,6 +134,7 @@ public final class HttpServerHandler extends SimpleChannelInboundHandler<FullHtt
                 resp.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes");
                 resp.headers().set(HttpHeaderNames.CONTENT_RANGE,
                         "bytes " + start + "-" + end + "/" + bytes.length);
+                resp.headers().set(HttpHeaderNames.CACHE_CONTROL, cache);
                 respond(ctx, req, resp);
                 return;
             }
@@ -140,7 +144,17 @@ public final class HttpServerHandler extends SimpleChannelInboundHandler<FullHtt
         FullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, buf);
         resp.headers().set(HttpHeaderNames.CONTENT_TYPE, ct);
         resp.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes");
+        resp.headers().set(HttpHeaderNames.CACHE_CONTROL, cache);
         respond(ctx, req, resp);
+    }
+
+    /** 前端代码与资源索引不缓存；静态大资源（图片库/地图/音频）走长缓存。 */
+    private static String cacheControl(String name) {
+        String lower = name.toLowerCase();
+        if (lower.endsWith(".mjs") || lower.endsWith(".html") || lower.endsWith(".json")) {
+            return "no-cache";
+        }
+        return "public, max-age=31536000, immutable";
     }
 
     /** Parses {@code bytes=start-end} / {@code bytes=start-} / {@code bytes=-suffix}. */

@@ -161,11 +161,11 @@ export class MapActor {
                         ctx.drawImage(e.tex, anchorX - e.tex.width / 2, anchorY - e.tex.height);
                     }
 
-                    // 血条（原版固定偏移：格顶 - 30，水平格子中心，宽 40）
+                    // 血条（头顶上方，水平格子中心，宽 40）
                     if (e.maxHp) {
                         const hp = Math.max(0, e.hp != null ? e.hp : e.maxHp);
                         const bx0 = anchorX + TILE_W / 2 - 20;
-                        const by0 = sy(e.y) - 30;
+                        const by0 = sy(e.y) - 44;
                         ctx.fillStyle = '#000';
                         ctx.fillRect(bx0 - 1, by0 - 1, 42, 6);
                         ctx.fillStyle = e.isSelf ? '#0ea5e9' : '#ef4444';
@@ -179,13 +179,13 @@ export class MapActor {
                         ctx.strokeRect(anchorX + 4, sy(e.y) - 70, 40, 100);
                     }
 
-                    // 名字（原版固定偏移：格顶 - 47，水平格子中心）
+                    // 名字（血条上方，水平格子中心）
                     if (e.name) {
                         ctx.font = '11px SimSun,serif';
                         ctx.textAlign = 'center';
                         const tw = ctx.measureText(e.name).width;
                         const nx = anchorX + TILE_W / 2;
-                        const ny = sy(e.y) - 47;
+                        const ny = sy(e.y) - 58;
                         ctx.fillStyle = 'rgba(0,0,0,0.6)';
                         ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
                         ctx.fillStyle = e.isSelf ? '#ffe9b0' : '#e0d0a0';

@@ -561,14 +561,14 @@ export class PlayScene extends Scene {
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();
-        // 平滑卷动：显示中心 lerp 追踪玩家坐标（亚像素，消除瞬跳/抖动）
+        // 平滑卷动：显示中心 lerp 追踪玩家坐标；floor 保证 shift ∈ [0,48) 连续、整数（避免浮点绘制模糊 + round 突变跳变）
         if (this._viewX == null) { this._viewX = this.self.x; this._viewY = this.self.y; }
         this._viewX += (this.self.x - this._viewX) * 0.25;
         this._viewY += (this.self.y - this._viewY) * 0.25;
-        const vcx = Math.round(this._viewX);
-        const vcy = Math.round(this._viewY);
-        const shiftX = (this._viewX - vcx) * 48;
-        const shiftY = (this._viewY - vcy) * 32;
+        const vcx = Math.floor(this._viewX);
+        const vcy = Math.floor(this._viewY);
+        const shiftX = Math.round((this._viewX - vcx) * 48);
+        const shiftY = Math.round((this._viewY - vcy) * 32);
         const entities = [];
         for (const e of this.entities.values()) {
             const sp = this._sprite(e);

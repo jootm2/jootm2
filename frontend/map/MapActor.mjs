@@ -133,13 +133,13 @@ export class MapActor {
                     } else if (e.tex) {
                         ctx.drawImage(e.tex, anchorX - e.tex.width / 2, anchorY - e.tex.height);
                     }
-                    // 名字
+                    // 名字（头顶上方，血条之上）
                     if (e.name) {
                         ctx.font = '11px SimSun,serif';
                         ctx.textAlign = 'center';
                         const tw = ctx.measureText(e.name).width;
                         const nx = sx(e.x) + TILE_W / 2;
-                        const ny = sy(e.y) + 4;
+                        const ny = sy(e.y) - 34;
                         ctx.fillStyle = 'rgba(0,0,0,0.6)';
                         ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
                         ctx.fillStyle = e.isSelf ? '#ffe9b0' : '#e0d0a0';

@@ -765,6 +765,10 @@ public final class GameWorld {
         Actor a = actors.remove(id);
         if (a != null && a.map != null) {
             a.map.remove(id);
+            JsonObject o = new JsonObject();
+            o.addProperty("type", "entityRemove");
+            o.addProperty("id", id);
+            broadcastAround(a.map, o, a.x, a.y, SIGHT_RANGE);
         }
     }
 

@@ -165,6 +165,11 @@ jootm2/
     - 服务端 `Player.toPlayerJson` 发 `skills`（`{magicId:{name,level}}`，新增 `skillsJson()`）。
     - 前端：底部技能栏（F1-F8 槽显示已学技能名，点击或按 F1-F8 施法）；点击怪物设为施法目标（`castTarget`，红框高亮）；`TARGET_MAGICS`（伤害 1/5/11/35、施毒 6、火墙 22、诱惑 20）需要目标（无目标提示选择），治愈/召唤/推开/传送/隐身直接施法（`targetId=-1`）；`spellCast` 消息驱动施法者播放攻击动画。
     - 验证（Playwright）：道士初始技能「治愈术」显示在 F1 槽 + 施法请求 `castMagic{magicId:2,targetId:-1}`；火球术无目标时不发请求、设目标后发 `castMagic{magicId:1,targetId}`。
+31. **交互/视觉优化**（三项）：
+    - **entityRemove 广播**：`GameWorld.removeActor` 补广播 `entityRemove`（宠物死亡 `removeSummon`/玩家登出 `removePlayer` 后其他玩家能立即看到实体消失，修复尸体残留）。
+    - **点墙就近寻路**：`PlayScene._walkTo` 目标不可站时在 ±2 格内就近找可站格（曼哈顿距离最小），修复点墙不响应。
+    - **血条/名字位置**：血条从格顶 `sy-4` 上移到 `sy-18`、名字从 `sy+4` 上移到 `sy-34`（sprite 头顶上方），施法目标高亮框同步调整，消除与 sprite 重叠。
+    - 验证：smoke test 通过；点墙格 (292,615)→就近移动到 (291,615)。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -276,10 +281,10 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [x] **行走/攻击动画**（已完成，见 §3 第 27 条）。
 - [x] **点击交互**（点地走/点怪攻击/点 NPC 对话/点物拾取，已完成，见 §3 第 27 条）。
 - [x] **背包/装备/NPC 对话框 GUI**（已完成，见 §3 第 28 条）。
-- [ ] **点墙就近寻路**：点击不可站格（canStand=false）目前不移动；应就近找一个可站格作为寻路目标。
-- [ ] **血条/名字与 sprite 重叠**：血条画在格顶（sy-4）而 sprite 向上延伸超出格顶，二者重叠；应改为「头顶上方」固定偏移（按 sprite 实际高度计算）。
+- [x] **点墙就近寻路**（已完成，见 §3 第 31 条）。
+- [x] **血条/名字与 sprite 重叠**（已完成，见 §3 第 31 条）。
 - [x] **装备外观**（已完成，见 §3 第 29 条）。
-- [ ] **宠物/玩家死亡残留**：服务端 `removeActor` 不广播 `entityRemove`（宠物死亡/玩家登出后前端实体残留尸体），需补 `entityRemove` 广播或前端超时清理。
+- [x] **宠物/玩家死亡残留**（已完成，见 §3 第 31 条 entityRemove 广播）。
 - [ ] **其他玩家装备变化同步**：穿装备后只 sendStats/sendBagUpdate 给本人，未广播给其他玩家（Delphi 用 SM_FEATURECHANGED），需补 `featureChanged` 广播或重新 entityAdd。
 
 ### 音频

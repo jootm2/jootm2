@@ -274,6 +274,22 @@ export class PlayScene extends Scene {
 
     _walkTo(tx, ty, cb) {
         const map = this.mapActor.map;
+        // 目标不可站则就近找可站格（点墙也能响应）
+        if (!(tx >= 0 && ty >= 0 && tx < map.width && ty < map.height && map.tiles[tx][ty].canStand)) {
+            let bx = -1, by = -1, bd = Infinity;
+            for (let ddx = -2; ddx <= 2; ddx++) {
+                for (let ddy = -2; ddy <= 2; ddy++) {
+                    const nx = tx + ddx, ny = ty + ddy;
+                    if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
+                    if (!map.tiles[nx][ny].canStand) continue;
+                    const dd = Math.abs(ddx) + Math.abs(ddy);
+                    if (dd < bd) { bd = dd; bx = nx; by = ny; }
+                }
+            }
+            if (bx < 0) return;   // 附近无可站格
+            tx = bx;
+            ty = by;
+        }
         const path = findPath(map, this.self.x, this.self.y, tx, ty);
         if (path && path.length) {
             this.path = path;
@@ -624,14 +640,14 @@ export class PlayScene extends Scene {
             const maxHp = e.maxHp || 1;
             const hp = Math.max(0, e.hp != null ? e.hp : maxHp);
             ctx.fillStyle = '#000';
-            ctx.fillRect(sx + 4, sy - 4, 40, 4);
+            ctx.fillRect(sx + 4, sy - 18, 40, 4);
             ctx.fillStyle = isSelf ? '#0ea5e9' : '#ef4444';
-            ctx.fillRect(sx + 4, sy - 4, 40 * hp / maxHp, 4);
+            ctx.fillRect(sx + 4, sy - 18, 40 * hp / maxHp, 4);
             // 施法目标高亮
             if (this.castTarget != null && e.id === this.castTarget) {
                 ctx.strokeStyle = '#ff3b3b';
                 ctx.lineWidth = 2;
-                ctx.strokeRect(sx + 4, sy - 28, 40, 40);
+                ctx.strokeRect(sx + 4, sy - 34, 40, 52);
             }
         }
     }

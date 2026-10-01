@@ -208,6 +208,11 @@ jootm2/
     - **卷动**：显示中心 lerp 追踪玩家（`_viewX += (self.x-_viewX)*0.25`，亚像素 shift），替代「每步重置插值」——后者在连续移动时 shift 从 27 跳回 48 造成画面跳变（用户反馈「放大一瞬」）。changeMap 时重置 _viewX。
     - **点击移动**：去掉 A* 寻路（`findPath` 已移除引用），改**贪心直线**走向点击点（卡住 4 tick 自动放弃）；**左键走**（每 2 tick 一步 = 200ms/格）、**右键跑**（每 tick 一步 = 100ms/格），`contextmenu` 已拦截（右键不再弹浏览器菜单）。点怪/NPC/物品仍是走近后执行动作。
     - 验证：左键 2 格 vs 右键 4 格（速度差异）、右键拦截、sprite/名字/血条对齐、无错误。注意 hum 大图首次加载有几秒延迟（优先级队列 §14 可解）。
+38. **卷动 shift 突变修复 + 名字/血条上移 + 前端 no-cache**：
+    - **「画面模糊缩放」根因（两个叠加）**：① `vcx=round(viewX)` 在 viewX 过 .5 时突变，shift 从 +24 跳 -24（画面跳 48px = 「缩放」错觉）→ 改 **floor**（shift ∈ [0,48) 连续，floor+shift 数学上严格连续）；② shift 浮点 → drawImage 抗锯齿「模糊」→ shift **取整**。验证：移动时 shift 相邻差 ≤1。
+    - **名字/血条上移**：格顶 -47/-30 落在人物头部（用户反馈偏下）→ **-58/-44**（头顶 ≈ 格顶-39，血条贴头顶上方 5px、名字再上 14px）。
+    - **「改了没反应」根因 = 浏览器缓存旧 .mjs**（ES Module 无 cache-busting）：服务端静态响应加 `Cache-Control` —— `.mjs/.html/.json` → `no-cache`（改代码刷新即生效），`.wil/.wix/.map/.wav` → `immutable` 长缓存。**以后改前端代码，用户刷新页面即可，无需清缓存**。
+    - 验证：shift 连续、cache-control 头正确（curl 确认）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -312,7 +317,8 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 > 原则：识别到的进阶优化**先记在此处**，不立即实现，优先推进主线功能。主线完成后择机逐项做。
 
 ### 前端 WIL / 资源加载
-- [ ] **请求优先级队列**：可见区域 / 当前交互请求的 chunk 优先于离屏预取，避免抢占关键帧（`frontend/gfx/scheduler.mjs` 目前是纯 FIFO + 全局 5 并发 + 去重 + 边界对齐图头）。**实例**：进图后动画光效 10 帧大图（100×100）会挤占 tiles 带宽，地面要 10 秒+ 才铺满，优先级队列可解。
+- [ ] **请求优先级队列**：可见区域 / 当前交互请求的 chunk 优先于离屏预取，避免抢占关键帧（`frontend/gfx/scheduler.mjs` 目前是纯 FIFO + 全局 5 并发 + 去重 + 边界对齐图头）。**实例**：进图后动画光效 10 帧大图（100×100）会挤占 tiles 带宽，地面要 10 秒+ 才铺满，优先级队列可解。**实例 2**：玩家/怪物首次从 stand 切 walk 动画时，walk 帧纹理未加载 → sprite 短暂消失（等几秒后才正常）。
+- [ ] **实体动作帧预取**：entityAdd 时预取该实体的 stand/walk 常用帧（8 方向），避免移动瞬间白屏。
 - [ ] **预测预取**：地图滚动 / 角色移动时按方向预加载前方 tile，降低滚图卡顿（地图场景比 UI 更吃这个）。
 - [ ] **chunk 级缓存**：当前是图级缓存（解包后存 canvas）；若解包耗时成瓶颈，改缓存「已解包的 chunk」避免重复解包同一 chunk。
 

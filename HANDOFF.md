@@ -223,6 +223,7 @@ jootm2/
     - **走/跑间隔**：`WALK_INTERVAL=500`、`RUN_INTERVAL=250`（ms/步），动作之间有明确间隔。验证：1.6s 内走 3 步、跑 6 步（2 倍速）。
     - **方向实时判断**：新增 `mousemove` 监听，按住移动时实时更新 `_mouseDir`——先向右走，移动鼠标到左上，下一步即朝左上。验证：向右走到墙边后转向左上（dy=-2）。
     - 注意：出生点 (289,618) 向右只能走 7 格（297,618 是墙），测试撞墙属正常，非间隔 bug。
+41. **卷动改匀速**：lerp 指数逼近（每帧追 25% 剩余，「先快后慢」）产生追停抖动 → 改匀速 clamp 步进（速度 = 走 500ms/格、跑 250ms/格，与 move 节奏同步）。shift 仍整数化。验证 shiftY 相邻差集中在 1~4。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

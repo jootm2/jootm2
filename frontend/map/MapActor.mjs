@@ -145,53 +145,47 @@ export class MapActor {
                     }
                 }
             }
-            // 实体（脚底锚点 = 格子底部中心，层 px/py 相对此锚点）
+            // 实体（照原版：锚点 = 格子左上角，图左上 = 格左+px, 格顶+py）
             const row = byRow.get(gy);
             if (row) {
                 for (const e of row) {
-                    const anchorX = sx(e.x) + TILE_W / 2;
-                    const anchorY = sy(e.y) + TILE_H;
-                    let top = anchorY;
+                    const anchorX = sx(e.x);   // 格左
+                    const anchorY = sy(e.y);   // 格顶
                     if (e.layers) {
                         for (const layer of e.layers) {
                             if (layer.canvas) {
                                 ctx.drawImage(layer.canvas, anchorX + layer.px, anchorY + layer.py);
-                                top = Math.min(top, anchorY + layer.py);
-                            } else {
-                                top = Math.min(top, anchorY + layer.py);   // 纹理加载中仍按 py 估顶
                             }
                         }
                     } else if (e.tex) {
                         ctx.drawImage(e.tex, anchorX - e.tex.width / 2, anchorY - e.tex.height);
-                        top = anchorY - e.tex.height;
                     }
 
-                    // 血条（贴 sprite 头顶）
+                    // 血条（原版固定偏移：格顶 - 30，水平格子中心，宽 40）
                     if (e.maxHp) {
                         const hp = Math.max(0, e.hp != null ? e.hp : e.maxHp);
-                        const bw = 40;
-                        const bx0 = anchorX - bw / 2;
-                        const by0 = top - 10;
+                        const bx0 = anchorX + TILE_W / 2 - 20;
+                        const by0 = sy(e.y) - 30;
                         ctx.fillStyle = '#000';
-                        ctx.fillRect(bx0 - 1, by0 - 1, bw + 2, 6);
+                        ctx.fillRect(bx0 - 1, by0 - 1, 42, 6);
                         ctx.fillStyle = e.isSelf ? '#0ea5e9' : '#ef4444';
-                        ctx.fillRect(bx0, by0, bw * hp / e.maxHp, 4);
+                        ctx.fillRect(bx0, by0, 40 * hp / e.maxHp, 4);
                     }
 
-                    // 施法目标高亮（框住 sprite）
+                    // 施法目标高亮（框住 sprite 区域，固定大小）
                     if (e.isTarget) {
                         ctx.strokeStyle = '#ff3b3b';
                         ctx.lineWidth = 2;
-                        ctx.strokeRect(anchorX - 26, top - 14, 52, anchorY - top + 14);
+                        ctx.strokeRect(anchorX + 4, sy(e.y) - 70, 40, 100);
                     }
 
-                    // 名字（血条上方）
+                    // 名字（原版固定偏移：格顶 - 47，水平格子中心）
                     if (e.name) {
                         ctx.font = '11px SimSun,serif';
                         ctx.textAlign = 'center';
                         const tw = ctx.measureText(e.name).width;
-                        const nx = anchorX;
-                        const ny = top - 16;
+                        const nx = anchorX + TILE_W / 2;
+                        const ny = sy(e.y) - 47;
                         ctx.fillStyle = 'rgba(0,0,0,0.6)';
                         ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
                         ctx.fillStyle = e.isSelf ? '#ffe9b0' : '#e0d0a0';

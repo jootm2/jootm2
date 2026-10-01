@@ -4,7 +4,6 @@
 import { Scene } from './Scene.mjs';
 import { MapActor } from '../map/MapActor.mjs';
 import { ActorSprite } from '../actor/ActorSprite.mjs';
-import { findPath } from '../map/pathfind.mjs';
 import { SCREEN_WIDTH, SCREEN_HEIGHT, MAPSURFACEHEIGHT } from '../core/config.mjs';
 
 // 8 方向映射（与服务器 Direction 一致）
@@ -29,8 +28,7 @@ export class PlayScene extends Scene {
         this.mapActor = new MapActor(SCREEN_WIDTH, MAPSURFACEHEIGHT);
         this.keys = new Set();
         this.moveTimer = null;
-        this.path = [];              // 寻路方向队列（覆盖键盘移动）
-        this._onArrive = null;       // 到达回调
+        this._clickTarget = null;    // 点击移动目标 {tx,ty,run,action?...}
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
         this._canvas = document.getElementById('screen');
@@ -60,6 +58,9 @@ export class PlayScene extends Scene {
         document.addEventListener('keyup', this._keyUp);
         this._mouseDown = (e) => this._onCanvasClick(e);
         this._canvas.addEventListener('mousedown', this._mouseDown);
+        // 拦截右键菜单（右键用于「跑动」）
+        this._ctxMenu = (e) => e.preventDefault();
+        this._canvas.addEventListener('contextmenu', this._ctxMenu);
         this._startMoveLoop();
     }
 
@@ -157,19 +158,46 @@ export class PlayScene extends Scene {
         if (this.moveTimer) return;
         this.moveTimer = setInterval(() => {
             if (!this.self) return;
+            this._tick = (this._tick || 0) + 1;
             let d = -1;
-            if (this.path.length) {
-                d = this.path.shift();
-                if (!this.path.length && this._onArrive) {
-                    const cb = this._onArrive;
-                    this._onArrive = null;
-                    cb();
+            const t = this._clickTarget;
+            if (t) {
+                // 左键走（每 2 tick 一步）、右键跑（每 tick 一步）
+                if (!t.run && this._tick % 2 !== 0) return;
+                const dist = Math.max(Math.abs(t.tx - this.self.x), Math.abs(t.ty - this.self.y));
+                if (t.action && dist <= 1) {
+                    // 走到相邻格：执行动作
+                    this._doClickAction(t);
+                    this._clickTarget = null;
+                } else if (!t.action && dist <= 0) {
+                    this._clickTarget = null;   // 到达
+                } else {
+                    // 贪心直线走向目标（不寻路绕障碍）
+                    const dx = Math.sign(t.tx - this.self.x);
+                    const dy = Math.sign(t.ty - this.self.y);
+                    d = DIRMAP[dx + ',' + dy];
+                    // 卡住检测：位置连续多次没变则放弃
+                    if (this.self.x === this._stuckX && this.self.y === this._stuckY) {
+                        this._stuckN = (this._stuckN || 0) + 1;
+                        if (this._stuckN > 4) { this._clickTarget = null; this._stuckN = 0; }
+                    } else {
+                        this._stuckX = this.self.x;
+                        this._stuckY = this.self.y;
+                        this._stuckN = 0;
+                    }
                 }
             } else {
-                d = this._currentDir();
+                d = this._currentDir();   // 键盘移动
             }
             if (d >= 0) this.conn.send('move', { dir: d });
-        }, 120);
+        }, 100);
+    }
+
+    // 点击目标动作（走近后执行）
+    _doClickAction(t) {
+        if (t.action === 'attack') this.conn.send('attack', { targetId: t.targetId });
+        else if (t.action === 'npc') this.conn.send('npcTalk', { npcId: t.npcId });
+        else if (t.action === 'pickup') this.conn.send('pickup', { itemId: t.itemId });
     }
 
     _currentDir() {
@@ -210,7 +238,8 @@ export class PlayScene extends Scene {
     // ---- 点击交互（点怪攻击 / 点 NPC 对话 / 点物拾取 / 点地走）----
     _onCanvasClick(e) {
         if (!this.self || !this.mapActor.map) return;
-        if (e.button !== 0) return;   // 仅左键
+        if (e.button !== 0 && e.button !== 2) return;   // 0=左键 2=右键
+        e.preventDefault();
         const rect = this._canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
@@ -218,25 +247,26 @@ export class PlayScene extends Scene {
         const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
         const tx = Math.floor((mx - ox) / 48) + this.self.x;
         const ty = Math.floor((my - oy) / 32) + this.self.y;
+        const run = e.button === 2;   // 左键走、右键跑
 
         const monster = this._actorAt(tx, ty, 'monster');
         if (monster && monster.hp > 0) {
             this.castTarget = monster.id;   // 设为施法目标（红框高亮）
-            this._walkAdjacent(tx, ty, () => this.conn.send('attack', { targetId: monster.id }));
+            this._clickTarget = { tx, ty, run, action: 'attack', targetId: monster.id };
             return;
         }
         const npc = this._actorAt(tx, ty, 'npc');
         if (npc) {
-            this._walkAdjacent(tx, ty, () => this.conn.send('npcTalk', { npcId: npc.id }));
+            this._clickTarget = { tx, ty, run, action: 'npc', npcId: npc.id };
             return;
         }
         const gi = this._groundAt(tx, ty);
         if (gi) {
-            this._walkAdjacent(tx, ty, () => this.conn.send('pickup', { itemId: gi.id }));
+            this._clickTarget = { tx, ty, run, action: 'pickup', itemId: gi.id };
             return;
         }
-        // 空地：寻路走过去
-        this._walkTo(tx, ty, null);
+        // 空地：贪心直线走向点击点（左键走、右键跑）
+        this._clickTarget = { tx, ty, run };
     }
 
     _actorAt(tx, ty, type) {
@@ -251,52 +281,6 @@ export class PlayScene extends Scene {
             if (g.x === tx && g.y === ty) return g;
         }
         return null;
-    }
-
-    // 走到目标相邻格后执行动作（距离 <=1 直接执行）
-    _walkAdjacent(tx, ty, cb) {
-        const dist = Math.max(Math.abs(tx - this.self.x), Math.abs(ty - this.self.y));
-        if (dist <= 1) { cb(); return; }
-        const map = this.mapActor.map;
-        let bx = -1, by = -1, bd = Infinity;
-        for (let ddx = -1; ddx <= 1; ddx++) {
-            for (let ddy = -1; ddy <= 1; ddy++) {
-                if (ddx === 0 && ddy === 0) continue;
-                const nx = tx + ddx, ny = ty + ddy;
-                if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
-                if (!map.tiles[nx][ny].canStand) continue;
-                const dd = Math.max(Math.abs(nx - this.self.x), Math.abs(ny - this.self.y));
-                if (dd < bd) { bd = dd; bx = nx; by = ny; }
-            }
-        }
-        if (bx >= 0) this._walkTo(bx, by, cb);
-    }
-
-    _walkTo(tx, ty, cb) {
-        const map = this.mapActor.map;
-        // 目标不可站则就近找可站格（点墙也能响应）
-        if (!(tx >= 0 && ty >= 0 && tx < map.width && ty < map.height && map.tiles[tx][ty].canStand)) {
-            let bx = -1, by = -1, bd = Infinity;
-            for (let ddx = -2; ddx <= 2; ddx++) {
-                for (let ddy = -2; ddy <= 2; ddy++) {
-                    const nx = tx + ddx, ny = ty + ddy;
-                    if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
-                    if (!map.tiles[nx][ny].canStand) continue;
-                    const dd = Math.abs(ddx) + Math.abs(ddy);
-                    if (dd < bd) { bd = dd; bx = nx; by = ny; }
-                }
-            }
-            if (bx < 0) return;   // 附近无可站格
-            tx = bx;
-            ty = by;
-        }
-        const path = findPath(map, this.self.x, this.self.y, tx, ty);
-        if (path && path.length) {
-            this.path = path;
-            this._onArrive = cb || null;
-        } else if (path && cb) {
-            cb();   // 已在目标格
-        }
     }
 
     onMessage(type, msg) {
@@ -314,11 +298,6 @@ export class PlayScene extends Scene {
             case 'move': {
                 const e = this.entities.get(msg.id);
                 if (e) {
-                    // 自己移动时记录平滑卷动起点（从旧格滑向新格）
-                    if (this.self && e.id === this.self.id) {
-                        this._selfFrom = { x: e.x, y: e.y };
-                        this._selfMoveAt = Date.now();
-                    }
                     e.x = msg.x; e.y = msg.y; e.dir = msg.dir;
                     e._action = 'walk'; e._actionAt = Date.now();
                 }
@@ -388,8 +367,8 @@ export class PlayScene extends Scene {
                 // 换图快照：重建实体 + 地面物品 + 切地图
                 this.entities.clear();
                 this.groundItems.clear();
-                this.path = [];
-                this._onArrive = null;
+                this._clickTarget = null;
+                this._viewX = null;   // 重置卷动中心
                 this.castTarget = null;
                 if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); }
                 for (const e of msg.nearby || []) this.entities.set(e.id, e);
@@ -582,14 +561,14 @@ export class PlayScene extends Scene {
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();
-        // 平滑卷动：玩家从旧格滑向新格（280ms 插值，对齐原版 ShiftX/Y）
-        let shiftX = 0, shiftY = 0;
-        if (this._selfFrom) {
-            const p = Math.min(1, (now - this._selfMoveAt) / 280);
-            shiftX = (this.self.x - this._selfFrom.x) * 48 * (1 - p);
-            shiftY = (this.self.y - this._selfFrom.y) * 32 * (1 - p);
-            if (p >= 1) this._selfFrom = null;
-        }
+        // 平滑卷动：显示中心 lerp 追踪玩家坐标（亚像素，消除瞬跳/抖动）
+        if (this._viewX == null) { this._viewX = this.self.x; this._viewY = this.self.y; }
+        this._viewX += (this.self.x - this._viewX) * 0.25;
+        this._viewY += (this.self.y - this._viewY) * 0.25;
+        const vcx = Math.round(this._viewX);
+        const vcy = Math.round(this._viewY);
+        const shiftX = (this._viewX - vcx) * 48;
+        const shiftY = (this._viewY - vcy) * 32;
         const entities = [];
         for (const e of this.entities.values()) {
             const sp = this._sprite(e);
@@ -600,7 +579,7 @@ export class PlayScene extends Scene {
                 layers: sp.getLayers(now),
             });
         }
-        this.mapActor.render(ctx, this.self.x, this.self.y, entities, shiftX, shiftY);
+        this.mapActor.render(ctx, vcx, vcy, entities, shiftX, shiftY);
         this._renderGroundItems(ctx);
         this._renderHud();
     }
@@ -650,9 +629,9 @@ export class PlayScene extends Scene {
         document.removeEventListener('keydown', this._keyDown);
         document.removeEventListener('keyup', this._keyUp);
         if (this._mouseDown) this._canvas.removeEventListener('mousedown', this._mouseDown);
+        if (this._ctxMenu) this._canvas.removeEventListener('contextmenu', this._ctxMenu);
         this.keys.clear();
-        this.path = [];
-        this._onArrive = null;
+        this._clickTarget = null;
         this.bagPanel = null;
         this.npcDlg = null;
         const gui = this.manager.winManager.container;

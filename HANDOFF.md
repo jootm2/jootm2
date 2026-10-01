@@ -111,6 +111,15 @@ jootm2/
     - 行会持久化：`GuildBase/{name}.txt`（对齐 Delphi `BackupGuild` 格式：成员 `+`、`城主`、`盟友 `、`敌对 `）；`loadGuilds/saveGuild/deleteGuildFile`。
     - 祝福油：`ItemInstance.lucky`（实例幸运 0..7）；`useBlessOil`（stdMode=3，50% 升/30% 不变/20% 降）；`recompute` 幸运 = 模板 specialPwr + 实例 lucky。
     - 行会战/同盟：`Guild.allyGuilds/warGuilds`；`declareGuildWar/makeGuildAlly`（互相加入列表 + 持久化）；协议 `guildWar/guildAlly`。
+23. **前端重写：阶段 2（登录 → 选角 → 游戏场景）**：
+    - `net/Connection.mjs`：WebSocket JSON 封装（`send(type,payload)` / `on(type,cb)`，`'*'` 通配路由）。
+    - `scene/Scene.mjs`（基类：onEnter/onExit/onMessage/update/render）+ `scene/SceneManager.mjs`：场景生命周期 + 服务端消息路由到当前场景。
+    - `ui/LoginScene.mjs`：登录/注册面板（注册成功自动登录）；`ui/SelectCharScene.mjs`：角色列表 + 创建（性别/发型/职业分段选择）+ 删除 + 进游戏。
+    - `image/Images.mjs`：WIL 库懒加载管理（`getLib(key)`）；`map/Maps.mjs`：.map 解析（tile 12/14 字节、动画帧、混合标志）；`map/MapActor.mjs`：canvas 等距渲染 —— 大地砖 2×2（仅偶坐标）、小地砖、对象层按行遮挡（anchor 下方），动画光效用 `lighter` 加法混合消除黑底。
+    - `scene/PlayScene.mjs`：实体 Map 管理、方向键移动（120ms 循环，WASD 同支持）、聊天框、HUD、空格攻击最近怪；处理 `entityAdd/entityRemove/move/stats/attack/death/chat/changeMap`。
+    - `main.mjs`：`loadResources()` → WS `/ws` → LoginScene 链路（**坑：漏了 loadResources 会导致 mapUrl 全 null、地图不加载**）。
+    - **关键坑（已修）**：服务端 `enterGame` 后紧跟 `broadcastEntityAdd(自己)`，前端若不过滤会把 entities[self.id] 覆盖成 toBriefJson 简化对象，与 self（toPlayerJson 完整对象）引用分离 → move 更新 entities 而 self 不动（表现为「客户端原地不动」）。entityAdd 需跳过 `msg.entity.id === self.id`。
+    - 验证（Playwright）：注册→建角→进图→移动（右/上各 +5 格）→聊天→怪物自动攻击进日志；截图确认地图纹理/房屋/光效渲染正常。过渡期实体用圆点+血条（真实 sprite 在 §14 待办）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`。
 
@@ -188,7 +197,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - **.DB 有重复行**：`跳跳蜂1`×7、magId 11/15/20/26/29/30 各×2、idx 476×7，已用 `INSERT OR REPLACE` 去重（后写覆盖）。
 - **之前的手写 NIO 版有 bug**：`addActor` 没把怪物挂到地图导致 `tryMove` 会 NPE；已修（`GameWorld.addActor` 里 `if(a.map==null) a.map=defaultMap`）。
 - **smoke_test 战斗偶发「未击杀」**：怪物池从 3 个变 267 个后，可能随到高 HP 怪，是测试的随机性，非代码错误（`SMOKE TEST PASSED` 仍输出）。
-- **客户端游戏画面是简化网格**：没接原 WIL 瓦片/角色 sprite（`MapActor`/`HumActor` 渲染逻辑与新 JSON 协议未对接），当前 `scene/PlayScene.mjs` 用 Graphics 画圆点。
+- **客户端游戏画面**：旧 client 副本（`/Volumes/未命名/client/`）的 PlayScene 是简化网格；新前端（`frontend/`，见 §3 第 23 条）已用真实等距地图渲染，实体暂为圆点+血条（真实 sprite 见 §14 待办）。
 - **无残留进程**：交接前已停掉我起的服务端/资源服务器，端口 8080/55842 均空闲。
 
 ## 12. 参考材料
@@ -202,3 +211,24 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 ## 13. 一句总结
 
 单体 Netty 服务端骨架、前端托管、资源托管、Paradox→SQLite、账号角色、真实地图+真实刷怪、基础战斗/聊天都已就绪且 `mvn package` + smoke test 通过；「整个 M2Server」剩余的是 **多地图、NPC/商店/任务脚本、技能、装备/掉落、行会/攻城** 这几大块，数据文件都已就位（见 §6），建议按 §5 顺序逐个补齐。
+
+## 14. 优化项备忘（先记不做，优先保证主线）
+
+> 原则：识别到的进阶优化**先记在此处**，不立即实现，优先推进主线功能。主线完成后择机逐项做。
+
+### 前端 WIL / 资源加载
+- [ ] **请求优先级队列**：可见区域 / 当前交互请求的 chunk 优先于离屏预取，避免抢占关键帧（`frontend/gfx/scheduler.mjs` 目前是纯 FIFO + 全局 5 并发 + 去重 + 边界对齐图头）。**实例**：进图后动画光效 10 帧大图（100×100）会挤占 tiles 带宽，地面要 10 秒+ 才铺满，优先级队列可解。
+- [ ] **预测预取**：地图滚动 / 角色移动时按方向预加载前方 tile，降低滚图卡顿（地图场景比 UI 更吃这个）。
+- [ ] **chunk 级缓存**：当前是图级缓存（解包后存 canvas）；若解包耗时成瓶颈，改缓存「已解包的 chunk」避免重复解包同一 chunk。
+
+### 前端渲染（阶段 2 后续）
+- [ ] **实体真实 sprite**：`scene/PlayScene.mjs` 的 `_renderEntities` 目前是圆点+血条（过渡）；对齐旧客户端 —— 玩家用 `hum` 库站立帧（job*2+sex 分块×600）、怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC 用 `npc` 库 + `GetNpcOffset`（参考 `/Volumes/未命名/client/actor/ActorDefines.mjs`）。
+- [ ] **点击交互**：点地走（寻路）、点怪走近攻击、点 NPC 对话、点物品拾取。
+- [ ] **背包/装备/NPC 对话框 GUI**：`gui/` 框架已就绪（DWindow/DGrid/DButton），接服务端 `bagUpdate/npcSay` 协议即可。
+
+### 音频
+- [ ] **音效系统**：`resource.mjs` 的 `wavUrl/wavCount` 已就绪（694 个 wav，`/resources/Wav/` 已托管 `audio/wav`），后续做 Web Audio 播放 + 按场景预加载。
+
+### 后端
+- [ ] **攻城状态落盘**：`castle.warActive/warEndAt/mainDoorHp/wallHp` 仅内存，未持久化（行会文本已落盘 `GuildBase/`）。
+- [ ] **装备强化升级**（非祝福油）：`RandomUpgradeItem`/`UserSelectGetBackUpgrade` 依赖专门 NPC 脚本 + 升级材料 + `UpgradingList` 持久化，属独立工程（见 §4）。

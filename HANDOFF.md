@@ -182,6 +182,15 @@ jootm2/
     - 交互照原版：登录框回车跳密码框、密码回车提交（`EdLoginIdKeyPress`/`EdLoginPasswdKeyPress`）；注册逐格回车跳转、末格提交（`EdNewIdKeyPress`）；注册校验照 `NewIdCheckNewId`（账号≥3）+ 服务端（密码≥4）+ 确认一致；注册成功自动登录。
     - **注意**：注册表单其余字段（姓名/身份证/密保/电话/邮箱）前端照原版收集并随 register 发送，服务端当前只认 username/password（忽略其余，将来扩展无需改前端）；改密码窗口照原版布局但提交提示「暂未开放」（服务端无 changePassword 协议，Delphi `CM_CHANGEPASSWORD=2003` 待补，见 §14）。
     - 验证（Playwright 截图）：登录/注册窗口与原版素材一致；注册→自动登录→建角→进游戏→移动全链路通过。
+34. **选角/建角界面 1:1 照搬 Delphi `TSelectChrScene`**（替换此前自创的 DOM 面板）：
+    - 场景背景 = `Prguse[65]`（800×600，照 `TSelectChrScene.PlayScene` 的 `WProgUse.Images[65]`）；两个角色槽（`ChrArr[0..1]`）。
+    - 角色立绘 = `ChrSel` 帧：选中槽播**站立动画**（`40 + job*40 + frame + sex*120`，10 帧循环每 300ms，锚点 `fx/fy`）；未选中显示**冻结帧**（`60 + job*40 + sex*120` 首帧，锚点 `bx/by`）。位置照 PlayScene 的 job/sex 表（`CHAR_POS`，女法师/女道士站立与冻结锚点不同），槽 1 整体 +340/+2。
+    - 名字/等级/职业 = 描边字（照 `BoldTextOut`：槽0 (117,494/523/553)、槽1 (671,496/525/555)）；职业名照 `GetJobName`（**武士/魔法师/道士**）。
+    - 选角按钮（Prguse 图，坐标照 `FState.pas` DSelectChr）：选1=66(133,453)、选2=67(685,454)、开始=68(385,456)、创建=69(348,486)、删除=70(347,506)、制作群=71(362,527,原版空实现)、退出=72(379,547)。
+    - 建角窗口（`DCreateChr`）：背景 `Prguse[73]`（300×417），照 `MakeNewChar` 槽0窗口在 (415,15)、槽1在 (75,15)；名字输入框（无边框黑底白字，窗口+71/+107 宽137，照 `EdChrName`）；按钮照 FState.pas —— 职业 74/75/76 (48/93/138,157)、性别 77/78 (93/138,231)、发型 79/80 (76/170,308)、确定=62 (102,359)、关闭=64 (248,31)。发型用左右按钮循环（原版 `SelChrNewPrevHair/NextHair` 是空实现+随机发型，此处实现为真选择）。
+    - 删除确认/提示用浏览器 `confirm/alert` 简化（原版 `DMessageDlg`，见 §14 待办）。
+    - **坑（已修×2）**：① `createState/_nameInput` 原在 async `await` 之后初始化，外部立即访问为 undefined → DOM 同步先建、背景图异步插入；② 实例字段与原型方法同名（`_prgUrl`/`_chrTex` 既是 Map 又是方法）→ 方法被实例属性遮蔽报 "not a function"，render 每帧抛错被 loop 吞掉（表现为立绘/文字全不画）→ 字段改名 `_prgCache/_chrCache`。
+    - 验证（Playwright 截图）：男武士/女法师立绘渲染正确、信息框文字正确；建角→选角→进游戏→移动全链路通过。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -299,7 +308,9 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [x] **宠物/玩家死亡残留**（已完成，见 §3 第 31 条 entityRemove 广播）。
 - [x] **其他玩家装备变化同步**（已完成：`equip` 穿装备后补 `broadcastEntityAdd`，其他玩家收到更新后的 dress/weapon）。
 - [x] **登录/注册/改密码界面照搬原版**（已完成，见 §3 第 33 条）。
-- [ ] **选角/建角界面照搬原版 `TSelectChrScene`**：当前 `SelectCharScene` 仍是自创 DOM 面板；原版用 `ChrSel` 人物立绘（图 4-11，292×350，对应职业/性别）+ Prguse 按钮布局（`IntroScn.pas` 选角场景 + `FState.pas` DSelectChr）。
+- [x] **选角/建角界面照搬原版 `TSelectChrScene`**（已完成，见 §3 第 34 条）。
+- [ ] **选角立绘冻结/解冻过渡动画 + 特效**：当前简化为「选中=站立动画 / 未选中=冻结帧静止」；原版选中时播解冻动画（`140-80+job*40+sex*120` 10 帧 + `ChrSel[4..11]` 特效 DrawBlend 闪烁），取消时播冻结动画（倒序）。
+- [ ] **DMessageDlg 消息框**：选角界面的删除确认/无角色提示目前用浏览器 `confirm/alert`，原版是自绘消息框（`FrmDlg.DMessageDlg`，ConfirmDlg.pas）；游戏内统一消息框可后续做。
 - [ ] **登录开场动画**：照 `TLoginScene.PlayScene` 的 `NowOpening` —— `ChrSel[23..32]`（103+CurFrame-80）在 (152,96) 每 230ms 一帧，播完淡出（FadeIndex=29）进选角场景。
 
 ### 音频

@@ -149,8 +149,9 @@ export class MapActor {
             const row = byRow.get(gy);
             if (row) {
                 for (const e of row) {
-                    const anchorX = sx(e.x);   // 格左
-                    const anchorY = sy(e.y);   // 格顶
+                    // 锚点 = 格子左上 + 走动画偏移（self 用 _viewX 过渡，offsetX/Y 为像素差）
+                    const anchorX = sx(e.x) + (e.offsetX || 0);
+                    const anchorY = sy(e.y) + (e.offsetY || 0);
                     if (e.layers) {
                         for (const layer of e.layers) {
                             if (layer.canvas) {
@@ -165,7 +166,7 @@ export class MapActor {
                     if (e.maxHp) {
                         const hp = Math.max(0, e.hp != null ? e.hp : e.maxHp);
                         const bx0 = anchorX + TILE_W / 2 - 20;
-                        const by0 = sy(e.y) - 57;
+                        const by0 = anchorY - 57;
                         ctx.fillStyle = '#000';
                         ctx.fillRect(bx0 - 1, by0 - 1, 42, 6);
                         ctx.fillStyle = e.isSelf ? '#0ea5e9' : '#ef4444';
@@ -176,7 +177,7 @@ export class MapActor {
                     if (e.isTarget) {
                         ctx.strokeStyle = '#ff3b3b';
                         ctx.lineWidth = 2;
-                        ctx.strokeRect(anchorX + 4, sy(e.y) - 70, 40, 100);
+                        ctx.strokeRect(anchorX + 4, anchorY - 70, 40, 100);
                     }
 
                     // 名字（血条上方：格顶 - 71，与血条 -57 一起都在头顶上方）
@@ -185,7 +186,7 @@ export class MapActor {
                         ctx.textAlign = 'center';
                         const tw = ctx.measureText(e.name).width;
                         const nx = anchorX + TILE_W / 2;
-                        const ny = sy(e.y) - 71;
+                        const ny = anchorY - 71;
                         ctx.fillStyle = 'rgba(0,0,0,0.6)';
                         ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
                         ctx.fillStyle = e.isSelf ? '#ffe9b0' : '#e0d0a0';

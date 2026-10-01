@@ -584,8 +584,13 @@ export class PlayScene extends Scene {
         const entities = [];
         for (const e of this.entities.values()) {
             const sp = this._sprite(e);
+            const isSelf = e.id === this.self.id;
             entities.push({
-                x: e.x, y: e.y, name: e.name, isSelf: e.id === this.self.id,
+                x: e.x, y: e.y,   // 逻辑位置（遮挡排序用）
+                // self 的走动画偏移：从逻辑格滑向过渡位置 _viewX 的像素差（地图反向偏移共用 _viewX）
+                offsetX: isSelf ? (this._viewX - e.x) * 48 : 0,
+                offsetY: isSelf ? (this._viewY - e.y) * 32 : 0,
+                name: e.name, isSelf,
                 hp: e.hp, maxHp: e.maxHp, type: e.type,
                 isTarget: this.castTarget != null && e.id === this.castTarget,
                 layers: sp.getLayers(now),

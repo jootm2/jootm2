@@ -8,7 +8,7 @@
 把三件东西整合成了一个单进程的「传奇（Legend of Mir 2）风格」游戏服务端：
 
 - 后端：Java 11 + **Netty**（HTTP + WebSocket 单端口）+ SQLite
-- 前端：PixiJS HTML5 客户端（静态文件）
+- 前端：**原生 canvas 2d**（等距地图渲染）+ DOM GUI（登录/选角/背包），ES Module 静态文件（**已从旧 PixiJS client 副本重写**，见 §3 第 23 条）
 - 服务端数据：从老 Delphi 引擎（BDE/DBC2000 的 Paradox `.DB`、`.map`、`Mir200/Envir` 文本配置）转换/读取
 
 **单端口 8080** 同时承载：
@@ -44,7 +44,17 @@ jootm2/
 │   └── service/
 │       ├── GameService.java        # WebSocket 消息入口 + 登录/角色/移动/攻击/聊天等业务
 │       └── PlayerSession.java      # 传输抽象接口
-├── frontend/                       # ★ 前端（从 /Volumes/未命名/client 拷来，改了两处 URL 为相对地址）
+├── frontend/                       # ★ 前端（原生 canvas 2d 重写，ES Module）
+│   ├── main.mjs                    #   入口：loadResources → WS /ws → LoginScene → 主循环
+│   ├── index.html                  #   #stage 容器（#screen canvas + #gui DOM 层）
+│   ├── core/                       #   config（800×600/瓦片48×32）、loop（rAF 主循环）
+│   ├── gfx/                        #   WIL 加载：wil.mjs（8/16位解包）、palette、resource（图片/地图/音频 URL 索引）、scheduler（全局5并发+去重+边界对齐图头）
+│   ├── image/Images.mjs            #   WIL 库懒加载管理 getLib(key)
+│   ├── map/                        #   Maps.mjs（.map解析）、MapActor.mjs（canvas等距渲染+遮挡+光效混合）
+│   ├── net/Connection.mjs          #   WebSocket JSON 封装（type 分发 + '*' 通配）
+│   ├── scene/                      #   Scene 基类、SceneManager（场景切换+消息路由）、PlayScene（游戏场景）
+│   ├── ui/                         #   LoginScene（登录/注册）、SelectCharScene（选角/创建）
+│   └── gui/                        #   DControl/DWindow/DButton/DGrid/DWinManager（DOM GUI 框架，游戏内背包/NPC对话框用）
 ├── gamedata/                       # ★ 服务端数据（mud2 数据库 + Mir200 配置/脚本/地图）
 ├── resources/                      # ★ 客户端渲染资源（软链 → 见 §6）
 ├── config/server.properties        # 运行配置
@@ -56,7 +66,7 @@ jootm2/
 ## 3. 已完成（可运行、可验证）
 
 1. **单进程 Netty 后端**：HTTP 静态 + REST + WebSocket + CORS，全部 8080。
-2. **前端接入**：PixiJS 客户端静态托管；游戏内已接真实地图瓦片 + 角色 sprite（见第 14 条）。
+2. **前端静态托管**：8080 提供 `/` 静态 + `/ws` WebSocket + `/resources/*` 渲染资源（带 CORS）。**注意**：当前前端是原生 canvas 2d 重写（见第 23 条）；下面第 13/14 条是早期旧 PixiJS client 副本的工作记录，已被替代、仅供参考。
 3. **资源托管**：`/resources/*` 静态服务；`resources.json` 启动时自动生成。
 4. **Paradox 数据库导入 SQLite**：`gamedata/mud2/DB/{StdItems,Magic,Monster}.DB` → SQLite，启动首次自动导入（`INSERT OR REPLACE` 去重）。
    - 结果：物品 535、怪物 267、技能 33（原库有重复行，已去重）。
@@ -68,8 +78,8 @@ jootm2/
 10. **多地图 + 地图切换**：解析 `MapInfo.txt`（445 地图、2474 门），`GameWorld.getOrLoadMap` 懒加载其它 `.map` 并刷怪；玩家踩到地图门自动换图（协议新增 `changeMap` 快照消息）；死亡复活按 `homeMap`、怪物重生按 `spawnMap` 定位；广播/nearby 均按地图过滤。已用 `/tmp/test_gate.py` 验证 0(309,613)→0121(3,16) 双向换图。
 11. **NPC 系统（对话 + 脚本 + 商店 + 传送）**：`game/npc/` 下新增 `Npc`（实体）/`NpcScript`（脚本解析：`[@标签]` 段 + `#IF/#ACT/#SAY/#ELSESAY/#ELSEACT` 状态机）/`NpcScriptEngine`（执行：条件 `checkgold/checkitem/checklevel/checkpkpoint/checkjob/gender/equal/large/small/random`，动作 `take/give/mapmove/goto/break/close/set/reset/inc/dec`，变量 `<$$USERNAME>`，链接 `<文字/@标签>` 提取）；`resource/NpcData.java` 加载 `Npcs.txt`+`MerChant.txt`（303 个 NPC）及 `Npc_Def/`+`Market_Def/` 脚本（大小写不敏感 + `名-地图` 优先 fallback `名`）；商人 `[@buy]/[@sell]/[goods]` 买卖（金币/物品 give/take，`GameWorld` 新增 `itemTemplateByName/countItem/takeItems/giveItem`，`ItemTemplate` 加 `index`）。协议新增 `npcTalk/npcSelect/buyItem/sellItem`（客户端→）与 `npcSay/npcClose`（服务端→）。已用测试脚本验证：传送员对话+分支、商人 11 件商品列表+买卖、`mapmove` 传送到 T334。
 12. **物品掉落/拾取/使用**：`game/GroundItem.java`（地面物品/金币堆）；`WorldData.loadMonItems` 解析 `MonItems/{怪物名}.txt`（格式 `n/m 物品名 [数量]`，判定 `selPoint>=random(maxPoint)`，金币=`count/2+random(count)`，物品掉 1 个，耐久 `20~100%` 随机）——启动加载 245 张掉落表；`GameWorld.dropLoot` 在怪物死亡时散落掉落并广播，`pickup` 拾取（距离≤1），`mapSnapshot` 附带 `groundItems`；`GameService` 新增 `pickup/useItem` 协议，`useItem` 支持吃药（stdMode 0/1/2，字段语义重载：AC=HP 恢复量、MAC=MP 恢复量）与穿装备（`slotFor` 装备位 + `needLevel` 等级检查 + `recompute`）。已用测试脚本验证：杀鸡掉鸡肉→拾取→吃药。
-13. **客户端基础交互**：`frontend/scene/PlayScene.mjs` 补齐可玩闭环——渲染地面物品（金色方块+名字）、鼠标点击（点物品→走近拾取、点 NPC→走近对话、点怪物→走近普攻、点空地→走过去）、B 键背包面板（点击物品 useItem）、NPC 对话框（npcSay 文本+选项按钮+商店 buy 商品列表）、HUD 加金币；`SceneManager.mjs` 新增 `itemDrop/itemRemove/npcSay/npcClose/bagUpdate` 分发与 `send_pickup/send_use_item/send_npc_talk/send_npc_select`；`index.html` 加背包面板 + NPC 对话框 DOM；服务端新增 `bagUpdate{items,gold}` 消息（pickup/useItem/equip/buy/sell 后推送）。
-14. **客户端真实画面（地图 + 角色 sprite）**：复用 `frontend/actor/MapActor.mjs`（完整等距地图渲染：大地砖 tiles + 小地砖 smtiles + 对象层 objects + 遮挡 mask + 缩放，瓦片 48×32）替换原网格；`PlayScene` 改用等距坐标（`_screen`），实体改绘真实 sprite——怪物用 `raceImg`（图像种族，`RaceByPM`/`GetMonImg`/`GetOffset`）+ `appr` 定位 `mon1~23` 图片库帧，NPC 用 `npc` 库 + `GetNpcOffset`，玩家用 `hum` 库 + `HA` 站立帧（按 `job*2+sex` 分块 ×600）；`ActorDefines.mjs` 补 `export`；服务端 `Actor.toBriefJson` 新增 `raceImg` 字段（`Monster.raceImg = template.raceImg`，图像种族 9~99 与服务器 `race` 81~97 是两套值）。纹理异步加载未完成时回退圆点。
+13. **客户端基础交互（旧 PixiJS 副本，已废弃）**：`frontend/scene/PlayScene.mjs` 补齐可玩闭环——渲染地面物品（金色方块+名字）、鼠标点击（点物品→走近拾取、点 NPC→走近对话、点怪物→走近普攻、点空地→走过去）、B 键背包面板（点击物品 useItem）、NPC 对话框（npcSay 文本+选项按钮+商店 buy 商品列表）、HUD 加金币；`SceneManager.mjs` 新增 `itemDrop/itemRemove/npcSay/npcClose/bagUpdate` 分发与 `send_pickup/send_use_item/send_npc_talk/send_npc_select`；`index.html` 加背包面板 + NPC 对话框 DOM；服务端新增 `bagUpdate{items,gold}` 消息（pickup/useItem/equip/buy/sell 后推送）。
+14. **客户端真实画面（旧 PixiJS 副本，已废弃，但 sprite 逻辑可复用）**：复用 `frontend/actor/MapActor.mjs`（完整等距地图渲染：大地砖 tiles + 小地砖 smtiles + 对象层 objects + 遮挡 mask + 缩放，瓦片 48×32）替换原网格；`PlayScene` 改用等距坐标（`_screen`），实体改绘真实 sprite——怪物用 `raceImg`（图像种族，`RaceByPM`/`GetMonImg`/`GetOffset`）+ `appr` 定位 `mon1~23` 图片库帧，NPC 用 `npc` 库 + `GetNpcOffset`，玩家用 `hum` 库 + `HA` 站立帧（按 `job*2+sex` 分块 ×600）；`ActorDefines.mjs` 补 `export`；服务端 `Actor.toBriefJson` 新增 `raceImg` 字段（`Monster.raceImg = template.raceImg`，图像种族 9~99 与服务器 `race` 81~97 是两套值）。纹理异步加载未完成时回退圆点。
 15. **技能/魔法系统**：`MagicTemplate` 加命名字段 + `resolve()`（字段顺序以 Paradox 实际文件顺序为准，见 §10）；`Player` 加 `skills`（magicId→`Skill{level,curTrain}`）与 `skillCooldown`；`GameWorld` 加 `magicTemplates`；`GameService` 新增 `castMagic` 协议（客户端→`castMagic{magicId,targetId}`，服务端→`spellCast{casterId,magicId,effect}` 广播）：
     - 伤害魔法（火球 1/大火球 5/雷电 11/灭天火 35，伤害=威力随技能等级缩放+MC-目标魔御）+ 治愈魔法（治愈 2/群体治愈 24）+ 推开（抗拒火环 8/气功波 37，`pushAround`）+ 传送（瞬息移动 21，`randomTeleport`）；
     - MP 消耗随技能等级递增（`GetSpellPoint`=`Round(Spell/4*(level+1))+DefSpell`）、冷却（`Delay*10`）、技能已学检查；
@@ -120,8 +130,16 @@ jootm2/
     - `main.mjs`：`loadResources()` → WS `/ws` → LoginScene 链路（**坑：漏了 loadResources 会导致 mapUrl 全 null、地图不加载**）。
     - **关键坑（已修）**：服务端 `enterGame` 后紧跟 `broadcastEntityAdd(自己)`，前端若不过滤会把 entities[self.id] 覆盖成 toBriefJson 简化对象，与 self（toPlayerJson 完整对象）引用分离 → move 更新 entities 而 self 不动（表现为「客户端原地不动」）。entityAdd 需跳过 `msg.entity.id === self.id`。
     - 验证（Playwright）：注册→建角→进图→移动（右/上各 +5 格）→聊天→怪物自动攻击进日志；截图确认地图纹理/房屋/光效渲染正常。过渡期实体用圆点+血条（真实 sprite 在 §14 待办）。
+24. **前端 WIL 加载加速**（`frontend/gfx/`）：
+    - `scheduler.mjs`：全局 HTTP Range 请求调度器 —— 最多 **5 并发**（先到先得、所有库共享）+ **去重**（请求偏移落在进行中 chunk 内则复用其数据）+ 从 Content-Range 解析文件总大小。
+    - `wil.mjs`：8/16 位 WIL 解包 → RGBA → 离屏 canvas 缓存；一次请求拉 512K chunk，**一次性解包范围内所有图**（冗余缓存）；chunk 边界用 `_chunkEnd` 二分**对齐到图头**（`sortedOffsets`），避免截断图片；1×1 占位图跳过；`loadIndex` 防并发重复。
+    - 验证：40 张 tiles 图仅 2 次 fetch（解包 104 张）；多库并发峰值 active=5；tiles/magic/magic2 三库 chunk 全对齐图头、截断数 0。
+25. **音频资源**（`resources/Wav/`，694 个 wav）：
+    - `resource.mjs` 加 `wavUrl(soundId)` / `wavCount()`（对接 `resources.json` 的 `wavs` 键）。
+    - 后端 `HttpServerHandler.contentType` 加 `.wav→audio/wav`（另加 mp3/ogg）；已确认支持 Range 206 + CORS `*`。
+    - 验证：Playwright `Audio` 元素加载成功可播放（duration 1.5s）。音效播放系统本身未做（§14 待办）。
 
-关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`。
+关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
 ## 4. 未完成 / 待办（就是「移植整个 M2Server」剩下的部分）
 
@@ -133,13 +151,17 @@ jootm2/
 - ~~摆摊~~：源码仅有 `Market_Def`（NPC 商店），无玩家摆摊/摊点（`Stall`）系统。
 - ~~装备强化升级（非祝福油）~~：源码有 `RandomUpgradeItem`/`UserSelectGetBackUpgrade`（提交黑铁矿→等待 1 小时→随机成败的 NPC 升级），但依赖专门 NPC 脚本 + 升级材料数据 + `UpgradingList` 持久化，属独立大工程，可后续按需单独立项。
 
-## 5. 迁移方向建议（给新 agent）
+## 5. 当前阶段 & 下一步（给新 agent）
 
-1. ~~多地图 + 地图切换~~（已完成，见 §3 第 10 条）。
-2. ~~NPC 系统~~（已完成，见 §3 第 11 条）。
-3. ~~物品掉落/拾取/使用~~（已完成，见 §3 第 12 条）。
-4. ~~技能/魔法释放~~（已完成，见 §3 第 20 条）。
-5. ~~任务系统、行会/攻城~~（已完成，见 §3 第 18/21 条）。
+**后端（M2Server 移植）已 100% 完成**（§3 第 1-22 条覆盖全部核心玩法子系统），`mvn package` + smoke test 通过，无待办。
+
+**前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）。**下一步主线**（按序）：
+
+1. **实体真实 sprite**：替换 `PlayScene._renderEntities` 的圆点 → 玩家 `hum` 库站立帧、怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC `npc` 库 + `GetNpcOffset`。参考 `/Volumes/未命名/client/actor/ActorDefines.mjs` 与 §3 第 14 条（旧副本 sprite 逻辑可复用）。
+2. **点击交互**：点地走（寻路）、点怪走近攻击、点 NPC 对话、点物拾取（服务端协议 `pickup/npcTalk/attack/move` 已就绪）。
+3. **背包/装备/NPC 对话框 GUI**：`gui/` 框架（DWindow/DGrid/DButton）已就绪，接服务端 `bagUpdate/npcSay` 协议即可。
+
+详细待办与优化项见 §14。
 
 ## 6. 数据依赖（重要，不在 git 里）
 
@@ -152,7 +174,7 @@ jootm2/
 
 - `gamedata/mud2/DB/*.DB`（Paradox 原始表）是**真实文件**，已拷入，可 git 管理。
 - `gamedata/Mir200/Envir/`（MapInfo/MonGen/Npcs/MerChant/MapQuest/MonItems/Npc_Def/Market_Def…）是**真实文件**，已拷入。
-- 前端 `frontend/` 是从 `/Volumes/未命名/client/` 拷来的副本（改了 index.html 两处 URL），后续改前端应在 `frontend/` 里改。
+- 前端 `frontend/` 是**原生 canvas 2d 重写**（ES Module，非框架）；旧 PixiJS client 副本在 `/Volumes/未命名/client/`（保留作 sprite 逻辑参考，见 §12）。后续改前端一律在 `frontend/` 里改。
 
 ## 7. WebSocket JSON 协议
 
@@ -189,7 +211,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - **.map 格式**（`resource/MapFileReader.java`）：52 字节头（宽/高/标题/日期/保留）+ `宽*高` 个 12 字节瓦片；bng/mid/obj 各 2 字节，`0x8000` 位=阻挡。
 - **编码**：所有 gamedata 文本（MapInfo/MonGen/Npcs/…）与 Paradox Alpha 字段都是 **GBK**（Java 用 `Charset.forName("GBK")`）。SQLite 内部存 UTF-8（Gson JSON）。
 - **模板表**：`std_items(idx,data)` `monsters(name,data)` `magics(mag_id,data)`，`data` 是模板类的 Gson JSON，见 `db/Database.java`。
-- **前端残留死代码**：`frontend/` 里 `EDcode.mjs`/`GB2312Encoder.mjs`/`SDK.mjs` 的 `Messages` 都是老二进制协议遗留；现用 JSON，实际入口是 `frontend/scene/SceneManager.mjs`（照 §7 收发）。
+- **前端入口与架构**：入口是 `frontend/main.mjs`（`loadResources()` → WS `/ws` → LoginScene → 主循环）；场景由 `scene/SceneManager.mjs` 驱动，`conn.on('*')` 把服务端消息路由到当前场景的 `onMessage(type, msg)`。所有通信是 JSON（§7），无二进制协议。（旧 client 副本里的 `EDcode/GB2312Encoder/SDK` 二进制协议代码在新前端里**已不存在**。）
 
 ## 11. 已发现的坑 / 注意
 
@@ -210,7 +232,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 
 ## 13. 一句总结
 
-单体 Netty 服务端骨架、前端托管、资源托管、Paradox→SQLite、账号角色、真实地图+真实刷怪、基础战斗/聊天都已就绪且 `mvn package` + smoke test 通过；「整个 M2Server」剩余的是 **多地图、NPC/商店/任务脚本、技能、装备/掉落、行会/攻城** 这几大块，数据文件都已就位（见 §6），建议按 §5 顺序逐个补齐。
+**后端 M2Server 移植已全部完成**（账号角色/多地图/NPC 脚本商店/掉落拾取/技能魔法/战斗 buff 宠物/任务/装备套装/行会攻城/组队仓库交易，§3 第 1-22 条），`mvn package` + smoke test 通过。**前端重写进行中**：已完成 GUI 框架 + 登录/选角/游戏场景（真实等距地图渲染 + 移动/聊天/战斗闭环，§3 第 23-25 条）；下一步是**实体真实 sprite → 点击交互 → 背包/NPC GUI**（§5）。接手先读 §2 目录、§5 方向、§10 关键点、§11 坑、§14 待办。
 
 ## 14. 优化项备忘（先记不做，优先保证主线）
 

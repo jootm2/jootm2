@@ -213,6 +213,10 @@ jootm2/
     - **名字/血条上移**：格顶 -47/-30 落在人物头部（用户反馈偏下）→ **-58/-44**（头顶 ≈ 格顶-39，血条贴头顶上方 5px、名字再上 14px）。
     - **「改了没反应」根因 = 浏览器缓存旧 .mjs**（ES Module 无 cache-busting）：服务端静态响应加 `Cache-Control` —— `.mjs/.html/.json` → `no-cache`（改代码刷新即生效），`.wil/.wix/.map/.wav` → `immutable` 长缓存。**以后改前端代码，用户刷新页面即可，无需清缓存**。
     - 验证：shift 连续、cache-control 头正确（curl 确认）。
+39. **点击改「朝方向走格」+ 名字上移**：
+    - **点击语义（用户澄清）**：原版是「按下时朝鼠标相对画面中心的方向走 1 格（左键）/ 2 格（右键）」，不是「寻路走到目标点」。移除 `_clickTarget` 寻路，改 `_dirFromMouse`（鼠标偏移按 48/32 纵横比归一化映射 8 方向）+ `_stepsLeft/_stepDir`（点击立即走第一步，右键余 1 步由 moveTimer 走）。保留相邻怪→攻击/相邻 NPC→对话/脚下物→拾取。
+    - **名字上移**：格顶 -17（人物身体，用户仍嫌偏下）→ **-71**（血条 -57 上方，一起在头顶上方）。
+    - 验证：左键右方 1 格、右键右方 2 格、上方 y-1、名字/血条位置正确。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

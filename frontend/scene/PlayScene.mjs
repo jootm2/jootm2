@@ -279,6 +279,8 @@ export class PlayScene extends Scene {
                 if (this.self) {
                     this.self.gold = msg.gold;
                     this.self.items = msg.items || [];
+                    if (msg.dress !== undefined) this.self.dress = msg.dress;
+                    if (msg.weapon !== undefined) this.self.weapon = msg.weapon;
                 }
                 this._refreshBag();
                 break;

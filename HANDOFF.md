@@ -156,6 +156,11 @@ jootm2/
     - `bagUpdate` → 更新 `self.gold/self.items` 并刷新背包面板。
     - 修 bug：点击 cell 换算 `round`→`floor`（格子中心点原会偏移 1 格，导致点怪/NPC 命中偏差 1 格）。
     - 验证（Playwright）：背包显示 6 件初始物品（命运之书/金创药/魔法药×2/肉×2）；点击「招财树」NPC 触发 npcSay + 4 选项 + 点选项后 npcSelect 回复正常。
+29. **装备外观（dress/weapon 跟随装备）**：
+    - 修 bug：玩家 sprite 外观号之前用 `dress=job*2+sex`、`weapon=weaponLooks`（错误）；对齐 Delphi `ObjBase.pas GetRelFeature`：`dress = 衣服 shape*2 + sex`、`weapon = 武器 shape*2 + sex`、`face = hair*2 + sex`（无装备时 dress/weapon = sex）。
+    - 服务端 `Player` 加 `dressLooks()/weaponShape()`，`toBriefJson/toPlayerJson` 发 `dress/weapon` 字段（替换错误的 weaponLooks）；`sendBagUpdate` 也带 dress/weapon（穿装备后 self 外观即时刷新）。
+    - 前端 `ActorSprite` 玩家层改用服务端 `dress/weapon` 字段（fallback sex）。
+    - 验证：初始 dress=sex=0、weapon=sex=0（字段传递正确）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -176,10 +181,9 @@ jootm2/
 **前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）+ **实体真实 sprite**（§3 第 26 条）+ **行走/攻击动画 + 点击交互**（§3 第 27 条）+ **背包/装备/NPC 对话框 GUI**（§3 第 28 条）。**前端阶段 2 主线已全部完成**，游戏可玩闭环打通（登录→选角→进图→移动/点击→战斗→拾取→使用物品→NPC 对话/买卖）。
 
 **下一步主线**（按序，进入「打磨/进阶」阶段）：
-1. **装备外观**：穿装备后 `dress` 跟随 U_DRESS 外观（当前 `dress=job*2+sex` 初始外观；服务端需在 toBriefJson 补 dress 字段）。
-2. **技能栏 F1-F8 施法**：`castMagic{magicId,targetId}` 已就绪，客户端接技能栏 UI + 施法目标选择。
-3. **卖出去重/数量**：NPC 出售目前单件点击；可加数量选择（sellItem 协议已支持 makeIndex 单件）。
-4. **音效系统**（§14）、**优化项**（§14）。
+1. **技能栏 F1-F8 施法**：`castMagic{magicId,targetId}` 已就绪，客户端接技能栏 UI + 施法目标选择。
+2. **卖出去重/数量**：NPC 出售目前单件点击；可加数量选择（sellItem 协议已支持 makeIndex 单件）。
+3. **音效系统**（§14）、**优化项**（§14）。
 
 详细待办与优化项见 §14。
 
@@ -271,8 +275,9 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [x] **背包/装备/NPC 对话框 GUI**（已完成，见 §3 第 28 条）。
 - [ ] **点墙就近寻路**：点击不可站格（canStand=false）目前不移动；应就近找一个可站格作为寻路目标。
 - [ ] **血条/名字与 sprite 重叠**：血条画在格顶（sy-4）而 sprite 向上延伸超出格顶，二者重叠；应改为「头顶上方」固定偏移（按 sprite 实际高度计算）。
-- [ ] **装备外观**：穿装备后 dress 未跟随 U_DRESS 外观（当前 `dress=job*2+sex` 初始外观）。
+- [x] **装备外观**（已完成，见 §3 第 29 条）。
 - [ ] **宠物/玩家死亡残留**：服务端 `removeActor` 不广播 `entityRemove`（宠物死亡/玩家登出后前端实体残留尸体），需补 `entityRemove` 广播或前端超时清理。
+- [ ] **其他玩家装备变化同步**：穿装备后只 sendStats/sendBagUpdate 给本人，未广播给其他玩家（Delphi 用 SM_FEATURECHANGED），需补 `featureChanged` 广播或重新 entityAdd。
 
 ### 音频
 - [ ] **音效系统**：`resource.mjs` 的 `wavUrl/wavCount` 已就绪（694 个 wav，`/resources/Wav/` 已托管 `audio/wav`），后续做 Web Audio 播放 + 按场景预加载。

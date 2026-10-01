@@ -74,11 +74,13 @@ export class ActorSprite {
         const cf = af.start + rel;   // 相对帧号（已含方向偏移）
 
         // 玩家分层：武器→身体→头发（各库 600 帧/外观）
+        // dress/weapon 由服务端按 Delphi GetRelFeature 算好（shape*2+sex；无装备 = sex）
         if (e.type === 'player') {
-            const dress = e.job * 2 + e.sex;
+            const dress = e.dress != null ? e.dress : e.sex;
+            const weapon = e.weapon != null ? e.weapon : 0;
             const layers = [];
-            if ((e.weaponLooks || 0) >= 2) {
-                layers.push({ lib: 'weapon', index: A.HUMANFRAME * e.weaponLooks + cf });
+            if (weapon >= 2) {
+                layers.push({ lib: 'weapon', index: A.HUMANFRAME * weapon + cf });
             }
             layers.push({ lib: 'hum', index: A.HUMANFRAME * dress + cf });
             if ((e.hair || 0) >= 1) {

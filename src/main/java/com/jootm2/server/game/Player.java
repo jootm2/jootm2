@@ -92,14 +92,26 @@ public final class Player extends Actor {
         return true;
     }
 
-    /** 当前装备武器的外观（无武器为 0），用于客户端武器分层渲染。 */
-    public int weaponLooks() {
-        ItemInstance w = equipment[MessageIds.U_WEAPON];
-        if (w == null || world == null) {
-            return 0;
+    /** 衣服外观号（对齐 Delphi GetRelFeature：dress = 衣服 shape*2 + sex；无衣服 = sex）。 */
+    public int dressLooks() {
+        int shape = 0;
+        ItemInstance d = equipment[MessageIds.U_DRESS];
+        if (d != null && world != null) {
+            ItemTemplate t = world.itemTemplates.get(d.index);
+            if (t != null) shape = t.shape;
         }
-        ItemTemplate t = world.itemTemplates.get(w.index);
-        return t == null ? 0 : t.looks;
+        return shape * 2 + sex;
+    }
+
+    /** 武器外观号（对齐 Delphi GetRelFeature：weapon = 武器 shape*2 + sex；无武器 = sex）。 */
+    public int weaponShape() {
+        int shape = 0;
+        ItemInstance w = equipment[MessageIds.U_WEAPON];
+        if (w != null && world != null) {
+            ItemTemplate t = world.itemTemplates.get(w.index);
+            if (t != null) shape = t.shape;
+        }
+        return shape * 2 + sex;
     }
 
     @Override
@@ -108,7 +120,8 @@ public final class Player extends Actor {
         o.addProperty("sex", sex);
         o.addProperty("hair", hair);
         o.addProperty("job", job);
-        o.addProperty("weaponLooks", weaponLooks());
+        o.addProperty("dress", dressLooks());
+        o.addProperty("weapon", weaponShape());
         return o;
     }
 
@@ -292,7 +305,8 @@ public final class Player extends Actor {
         o.addProperty("gold", gold);
         o.addProperty("race", race);
         o.addProperty("appr", appr);
-        o.addProperty("weaponLooks", weaponLooks());
+        o.addProperty("dress", dressLooks());
+        o.addProperty("weapon", weaponShape());
         o.add("items", itemsJson(world));
         return o;
     }

@@ -846,6 +846,8 @@ public final class GameService {
         JsonObject o = new JsonObject();
         o.addProperty("type", "bagUpdate");
         o.addProperty("gold", p.gold);
+        o.addProperty("dress", p.dressLooks());
+        o.addProperty("weapon", p.weaponShape());
         o.add("items", p.itemsJson(world));
         p.session.sendText(o.toString());
     }

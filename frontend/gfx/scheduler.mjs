@@ -55,11 +55,18 @@ class RangeScheduler {
         fetch(req.url, { headers: { Range: `bytes=${req.start}-${req.end}` } })
             .then(resp => {
                 if (!resp.ok && resp.status !== 206) throw new Error(`HTTP ${resp.status}`);
-                return resp.arrayBuffer();
+                // 从 Content-Range 提取文件总大小（"bytes 0-1023/267372" -> 267372）
+                let total = 0;
+                const cr = resp.headers.get('content-range');
+                if (cr) {
+                    const m = cr.match(/\/(\d+)\s*$/);
+                    if (m) total = parseInt(m[1], 10);
+                }
+                return resp.arrayBuffer().then(buffer => ({ buffer, total }));
             })
-            .then(buffer => {
+            .then(({ buffer, total }) => {
                 for (const c of item.consumers) {
-                    c.resolve({ start: item.start, buffer });
+                    c.resolve({ start: item.start, buffer, total });
                 }
             })
             .catch(err => {

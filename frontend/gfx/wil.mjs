@@ -24,6 +24,8 @@ export class WIL {
         this.wixUrl = wixUrl;
         this.imageCount = 0;
         this.offsetList = [];        // 每图在 wil 的偏移（0=空图）
+        this.sortedOffsets = [];     // 非空图偏移（递增），用于 chunk 边界对齐 + 二分查找
+        this.fileSize = 0;           // wil 文件总大小（首个 fetch 的 Content-Range 获取）
         this.indexLoaded = false;
         this._indexLoading = null;   // 防重复加载索引
         this.textures = new Map();   // index -> { canvas, px, py, width, height }
@@ -44,6 +46,7 @@ export class WIL {
             for (let i = 0; i < this.imageCount; i++) {
                 const off = view.getUint32(48 + i * 4, true);
                 this.offsetList[i] = off < 1080 ? 0 : off;
+                if (off >= 1080) this.sortedOffsets.push(off);
             }
             this.indexLoaded = true;
         })();
@@ -80,13 +83,29 @@ export class WIL {
         }
 
         // 经全局调度器拉取片段（5 并发 + 去重）
-        const end = off + CHUNK_SIZE;
-        const { start, buffer } = await scheduler.schedule(this.wilUrl, off, end);
+        const end = this._chunkEnd(off);
+        const { start, buffer, total } = await scheduler.schedule(this.wilUrl, off, end);
+        if (total > this.fileSize) this.fileSize = total;
 
         // 一次性解包整个片段范围内的所有图（冗余缓存，后续请求直接命中）
         this._unpackRange(new DataView(buffer), start);
 
         return this.textures.get(index) || null;
+    }
+
+    // 计算 chunk 结束偏移：对齐到「第一个 >= start + CHUNK_SIZE 的图头」，
+    // 保证 chunk 边界永远落在图片头，不截断任何一张图。
+    _chunkEnd(start) {
+        const target = start + CHUNK_SIZE;
+        const arr = this.sortedOffsets;
+        let lo = 0, hi = arr.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (arr[mid] < target) lo = mid + 1;
+            else hi = mid;
+        }
+        if (lo < arr.length) return arr[lo];   // 第一个 >= target 的图头
+        return this.fileSize > 0 ? this.fileSize : target;   // 末尾：对齐到文件末尾
     }
 
     // 解包 [start, start+buffer.byteLength) 范围内的所有图

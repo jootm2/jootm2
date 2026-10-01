@@ -28,7 +28,8 @@ export class PlayScene extends Scene {
         this.mapActor = new MapActor(SCREEN_WIDTH, MAPSURFACEHEIGHT);
         this.keys = new Set();
         this.moveTimer = null;
-        this._clickTarget = null;    // 点击移动目标 {tx,ty,run,action?...}
+        this._stepsLeft = 0;         // 点击移动剩余步数
+        this._stepDir = -1;          // 点击移动方向
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
         this._canvas = document.getElementById('screen');
@@ -160,44 +161,17 @@ export class PlayScene extends Scene {
             if (!this.self) return;
             this._tick = (this._tick || 0) + 1;
             let d = -1;
-            const t = this._clickTarget;
-            if (t) {
-                // 左键走（每 2 tick 一步）、右键跑（每 tick 一步）
-                if (!t.run && this._tick % 2 !== 0) return;
-                const dist = Math.max(Math.abs(t.tx - this.self.x), Math.abs(t.ty - this.self.y));
-                if (t.action && dist <= 1) {
-                    // 走到相邻格：执行动作
-                    this._doClickAction(t);
-                    this._clickTarget = null;
-                } else if (!t.action && dist <= 0) {
-                    this._clickTarget = null;   // 到达
-                } else {
-                    // 贪心直线走向目标（不寻路绕障碍）
-                    const dx = Math.sign(t.tx - this.self.x);
-                    const dy = Math.sign(t.ty - this.self.y);
-                    d = DIRMAP[dx + ',' + dy];
-                    // 卡住检测：位置连续多次没变则放弃
-                    if (this.self.x === this._stuckX && this.self.y === this._stuckY) {
-                        this._stuckN = (this._stuckN || 0) + 1;
-                        if (this._stuckN > 4) { this._clickTarget = null; this._stuckN = 0; }
-                    } else {
-                        this._stuckX = this.self.x;
-                        this._stuckY = this.self.y;
-                        this._stuckN = 0;
-                    }
-                }
-            } else {
-                d = this._currentDir();   // 键盘移动
+            const kd = this._currentDir();
+            if (kd >= 0) {
+                d = kd;                 // 键盘持续移动（优先）
+                this._stepsLeft = 0;    // 键盘覆盖点击的剩余步数
+            } else if (this._stepsLeft > 0) {
+                // 点击走剩余步数（跑：右键点击后每 tick 一步）
+                d = this._stepDir;
+                this._stepsLeft--;
             }
             if (d >= 0) this.conn.send('move', { dir: d });
         }, 100);
-    }
-
-    // 点击目标动作（走近后执行）
-    _doClickAction(t) {
-        if (t.action === 'attack') this.conn.send('attack', { targetId: t.targetId });
-        else if (t.action === 'npc') this.conn.send('npcTalk', { npcId: t.npcId });
-        else if (t.action === 'pickup') this.conn.send('pickup', { itemId: t.itemId });
     }
 
     _currentDir() {
@@ -254,25 +228,53 @@ export class PlayScene extends Scene {
         const tx = Math.floor((mx - ox + shiftX) / 48) + cx;
         const ty = Math.floor((my - oy + shiftY) / 32) + cy;
         const run = e.button === 2;   // 左键走、右键跑
+        const dir = this._dirFromMouse(e);
+        if (dir < 0) return;
 
+        // 相邻怪物 → 攻击；相邻 NPC → 对话；脚下物品 → 拾取
         const monster = this._actorAt(tx, ty, 'monster');
-        if (monster && monster.hp > 0) {
-            this.castTarget = monster.id;   // 设为施法目标（红框高亮）
-            this._clickTarget = { tx, ty, run, action: 'attack', targetId: monster.id };
+        if (monster && monster.hp > 0 && this._dist(this.self, monster) <= 1) {
+            this.castTarget = monster.id;   // 红框高亮
+            this.conn.send('attack', { targetId: monster.id });
             return;
         }
         const npc = this._actorAt(tx, ty, 'npc');
-        if (npc) {
-            this._clickTarget = { tx, ty, run, action: 'npc', npcId: npc.id };
+        if (npc && this._dist(this.self, npc) <= 1) {
+            this.conn.send('npcTalk', { npcId: npc.id });
             return;
         }
         const gi = this._groundAt(tx, ty);
-        if (gi) {
-            this._clickTarget = { tx, ty, run, action: 'pickup', itemId: gi.id };
+        if (gi && gi.x === this.self.x && gi.y === this.self.y) {
+            this.conn.send('pickup', { itemId: gi.id });
             return;
         }
-        // 空地：贪心直线走向点击点（左键走、右键跑）
-        this._clickTarget = { tx, ty, run };
+        // 空地：朝鼠标方向走 1 格（左键）/ 2 格（右键），不寻路
+        this.conn.send('move', { dir });          // 立即走第一步
+        this._stepsLeft = (run ? 2 : 1) - 1;
+        this._stepDir = dir;
+    }
+
+    // 鼠标相对画面中心（人物）→ 逻辑 8 方向
+    _dirFromMouse(e) {
+        const rect = this._canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
+        const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
+        const dx = mx - (ox + 24);   // 人物格子中心 X
+        const dy = my - (oy + 16);   // 人物格子中心 Y
+        if (dx === 0 && dy === 0) return -1;
+        const ax = Math.abs(dx) / 48;
+        const ay = Math.abs(dy) / 32;
+        let lgx, lgy;
+        if (ax > ay * 1.5) { lgx = Math.sign(dx); lgy = 0; }
+        else if (ay > ax * 1.5) { lgx = 0; lgy = Math.sign(dy); }
+        else { lgx = Math.sign(dx); lgy = Math.sign(dy); }
+        return DIRMAP[lgx + ',' + lgy];
+    }
+
+    _dist(a, b) {
+        return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
     }
 
     _actorAt(tx, ty, type) {
@@ -373,7 +375,7 @@ export class PlayScene extends Scene {
                 // 换图快照：重建实体 + 地面物品 + 切地图
                 this.entities.clear();
                 this.groundItems.clear();
-                this._clickTarget = null;
+                this._stepsLeft = 0;
                 this._viewX = null;   // 重置卷动中心
                 this.castTarget = null;
                 if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); }
@@ -637,7 +639,7 @@ export class PlayScene extends Scene {
         if (this._mouseDown) this._canvas.removeEventListener('mousedown', this._mouseDown);
         if (this._ctxMenu) this._canvas.removeEventListener('contextmenu', this._ctxMenu);
         this.keys.clear();
-        this._clickTarget = null;
+        this._stepsLeft = 0;
         this.bagPanel = null;
         this.npcDlg = null;
         const gui = this.manager.winManager.container;

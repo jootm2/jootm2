@@ -179,13 +179,13 @@ export class MapActor {
                         ctx.strokeRect(anchorX + 4, sy(e.y) - 70, 40, 100);
                     }
 
-                    // 名字（原版 DrawScrn：SayY + 30 = 格顶 - 17，画在人物身体上）
+                    // 名字（血条上方：格顶 - 71，与血条 -57 一起都在头顶上方）
                     if (e.name) {
                         ctx.font = '11px SimSun,serif';
                         ctx.textAlign = 'center';
                         const tw = ctx.measureText(e.name).width;
                         const nx = anchorX + TILE_W / 2;
-                        const ny = sy(e.y) - 17;
+                        const ny = sy(e.y) - 71;
                         ctx.fillStyle = 'rgba(0,0,0,0.6)';
                         ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
                         ctx.fillStyle = e.isSelf ? '#ffe9b0' : '#e0d0a0';

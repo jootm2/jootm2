@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.jootm2.server.game.common.Ability;
 import com.jootm2.server.game.common.ItemInstance;
 import com.jootm2.server.game.common.ItemTemplate;
+import com.jootm2.server.game.common.MagicTemplate;
 import com.jootm2.server.game.common.MessageIds;
 import com.jootm2.server.game.common.Skill;
 import com.jootm2.server.service.PlayerSession;
@@ -307,7 +308,21 @@ public final class Player extends Actor {
         o.addProperty("appr", appr);
         o.addProperty("dress", dressLooks());
         o.addProperty("weapon", weaponShape());
+        o.add("skills", skillsJson(world));
         o.add("items", itemsJson(world));
+        return o;
+    }
+
+    /** 已学技能：{magicId: {name, level}}，供客户端技能栏显示。 */
+    public JsonObject skillsJson(GameWorld world) {
+        JsonObject o = new JsonObject();
+        for (Map.Entry<Integer, Skill> e : skills.entrySet()) {
+            MagicTemplate mt = world != null ? world.magicTemplates.get(e.getKey()) : null;
+            JsonObject s = new JsonObject();
+            s.addProperty("name", mt != null ? mt.name : String.valueOf(e.getKey()));
+            s.addProperty("level", e.getValue().level);
+            o.add(String.valueOf(e.getKey()), s);
+        }
         return o;
     }
 

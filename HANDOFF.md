@@ -161,6 +161,10 @@ jootm2/
     - 服务端 `Player` 加 `dressLooks()/weaponShape()`，`toBriefJson/toPlayerJson` 发 `dress/weapon` 字段（替换错误的 weaponLooks）；`sendBagUpdate` 也带 dress/weapon（穿装备后 self 外观即时刷新）。
     - 前端 `ActorSprite` 玩家层改用服务端 `dress/weapon` 字段（fallback sex）。
     - 验证：初始 dress=sex=0、weapon=sex=0（字段传递正确）。
+30. **技能栏 F1-F8 施法**：
+    - 服务端 `Player.toPlayerJson` 发 `skills`（`{magicId:{name,level}}`，新增 `skillsJson()`）。
+    - 前端：底部技能栏（F1-F8 槽显示已学技能名，点击或按 F1-F8 施法）；点击怪物设为施法目标（`castTarget`，红框高亮）；`TARGET_MAGICS`（伤害 1/5/11/35、施毒 6、火墙 22、诱惑 20）需要目标（无目标提示选择），治愈/召唤/推开/传送/隐身直接施法（`targetId=-1`）；`spellCast` 消息驱动施法者播放攻击动画。
+    - 验证（Playwright）：道士初始技能「治愈术」显示在 F1 槽 + 施法请求 `castMagic{magicId:2,targetId:-1}`；火球术无目标时不发请求、设目标后发 `castMagic{magicId:1,targetId}`。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -181,9 +185,8 @@ jootm2/
 **前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）+ **实体真实 sprite**（§3 第 26 条）+ **行走/攻击动画 + 点击交互**（§3 第 27 条）+ **背包/装备/NPC 对话框 GUI**（§3 第 28 条）。**前端阶段 2 主线已全部完成**，游戏可玩闭环打通（登录→选角→进图→移动/点击→战斗→拾取→使用物品→NPC 对话/买卖）。
 
 **下一步主线**（按序，进入「打磨/进阶」阶段）：
-1. **技能栏 F1-F8 施法**：`castMagic{magicId,targetId}` 已就绪，客户端接技能栏 UI + 施法目标选择。
-2. **卖出去重/数量**：NPC 出售目前单件点击；可加数量选择（sellItem 协议已支持 makeIndex 单件）。
-3. **音效系统**（§14）、**优化项**（§14）。
+1. **卖出去重/数量**：NPC 出售目前单件点击；可加数量选择（sellItem 协议已支持 makeIndex 单件）。
+2. **音效系统**（§14）、**优化项**（§14：血条重叠/点墙就近寻路/宠物死亡残留/其他玩家装备变化同步）。
 
 详细待办与优化项见 §14。
 

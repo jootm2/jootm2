@@ -16,6 +16,9 @@ const DIRMAP = {
 // 装备槽名（对应 MessageIds U_DRESS..U_CHARM）
 const SLOT_NAMES = ['衣服', '武器', '右手', '项链', '头盔', '手镯L', '手镯R', '戒指L', '戒指R', '护身符', '腰带', '靴子', '宝石'];
 
+// 需要施法目标的魔法（伤害/施毒/火墙/诱惑）
+const TARGET_MAGICS = new Set([1, 5, 6, 11, 20, 22, 35]);
+
 export class PlayScene extends Scene {
     constructor(manager, snapshot) {
         super(manager);
@@ -29,6 +32,7 @@ export class PlayScene extends Scene {
         this.path = [];              // 寻路方向队列（覆盖键盘移动）
         this._onArrive = null;       // 到达回调
         this.groundItems = new Map();// id -> 地面物品
+        this.castTarget = null;      // 施法目标（怪物 id）
         this._canvas = document.getElementById('screen');
         this.chatLines = [];
         this._chatInput = null;
@@ -89,6 +93,64 @@ export class PlayScene extends Scene {
         chatBox.appendChild(this.chatLog);
         chatBox.appendChild(this.chatInput);
         gui.appendChild(chatBox);
+
+        // 技能栏（F1-F8）
+        this.skillBar = document.createElement('div');
+        this.skillBar.style.cssText = 'position:absolute;left:50%;bottom:8px;transform:translateX(-50%);'
+            + 'display:flex;gap:4px;pointer-events:auto;';
+        for (let i = 1; i <= 8; i++) {
+            const slot = document.createElement('div');
+            slot.dataset.fkey = i;
+            slot.dataset.magicId = '';
+            slot.style.cssText = 'width:56px;height:42px;background:rgba(0,0,0,0.65);border:1px solid #5a4a2a;'
+                + 'border-radius:3px;font-size:10px;color:#c9b98a;text-align:center;cursor:pointer;'
+                + 'display:flex;flex-direction:column;justify-content:center;overflow:hidden;';
+            slot.innerHTML = `<div style="color:#9a8b6a;font-size:9px;">F${i}</div><div class="skname" style="font-size:11px;color:#e8d9b0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>`;
+            slot.addEventListener('click', () => this._castFromSlot(i));
+            this.skillBar.appendChild(slot);
+        }
+        gui.appendChild(this.skillBar);
+        this._refreshSkillBar();
+    }
+
+    // 刷新技能栏（self.skills → F1-F8 槽）
+    _refreshSkillBar() {
+        if (!this.skillBar || !this.self) return;
+        const skills = this.self.skills || {};
+        const entries = Object.entries(skills);
+        for (let i = 0; i < 8; i++) {
+            const slot = this.skillBar.children[i];
+            const entry = entries[i];
+            if (entry) {
+                slot.dataset.magicId = entry[0];
+                slot.querySelector('.skname').textContent = entry[1].name || entry[0];
+                slot.style.borderColor = '#c9a34a';
+            } else {
+                slot.dataset.magicId = '';
+                slot.querySelector('.skname').textContent = '';
+                slot.style.borderColor = '#5a4a2a';
+            }
+        }
+    }
+
+    _castFromSlot(fkey) {
+        const slot = this.skillBar && this.skillBar.children[fkey - 1];
+        const magicId = slot ? Number(slot.dataset.magicId) : 0;
+        if (!magicId) return;
+        this._castMagic(magicId);
+    }
+
+    _castMagic(magicId) {
+        if (TARGET_MAGICS.has(magicId)) {
+            const t = this.castTarget != null ? this.entities.get(this.castTarget) : null;
+            if (!t) {
+                this._log('[系统] 请先点击选择一个怪物作为施法目标。');
+                return;
+            }
+            this.conn.send('castMagic', { magicId, targetId: t.id });
+        } else {
+            this.conn.send('castMagic', { magicId, targetId: -1 });
+        }
     }
 
     _startMoveLoop() {
@@ -128,6 +190,10 @@ export class PlayScene extends Scene {
         this.keys.add(e.code);
         if (e.code === 'Space') this._attackNearest();
         if (e.code === 'KeyB') this._toggleBag();
+        if (e.code >= 'F1' && e.code <= 'F8') {
+            e.preventDefault();
+            this._castFromSlot(Number(e.code.substring(1)));
+        }
     }
 
     _attackNearest() {
@@ -155,6 +221,7 @@ export class PlayScene extends Scene {
 
         const monster = this._actorAt(tx, ty, 'monster');
         if (monster && monster.hp > 0) {
+            this.castTarget = monster.id;   // 设为施法目标（红框高亮）
             this._walkAdjacent(tx, ty, () => this.conn.send('attack', { targetId: monster.id }));
             return;
         }
@@ -261,6 +328,12 @@ export class PlayScene extends Scene {
                 // 播死亡动画（普通怪物重生时 entityAdd 替换对象恢复；换图时清空）
                 const e = this.entities.get(msg.id);
                 if (e) { e._action = 'die'; e._actionAt = Date.now(); }
+                if (this.castTarget === msg.id) this.castTarget = null;
+                break;
+            }
+            case 'spellCast': {
+                const c = this.entities.get(msg.casterId);
+                if (c) { c._action = 'attack'; c._actionAt = Date.now(); }
                 break;
             }
             case 'chat':
@@ -296,6 +369,7 @@ export class PlayScene extends Scene {
                 this.groundItems.clear();
                 this.path = [];
                 this._onArrive = null;
+                this.castTarget = null;
                 if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); }
                 for (const e of msg.nearby || []) this.entities.set(e.id, e);
                 for (const g of msg.groundItems || []) this.groundItems.set(g.id, g);
@@ -553,6 +627,12 @@ export class PlayScene extends Scene {
             ctx.fillRect(sx + 4, sy - 4, 40, 4);
             ctx.fillStyle = isSelf ? '#0ea5e9' : '#ef4444';
             ctx.fillRect(sx + 4, sy - 4, 40 * hp / maxHp, 4);
+            // 施法目标高亮
+            if (this.castTarget != null && e.id === this.castTarget) {
+                ctx.strokeStyle = '#ff3b3b';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(sx + 4, sy - 28, 40, 40);
+            }
         }
     }
 

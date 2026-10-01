@@ -1,5 +1,5 @@
 // 游戏场景（对应旧 PlayScene）
-// 真实等距地图 + 实体（暂用圆点，后续换 sprite）+ 键盘移动 + HUD + 聊天。
+// 真实等距地图 + 实体（sprite）+ 鼠标按住移动（走/跑）+ HUD + 聊天。
 
 import { Scene } from './Scene.mjs';
 import { MapActor } from '../map/MapActor.mjs';
@@ -11,6 +11,10 @@ const DIRMAP = {
     '0,-1': 0, '1,-1': 1, '1,0': 2, '1,1': 3,
     '0,1': 4, '-1,1': 5, '-1,0': 6, '-1,-1': 7,
 };
+
+// 移动动作间隔（ms/步）：走慢跑快，动作之间必须有间隔
+const WALK_INTERVAL = 500;   // 走（左键）
+const RUN_INTERVAL = 250;    // 跑（右键）
 
 // 装备槽名（对应 MessageIds U_DRESS..U_CHARM）
 const SLOT_NAMES = ['衣服', '武器', '右手', '项链', '头盔', '手镯L', '手镯R', '戒指L', '戒指R', '护身符', '腰带', '靴子', '宝石'];
@@ -26,10 +30,11 @@ export class PlayScene extends Scene {
         this.entities = new Map();      // id -> 实体快照
         this.sprites = new Map();       // id -> ActorSprite
         this.mapActor = new MapActor(SCREEN_WIDTH, MAPSURFACEHEIGHT);
-        this.keys = new Set();
         this.moveTimer = null;
-        this._stepsLeft = 0;         // 点击移动剩余步数
-        this._stepDir = -1;          // 点击移动方向
+        this._holding = false;       // 鼠标按住状态
+        this._mouseDir = -1;         // 按住时的移动方向
+        this._mouseRun = false;      // 是否跑（右键）
+        this._lastMoveAt = 0;        // 上次移动时间戳
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
         this._canvas = document.getElementById('screen');
@@ -54,11 +59,13 @@ export class PlayScene extends Scene {
 
         this._buildHud();
         this._keyDown = (e) => this._onKeyDown(e);
-        this._keyUp = (e) => this.keys.delete(e.code);
         document.addEventListener('keydown', this._keyDown);
-        document.addEventListener('keyup', this._keyUp);
-        this._mouseDown = (e) => this._onCanvasClick(e);
-        this._canvas.addEventListener('mousedown', this._mouseDown);
+        this._mdHandler = (e) => this._onMouseDown(e);
+        this._muHandler = () => { this._holding = false; };
+        this._mmHandler = (e) => this._onMouseMove(e);   // 按住时实时更新方向
+        this._canvas.addEventListener('mousedown', this._mdHandler);
+        document.addEventListener('mouseup', this._muHandler);   // 全局松开（防止移出 canvas 后仍按住）
+        document.addEventListener('mousemove', this._mmHandler);
         // 拦截右键菜单（右键用于「跑动」）
         this._ctxMenu = (e) => e.preventDefault();
         this._canvas.addEventListener('contextmenu', this._ctxMenu);
@@ -158,39 +165,20 @@ export class PlayScene extends Scene {
     _startMoveLoop() {
         if (this.moveTimer) return;
         this.moveTimer = setInterval(() => {
-            if (!this.self) return;
-            this._tick = (this._tick || 0) + 1;
-            let d = -1;
-            const kd = this._currentDir();
-            if (kd >= 0) {
-                d = kd;                 // 键盘持续移动（优先）
-                this._stepsLeft = 0;    // 键盘覆盖点击的剩余步数
-            } else if (this._stepsLeft > 0) {
-                // 点击走剩余步数（跑：右键点击后每 tick 一步）
-                d = this._stepDir;
-                this._stepsLeft--;
+            if (!this.self || !this._holding) return;
+            // 按住不放：按走/跑间隔持续朝一个方向走
+            const interval = this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL;
+            const now = Date.now();
+            if (now - this._lastMoveAt >= interval) {
+                this._lastMoveAt = now;
+                this.conn.send('move', { dir: this._mouseDir });
             }
-            if (d >= 0) this.conn.send('move', { dir: d });
-        }, 100);
-    }
-
-    _currentDir() {
-        const up = this.keys.has('ArrowUp') || this.keys.has('KeyW');
-        const dn = this.keys.has('ArrowDown') || this.keys.has('KeyS');
-        const lf = this.keys.has('ArrowLeft') || this.keys.has('KeyA');
-        const rt = this.keys.has('ArrowRight') || this.keys.has('KeyD');
-        const dx = (rt ? 1 : 0) - (lf ? 1 : 0);
-        const dy = (dn ? 1 : 0) - (up ? 1 : 0);
-        return (dx === 0 && dy === 0) ? -1 : DIRMAP[dx + ',' + dy];
+        }, 50);
     }
 
     _onKeyDown(e) {
         if (e.target === this.chatInput) return;
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
-            e.preventDefault();
-        }
-        this.keys.add(e.code);
-        if (e.code === 'Space') this._attackNearest();
+        if (e.code === 'Space') { e.preventDefault(); this._attackNearest(); }
         if (e.code === 'KeyB') this._toggleBag();
         if (e.code >= 'F1' && e.code <= 'F8') {
             e.preventDefault();
@@ -209,27 +197,15 @@ export class PlayScene extends Scene {
         if (best) this.conn.send('attack', { targetId: best.id });
     }
 
-    // ---- 点击交互（点怪攻击 / 点 NPC 对话 / 点物拾取 / 点地走）----
-    _onCanvasClick(e) {
+    // ---- 鼠标按下（点怪攻击 / 点 NPC 对话 / 点物拾取 / 空地走）----
+    _onMouseDown(e) {
         if (!this.self || !this.mapActor.map) return;
         if (e.button !== 0 && e.button !== 2) return;   // 0=左键 2=右键
         e.preventDefault();
-        const rect = this._canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
-        const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
-        // 用「渲染中心 + 卷动偏移」反推格子（与 MapActor.screenX/screenY 严格互逆）。
-        // 之前用 self.x 且忽略 shiftX，卷动时点击会偏 1 格、走向错误目标（像「寻路乱走」）。
-        const cx = this.mapActor._cx;
-        const cy = this.mapActor._cy;
-        const shiftX = this.mapActor._shiftX;
-        const shiftY = this.mapActor._shiftY;
-        const tx = Math.floor((mx - ox + shiftX) / 48) + cx;
-        const ty = Math.floor((my - oy + shiftY) / 32) + cy;
-        const run = e.button === 2;   // 左键走、右键跑
         const dir = this._dirFromMouse(e);
         if (dir < 0) return;
+        const run = e.button === 2;   // 左键走、右键跑
+        const { tx, ty } = this._gridFromMouse(e);
 
         // 相邻怪物 → 攻击；相邻 NPC → 对话；脚下物品 → 拾取
         const monster = this._actorAt(tx, ty, 'monster');
@@ -248,10 +224,31 @@ export class PlayScene extends Scene {
             this.conn.send('pickup', { itemId: gi.id });
             return;
         }
-        // 空地：朝鼠标方向走 1 格（左键）/ 2 格（右键），不寻路
-        this.conn.send('move', { dir });          // 立即走第一步
-        this._stepsLeft = (run ? 2 : 1) - 1;
-        this._stepDir = dir;
+        // 空地：记录方向，立即走一步；按住不放则按走/跑间隔持续走
+        this._holding = true;
+        this._mouseDir = dir;
+        this._mouseRun = run;
+        this.conn.send('move', { dir });
+        this._lastMoveAt = Date.now();
+    }
+
+    // 按住移动时，鼠标位置实时更新移动方向（移动过程中转向）
+    _onMouseMove(e) {
+        if (!this._holding) return;
+        const dir = this._dirFromMouse(e);
+        if (dir >= 0) this._mouseDir = dir;
+    }
+
+    // 鼠标 → 游戏格子（渲染中心 + 卷动偏移反推，与 screenX/screenY 互逆）
+    _gridFromMouse(e) {
+        const rect = this._canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
+        const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
+        const tx = Math.floor((mx - ox + this.mapActor._shiftX) / 48) + this.mapActor._cx;
+        const ty = Math.floor((my - oy + this.mapActor._shiftY) / 32) + this.mapActor._cy;
+        return { tx, ty };
     }
 
     // 鼠标相对画面中心（人物）→ 逻辑 8 方向
@@ -375,7 +372,7 @@ export class PlayScene extends Scene {
                 // 换图快照：重建实体 + 地面物品 + 切地图
                 this.entities.clear();
                 this.groundItems.clear();
-                this._stepsLeft = 0;
+                this._holding = false;
                 this._viewX = null;   // 重置卷动中心
                 this.castTarget = null;
                 if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); }
@@ -635,11 +632,11 @@ export class PlayScene extends Scene {
     onExit() {
         if (this.moveTimer) { clearInterval(this.moveTimer); this.moveTimer = null; }
         document.removeEventListener('keydown', this._keyDown);
-        document.removeEventListener('keyup', this._keyUp);
-        if (this._mouseDown) this._canvas.removeEventListener('mousedown', this._mouseDown);
+        if (this._mdHandler) this._canvas.removeEventListener('mousedown', this._mdHandler);
+        if (this._muHandler) document.removeEventListener('mouseup', this._muHandler);
+        if (this._mmHandler) document.removeEventListener('mousemove', this._mmHandler);
         if (this._ctxMenu) this._canvas.removeEventListener('contextmenu', this._ctxMenu);
-        this.keys.clear();
-        this._stepsLeft = 0;
+        this._holding = false;
         this.bagPanel = null;
         this.npcDlg = null;
         const gui = this.manager.winManager.container;

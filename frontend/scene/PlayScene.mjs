@@ -13,8 +13,9 @@ const DIRMAP = {
 };
 
 // 移动动作间隔（ms/步）：走慢跑快，动作之间必须有间隔
-const WALK_INTERVAL = 500;   // 走（左键）
-const RUN_INTERVAL = 250;    // 跑（右键）
+// 对齐动画周期：walk 动画 6 帧×90ms=540ms；run 动画 6 帧×120ms=720ms 覆盖 2 格 → 360ms/格
+const WALK_INTERVAL = 540;   // 走（左键）
+const RUN_INTERVAL = 360;    // 跑（右键）
 
 // 装备槽名（对应 MessageIds U_DRESS..U_CHARM）
 const SLOT_NAMES = ['衣服', '武器', '右手', '项链', '头盔', '手镯L', '手镯R', '戒指L', '戒指R', '护身符', '腰带', '靴子', '宝石'];
@@ -304,7 +305,13 @@ export class PlayScene extends Scene {
                 const e = this.entities.get(msg.id);
                 if (e) {
                     e.x = msg.x; e.y = msg.y; e.dir = msg.dir;
-                    e._action = msg.run ? 'run' : 'walk'; e._actionAt = Date.now();
+                    const action = msg.run ? 'run' : 'walk';
+                    // 动作切换才重置动画相位；连续同动作保持相位连续（避免每步重播前几帧）
+                    if (e._action !== action) {
+                        e._action = action;
+                        e._actionAt = Date.now();
+                    }
+                    e._lastMoveAt = Date.now();   // 停止超时回 stand 用
                 }
                 break;
             }
@@ -566,6 +573,11 @@ export class PlayScene extends Scene {
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();
+        // 移动停止超时回站立（连续移动时 walk/run 动画循环，停止后归位 stand）
+        if ((this.self._action === 'walk' || this.self._action === 'run')
+            && (now - (this.self._lastMoveAt || 0)) > 600) {
+            this.self._action = 'stand';
+        }
         // 匀速卷动：显示中心以「移动速度」匀速逼近玩家坐标（格/ms 固定），
         // 消除 lerp 指数逼近的「先快后慢」追停抖动；shift 整数化避免浮点绘制模糊。
         if (this._viewX == null) { this._viewX = this.self.x; this._viewY = this.self.y; this._lastFrame = now; }

@@ -50,8 +50,8 @@ export class ActorSprite {
         }
         if (!segs) return null;
 
-        // walk/attack/struck 播放完成后回 stand
-        if (action === 'walk' || action === 'run' || action === 'attack' || action === 'struck') {
+        // attack/struck 一次性播放完回 stand；walk/run 循环播放（停止由 PlayScene 超时回 stand）
+        if (action === 'attack' || action === 'struck') {
             const seg = segs[segKey] || segs.stand;
             const af = A.actionFrames(0, seg, dir);
             if (af.ftime > 0 && (now - at) > af.count * af.ftime) {

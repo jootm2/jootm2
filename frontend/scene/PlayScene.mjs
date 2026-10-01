@@ -566,10 +566,17 @@ export class PlayScene extends Scene {
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();
-        // 平滑卷动：显示中心 lerp 追踪玩家坐标；floor 保证 shift ∈ [0,48) 连续、整数（避免浮点绘制模糊 + round 突变跳变）
-        if (this._viewX == null) { this._viewX = this.self.x; this._viewY = this.self.y; }
-        this._viewX += (this.self.x - this._viewX) * 0.25;
-        this._viewY += (this.self.y - this._viewY) * 0.25;
+        // 匀速卷动：显示中心以「移动速度」匀速逼近玩家坐标（格/ms 固定），
+        // 消除 lerp 指数逼近的「先快后慢」追停抖动；shift 整数化避免浮点绘制模糊。
+        if (this._viewX == null) { this._viewX = this.self.x; this._viewY = this.self.y; this._lastFrame = now; }
+        const dt = now - this._lastFrame;
+        this._lastFrame = now;
+        const stepDur = this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL;   // 每格耗时 ms
+        const maxStep = dt / stepDur;                                    // 本帧最大卷动（格）
+        const dx = this.self.x - this._viewX;
+        const dy = this.self.y - this._viewY;
+        this._viewX += dx > maxStep ? maxStep : (dx < -maxStep ? -maxStep : dx);
+        this._viewY += dy > maxStep ? maxStep : (dy < -maxStep ? -maxStep : dy);
         const vcx = Math.floor(this._viewX);
         const vcy = Math.floor(this._viewY);
         const shiftX = Math.round((this._viewX - vcx) * 48);

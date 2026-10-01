@@ -175,6 +175,13 @@ jootm2/
     - `ServerConfig.load` 找不到 config 时回退内置默认值（不再抛异常）。
     - `Main` 加 `projectRoot()/resolve()`：数据目录（frontend/resources/gamedata/data）按「工作目录优先、找不到回退 jar 父目录（项目根）」归一化，从任意目录启动都能定位数据。
     - 验证：删库重导 items=541/monsters=273/magics=39（去重后 535/267/33 与旧一致）；从 `target/` 运行不再报 config 错、前端/resources 正常。
+33. **登录/注册/改密码界面 1:1 照搬 Delphi `TLoginScene`**（替换此前自创的简化 UI）：
+    - 布局全部照搬 Delphi：场景背景 = `ChrSel[22]`（800×600，照 `TLoginScene.PlayScene` 的 `WChrSel.Images[102-80]`）；三个窗口用 `Prguse` 图做背景 —— 登录 `Prguse[60]`(296×254)、注册 `Prguse[63]`(640×473)、改密码 `Prguse[50]`(420×299)，屏幕居中。
+    - 按钮 = Prguse 图（Ok=62「提交」/New=61「新用户」/ChgPw=53「修改密码」/Cancel=52「取消」/Close=64 红X），坐标照 `FState.pas`（登录窗 Ok(171,165) New(24,207) ChgPw(111,207) Close(252,28)；注册窗 Ok(160,417) Cancel(448,419) Close(587,33)；改密码 Ok(181,253) Cancel(276,252)）。
+    - 输入框照原版 `TEdit`（bsNone 无边框 + 黑底 + 白字）叠加在背景图黑色输入区：登录 账号(98,86)/密码(98,118) 宽137；注册 13 个字段（用户/密码/确认/姓名/身份证/生日/提问1/回答1/提问2/回答2/电话/手机/E-Mail，left=161，top=116..388，问答宽163）；改密码 4 个（left=241）。
+    - 交互照原版：登录框回车跳密码框、密码回车提交（`EdLoginIdKeyPress`/`EdLoginPasswdKeyPress`）；注册逐格回车跳转、末格提交（`EdNewIdKeyPress`）；注册校验照 `NewIdCheckNewId`（账号≥3）+ 服务端（密码≥4）+ 确认一致；注册成功自动登录。
+    - **注意**：注册表单其余字段（姓名/身份证/密保/电话/邮箱）前端照原版收集并随 register 发送，服务端当前只认 username/password（忽略其余，将来扩展无需改前端）；改密码窗口照原版布局但提交提示「暂未开放」（服务端无 changePassword 协议，Delphi `CM_CHANGEPASSWORD=2003` 待补，见 §14）。
+    - 验证（Playwright 截图）：登录/注册窗口与原版素材一致；注册→自动登录→建角→进游戏→移动全链路通过。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -291,10 +298,16 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [x] **装备外观**（已完成，见 §3 第 29 条）。
 - [x] **宠物/玩家死亡残留**（已完成，见 §3 第 31 条 entityRemove 广播）。
 - [x] **其他玩家装备变化同步**（已完成：`equip` 穿装备后补 `broadcastEntityAdd`，其他玩家收到更新后的 dress/weapon）。
+- [x] **登录/注册/改密码界面照搬原版**（已完成，见 §3 第 33 条）。
+- [ ] **选角/建角界面照搬原版 `TSelectChrScene`**：当前 `SelectCharScene` 仍是自创 DOM 面板；原版用 `ChrSel` 人物立绘（图 4-11，292×350，对应职业/性别）+ Prguse 按钮布局（`IntroScn.pas` 选角场景 + `FState.pas` DSelectChr）。
+- [ ] **登录开场动画**：照 `TLoginScene.PlayScene` 的 `NowOpening` —— `ChrSel[23..32]`（103+CurFrame-80）在 (152,96) 每 230ms 一帧，播完淡出（FadeIndex=29）进选角场景。
 
 ### 音频
 - [ ] **音效系统**：`resource.mjs` 的 `wavUrl/wavCount` 已就绪（694 个 wav，`/resources/Wav/` 已托管 `audio/wav`），后续做 Web Audio 播放 + 按场景预加载。
+- [ ] **登录 BGM**：原版 `TLoginScene.OpenScene` 的 `PlayBGM(bmg_intro)`（依赖音效系统）。
 
 ### 后端
+- [ ] **changePassword 协议**：Delphi `CM_CHANGEPASSWORD=2003`；前端改密码窗口已就位（§3 第 33 条，提交暂提示未开放），补服务端协议 + AccountDao 改密即可接通。
+- [ ] **注册扩展字段落库**：前端注册表单已收集 姓名/身份证/生日/密保/电话/邮箱（§3 第 33 条）并随 register 发送，服务端当前忽略；如需存储扩展 `accounts` 表。
 - [ ] **攻城状态落盘**：`castle.warActive/warEndAt/mainDoorHp/wallHp` 仅内存，未持久化（行会文本已落盘 `GuildBase/`）。
 - [ ] **装备强化升级**（非祝福油）：`RandomUpgradeItem`/`UserSelectGetBackUpgrade` 依赖专门 NPC 脚本 + 升级材料 + `UpgradingList` 持久化，属独立工程（见 §4）。

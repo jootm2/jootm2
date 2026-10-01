@@ -36,6 +36,8 @@ export class PlayScene extends Scene {
         this._mouseDir = -1;         // 按住时的移动方向
         this._mouseRun = false;      // 是否跑（右键）
         this._lastMoveAt = 0;        // 上次移动时间戳
+        this._runTimer = null;       // 跑动第 2 格定时器
+        this._runCycleTimer = null;  // 下一跑周期定时器
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
         this._canvas = document.getElementById('screen');
@@ -166,13 +168,11 @@ export class PlayScene extends Scene {
     _startMoveLoop() {
         if (this.moveTimer) return;
         this.moveTimer = setInterval(() => {
-            if (!this.self || !this._holding) return;
-            // 按住不放：按走/跑间隔持续朝一个方向走
-            const interval = this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL;
+            if (!this.self || !this._holding || this._mouseRun) return;   // 跑由 _runStep 的 setTimeout 链处理
             const now = Date.now();
-            if (now - this._lastMoveAt >= interval) {
+            if (now - this._lastMoveAt >= WALK_INTERVAL) {
                 this._lastMoveAt = now;
-                this.conn.send('move', { dir: this._mouseDir, run: this._mouseRun });
+                this.conn.send('move', { dir: this._mouseDir, run: false });
             }
         }, 50);
     }
@@ -225,12 +225,34 @@ export class PlayScene extends Scene {
             this.conn.send('pickup', { itemId: gi.id });
             return;
         }
-        // 空地：记录方向，立即走一步；按住不放则按走/跑间隔持续走
+        // 空地：记录方向；走立即走 1 格、跑立即跑 2 格（原子）；按住则持续
         this._holding = true;
         this._mouseDir = dir;
         this._mouseRun = run;
-        this.conn.send('move', { dir, run });
+        if (run) {
+            this._runStep();
+        } else {
+            this.conn.send('move', { dir, run: false });
+            this._lastMoveAt = Date.now();
+        }
+    }
+
+    // 一次跑动：朝当前方向移动 2 格（原版 SM_RUN movestep=2），原子、不受抬起中断
+    _runStep() {
+        this.conn.send('move', { dir: this._mouseDir, run: true });
         this._lastMoveAt = Date.now();
+        this._runTimer = setTimeout(() => {
+            this.conn.send('move', { dir: this._mouseDir, run: true });   // 第 2 格
+            this._lastMoveAt = Date.now();
+            this._runTimer = null;
+            // 仍按住则安排下一个跑周期（再跑 2 格）
+            if (this._holding && this._mouseRun) {
+                this._runCycleTimer = setTimeout(() => {
+                    this._runCycleTimer = null;
+                    if (this._holding && this._mouseRun) this._runStep();
+                }, RUN_INTERVAL);
+            }
+        }, RUN_INTERVAL);
     }
 
     // 按住移动时，鼠标位置实时更新移动方向（移动过程中转向）
@@ -380,6 +402,8 @@ export class PlayScene extends Scene {
                 this.entities.clear();
                 this.groundItems.clear();
                 this._holding = false;
+                if (this._runTimer) { clearTimeout(this._runTimer); this._runTimer = null; }
+                if (this._runCycleTimer) { clearTimeout(this._runCycleTimer); this._runCycleTimer = null; }
                 this._viewX = null;   // 重置卷动中心
                 this.castTarget = null;
                 if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); }
@@ -655,6 +679,8 @@ export class PlayScene extends Scene {
 
     onExit() {
         if (this.moveTimer) { clearInterval(this.moveTimer); this.moveTimer = null; }
+        if (this._runTimer) { clearTimeout(this._runTimer); this._runTimer = null; }
+        if (this._runCycleTimer) { clearTimeout(this._runCycleTimer); this._runCycleTimer = null; }
         document.removeEventListener('keydown', this._keyDown);
         if (this._mdHandler) this._canvas.removeEventListener('mousedown', this._mdHandler);
         if (this._muHandler) document.removeEventListener('mouseup', this._muHandler);

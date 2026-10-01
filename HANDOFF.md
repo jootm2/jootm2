@@ -226,6 +226,7 @@ jootm2/
 41. **卷动改匀速**：lerp 指数逼近（每帧追 25% 剩余，「先快后慢」）产生追停抖动 → 改匀速 clamp 步进（速度 = 走 500ms/格、跑 250ms/格，与 move 节奏同步）。shift 仍整数化。验证 shiftY 相邻差集中在 1~4。
 42. **人物走动画过渡（消除一步跨格）**：原实现人物直接画在逻辑格 `self.x`（move 到达瞬间跨 48×32 到目标），地图却单独卷动 → 不协调。修复：self 增加 `offsetX/offsetY` 走动画偏移（`(viewX - self.x)*48` / `(viewY - self.y)*32`），从逻辑格滑向过渡位置 `_viewX`；地图反向偏移共用同一 `_viewX`，严格同步。MapActor 锚点/血条/名字/高亮统一用含 offset 的 anchorX/anchorY。验证：移动时 self 屏幕位置恒定 376（画面中心）、相邻差 0。
 43. **右键播放真正的跑(run)动画**：原「跑」= walk 动画 + 2 倍速间隔（无独立 run 动作）。修复：前端 `ActorSprite.PLAYER_SEG` 补 `run: 'run'`（`HA.run start=128` 跑步帧）；`PlayScene` move 命令带 `run` 字段、onMessage 按 `msg.run` 设 `_action`；服务端 `Actor` 加 `running`、`move` 接收 `run`、`broadcastMove` 广播 `run`。验证：右键 `_action=run`、左键 `_action=walk`。
+44. **跑动动画连续循环（消除重复中间几帧）**：run 动画 720ms（6 帧×120ms）但跑动间隔曾 250ms，每次 move 重置动画相位 → 只播前 2 帧。修复：移动间隔对齐动画周期（走 540ms、跑 360ms）；walk/run 动画改循环播放（不自动回 stand）；连续同动作 move 不重置 `_actionAt` 保持相位连续；停止超时 600ms 回 stand。验证：连续跑 `_actionAt` 不重置、帧号 0→5→0 连续循环、跳变 0。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

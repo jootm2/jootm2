@@ -230,6 +230,7 @@ jootm2/
 45. **跑动改一次移动 2 格（原子）**：原跑 = 每 360ms 走 1 格 + 按住才走第 2 格，快速抬右键只走 1 格。对齐原版 `SM_RUN movestep=2`：`_runStep` 第 1 格立即 + 第 2 格 360ms 后（setTimeout 链，不受 mouseup 中断），按住循环跑周期；moveTimer 只处理走。验证：快速单击右键 2 格、按住 1.5s 跑 4 格、左键 1 格。
 46. **怪物/NPC 移动加走动画过渡（消除瞬移）**：走动画偏移 `offsetX/Y` 之前只给 self，怪物/NPC move 到达直接跳格（瞬移）。修复：`onMessage move` 记录移动起点 `_fromX/_fromY/_moveAt`；render 对非 self 实体按时间插值从旧格滑到新格（`MONSTER_MOVE_DUR=720ms`，对齐 walk 动画 6 帧×120ms）；「停止超时回 stand」扩展到所有实体。验证：构造移动实体 offsetX 从 -48 平滑到 0。注：出生点 (289,618) 在村庄围墙内（四方向直线都被墙挡），自动寻怪需 BFS 绕行或手动走出村庄。
 47. **玩家移动增量更新视野（修复怪物入画不显示但被攻击）**：怪物只在 spawn/respawn 广播 `entityAdd`，玩家移动导致怪物从视野外进入（`SIGHT_RANGE=12`→攻击 `AGGRO_RANGE=8`）时无广播 → 客户端看不到怪物但服务端 AI 照常攻击。修复：`Player` 加 `seen` 集合；`mapSnapshot` 初始化 seen；`GameWorld.updateSight` 玩家移动后增量广播新进入 `entityAdd` / 离开 `entityRemove`；`GameService.move` 移动后调用。验证：移动玩家时新进入视野的怪物收到 entityAdd、3 怪物均正常渲染。
+48. **攻击时自动转身面对目标**：服务端 `attack` 原本不更新玩家 dir → 攻击时人物保持原朝向。修复：`attack` 时 `p.dir = directionFrom(自己,目标)` + `broadcastMove` 广播转向（位置不变仅 dir 变，对齐旧版 `AttackTarget` 的 `tdir=GetNextDirection`）；客户端 `move` 处理区分「移动/纯转向」——位置不变时只更新 dir、不触发走动画。验证：纯转向 move 只更新 dir、位置不变、不触发动画。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

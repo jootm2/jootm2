@@ -314,6 +314,11 @@ export class PlayScene extends Scene {
             case 'move': {
                 const e = this.entities.get(msg.id);
                 if (e) {
+                    // 自己移动时记录平滑卷动起点（从旧格滑向新格）
+                    if (this.self && e.id === this.self.id) {
+                        this._selfFrom = { x: e.x, y: e.y };
+                        this._selfMoveAt = Date.now();
+                    }
                     e.x = msg.x; e.y = msg.y; e.dir = msg.dir;
                     e._action = 'walk'; e._actionAt = Date.now();
                 }
@@ -577,18 +582,26 @@ export class PlayScene extends Scene {
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();
+        // 平滑卷动：玩家从旧格滑向新格（280ms 插值，对齐原版 ShiftX/Y）
+        let shiftX = 0, shiftY = 0;
+        if (this._selfFrom) {
+            const p = Math.min(1, (now - this._selfMoveAt) / 280);
+            shiftX = (this.self.x - this._selfFrom.x) * 48 * (1 - p);
+            shiftY = (this.self.y - this._selfFrom.y) * 32 * (1 - p);
+            if (p >= 1) this._selfFrom = null;
+        }
         const entities = [];
         for (const e of this.entities.values()) {
             const sp = this._sprite(e);
             entities.push({
                 x: e.x, y: e.y, name: e.name, isSelf: e.id === this.self.id,
                 hp: e.hp, maxHp: e.maxHp, type: e.type,
+                isTarget: this.castTarget != null && e.id === this.castTarget,
                 layers: sp.getLayers(now),
             });
         }
-        this.mapActor.render(ctx, this.self.x, this.self.y, entities);
+        this.mapActor.render(ctx, this.self.x, this.self.y, entities, shiftX, shiftY);
         this._renderGroundItems(ctx);
-        this._renderHpBars(ctx);
         this._renderHud();
     }
 
@@ -602,52 +615,26 @@ export class PlayScene extends Scene {
         return sp;
     }
 
-    // 地面物品（金币金色圆点，物品绿块 + 名字）
+    // 地面物品（照原版 DropedItemList：格子中心对齐；金币金色圆点，物品绿块 + 名字）
     _renderGroundItems(ctx) {
         if (!this.self) return;
-        const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
-        const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
         for (const g of this.groundItems.values()) {
-            const sx = ox + (g.x - this.self.x) * 48;
-            const sy = oy + (g.y - this.self.y) * 32;
+            const sx = this.mapActor.screenX(g.x);
+            const sy = this.mapActor.screenY(g.y);
             if (g.gold > 0) {
                 ctx.fillStyle = '#fbbf24';
                 ctx.beginPath();
-                ctx.arc(sx + 24, sy + 18, 5, 0, Math.PI * 2);
+                ctx.arc(sx + 24, sy + 16, 5, 0, Math.PI * 2);
                 ctx.fill();
             } else {
                 ctx.fillStyle = '#4ade80';
-                ctx.fillRect(sx + 19, sy + 13, 10, 10);
+                ctx.fillRect(sx + 19, sy + 11, 10, 10);
             }
             if (g.name) {
                 ctx.font = '11px SimSun,serif';
                 ctx.textAlign = 'center';
                 ctx.fillStyle = '#fff';
                 ctx.fillText(g.name, sx + 24, sy + 6);
-            }
-        }
-    }
-
-    // 血条（身体由 MapActor 画 sprite）
-    _renderHpBars(ctx) {
-        if (!this.self) return;
-        const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
-        const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
-        for (const e of this.entities.values()) {
-            const sx = ox + (e.x - this.self.x) * 48;
-            const sy = oy + (e.y - this.self.y) * 32;
-            const isSelf = e.id === this.self.id;
-            const maxHp = e.maxHp || 1;
-            const hp = Math.max(0, e.hp != null ? e.hp : maxHp);
-            ctx.fillStyle = '#000';
-            ctx.fillRect(sx + 4, sy - 18, 40, 4);
-            ctx.fillStyle = isSelf ? '#0ea5e9' : '#ef4444';
-            ctx.fillRect(sx + 4, sy - 18, 40 * hp / maxHp, 4);
-            // 施法目标高亮
-            if (this.castTarget != null && e.id === this.castTarget) {
-                ctx.strokeStyle = '#ff3b3b';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(sx + 4, sy - 34, 40, 52);
             }
         }
     }

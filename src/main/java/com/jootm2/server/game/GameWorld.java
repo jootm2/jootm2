@@ -49,6 +49,12 @@ public final class GameWorld {
     public static final long POISON_INTERVAL_MS = 1_000L;
     public static final long DOOR_OPEN_MS = 5_000L;
 
+    /** 远程怪物 Race（照 ObjAxeMon/ObjMon：喷毒蜘蛛82/双斧骷髅87/暗黑战士93/闪电僵尸94/弓箭手104）。 */
+    private static final Set<Integer> RANGED_RACES = Set.of(82, 87, 93, 94, 104);
+    private static final int RANGED_ATTACK_RANGE = 7;   // 照 TDualAxeMonster.AttackTarget 的 ±7
+    private static final int RANGED_KEEP_AWAY = 4;      // 距离≤4 往后逃（保持距离）
+    private static final int RANGED_CHASE_RANGE = 11;   // 距离≤11 才追
+
     public final Object lock = new Object();
 
     public final Map<Integer, ItemTemplate> itemTemplates = new HashMap<>();
@@ -1052,6 +1058,31 @@ public final class GameWorld {
         m.targetId = target == null ? -1 : target.id;
 
         if (target != null) {
+            // 远程怪（照 ObjAxeMon TDualAxeMonster）：±7 站定攻击，≤4 后撤保持距离，≤11 才追
+            if (m.template != null && RANGED_RACES.contains(m.template.race)) {
+                int d = m.distanceTo(target);
+                if (d <= RANGED_ATTACK_RANGE) {
+                    if (now >= m.nextAttackAt) {
+                        m.nextAttackAt = now + m.template.attackSpeed;
+                        m.dir = dirTowards(m, target);
+                        attackPlayer(m, target);   // 飞斧/吐物伤害同近战公式，attack 广播给前端（飞斧特效待做）
+                    }
+                    if (d <= RANGED_KEEP_AWAY && now >= m.nextMoveAt && Math.random() < 0.33) {
+                        m.nextMoveAt = now + m.template.walkSpeed;
+                        int back = (m.dir + 4) % 8;   // 往反方向逃（GetBackPosition）
+                        if (tryMove(m, back)) {
+                            broadcastMove(m);
+                        }
+                    }
+                } else if (d <= RANGED_CHASE_RANGE && now >= m.nextMoveAt) {
+                    m.nextMoveAt = now + m.template.walkSpeed;
+                    m.dir = dirTowards(m, target);
+                    if (tryMove(m, m.dir)) {
+                        broadcastMove(m);
+                    }
+                }
+                return;
+            }
             if (m.distanceTo(target) == 1) {
                 if (now >= m.nextAttackAt) {
                     m.nextAttackAt = now + m.template.attackSpeed;

@@ -1,6 +1,10 @@
-// 地图渲染器（canvas 2d，对应旧 MapActor）
+// 地图渲染器（canvas 2d，对应旧 MapActor / PlayScn.pas 渲染语义）
 // 等距瓦片 48×32，图层：大地砖 tiles → 小地砖 smtiles → 实体/对象（按行遮挡）。
-// 纹理异步懒加载：未加载的 tile 先跳过，加载完成后下一帧自动补上。
+// 绘制语义照原版 PlayScn.pas：
+//   - 普通对象：格子左上对齐，底对齐（y = 格顶 + 32 - h）
+//   - 混合光效（blend）：x = 格左 + px - 2，y = 格顶 + py - 68（GetObjsEx 的 ax/ay = WIL px/py）
+//   - 名字/血条：贴 sprite 顶部（取各层最小 py）
+// 平滑卷动：render 接收 shiftX/shiftY（玩家移动插值），坐标收口在 screenX/screenY。
 
 import { loadMap } from './Maps.mjs';
 import { getLib } from '../image/Images.mjs';
@@ -14,7 +18,12 @@ export class MapActor {
         this.viewH = viewH;   // 可视画布高
         this.map = null;
         this.mapId = null;
-        this._texCache = new Map();   // key -> { canvas }
+        this._texCache = new Map();   // key -> { canvas, px, py }
+        // render 时缓存（供 screenX/screenY 使用）
+        this._cx = 0;
+        this._cy = 0;
+        this._shiftX = 0;
+        this._shiftY = 0;
     }
 
     async enter(mapId) {
@@ -23,16 +32,17 @@ export class MapActor {
         this.map = await loadMap(mapId);
     }
 
-    // 取纹理（未加载返回 null，并触发异步加载）
+    // 取纹理（含 px/py；未加载返回 null，并触发异步加载）
     _getTex(key, index) {
         const k = key + '/' + index;
         const hit = this._texCache.get(k);
-        if (hit) return hit.canvas;   // 可能为 null（加载中）
-        this._texCache.set(k, { canvas: null });
+        if (hit) return hit.canvas ? hit : null;   // 加载中返回 null
+        this._texCache.set(k, { canvas: null, px: 0, py: 0 });
         const lib = getLib(key);
         if (lib) {
             lib.getTexture(index).then(tex => {
-                this._texCache.get(k).canvas = tex ? tex.canvas : null;
+                const e = this._texCache.get(k);
+                if (tex) { e.canvas = tex.canvas; e.px = tex.px; e.py = tex.py; }
             });
         }
         return null;
@@ -42,22 +52,32 @@ export class MapActor {
         return fileIdx ? base + fileIdx : base;
     }
 
+    // 屏幕坐标（收口：所有叠加物——血条/名字/地面物品/高亮——都用这两个换算）
+    screenX(gx) {
+        const ox = Math.floor((this.viewW - TILE_W) / 2);
+        return ox + (gx - this._cx) * TILE_W - this._shiftX;
+    }
+
+    screenY(gy) {
+        const oy = Math.floor((this.viewH - TILE_H) / 2);
+        return oy + (gy - this._cy) * TILE_H - this._shiftY;
+    }
+
     /**
      * 绘制地图 + 实体（含对象层遮挡）。
-     * @param ctx 2d 上下文
-     * @param cx 玩家中心游戏坐标 x
-     * @param cy 玩家中心游戏坐标 y
-     * @param entities 实体列表 [{x,y,name,tex(canvas|null),isSelf}]
+     * @param shiftX/shiftY 平滑卷动偏移（玩家从旧格滑向新格的插值，像素）
+     * @param entities [{x,y,name,isSelf,hp,maxHp,isTarget,layers:[{canvas,px,py}]}]
      */
-    render(ctx, cx, cy, entities) {
+    render(ctx, cx, cy, entities, shiftX = 0, shiftY = 0) {
         if (!this.map) return;
         const m = this.map;
+        this._cx = cx;
+        this._cy = cy;
+        this._shiftX = shiftX;
+        this._shiftY = shiftY;
 
-        // 屏幕坐标换算：sx = (gx-cx)*48 + (viewW-48)/2
-        const ox = Math.floor((this.viewW - TILE_W) / 2);
-        const oy = Math.floor((this.viewH - TILE_H) / 2);
-        const sx = gx => ox + (gx - cx) * TILE_W;
-        const sy = gy => oy + (gy - cy) * TILE_H;
+        const sx = gx => this.screenX(gx);
+        const sy = gy => this.screenY(gy);
 
         // 可见区域（游戏坐标，含冗余）
         const halfW = Math.ceil(this.viewW / 2 / TILE_W) + 2;
@@ -72,9 +92,9 @@ export class MapActor {
             for (let gy = top; gy <= bottom; gy++) {
                 const t = m.tiles[gx][gy];
                 if (t.bng < 0) continue;
-                if (gx % 2 !== 0 || gy % 2 !== 0) continue;   // 2×2 大图只在偶坐标
+                if (gx % 2 !== 0 || gy % 2 !== 0) continue;
                 const tex = this._getTex(this._libKey('tiles', t.bngFile), t.bng);
-                if (tex) ctx.drawImage(tex, sx(gx), sy(gy));
+                if (tex) ctx.drawImage(tex.canvas, sx(gx), sy(gy));
             }
         }
 
@@ -84,7 +104,7 @@ export class MapActor {
                 const t = m.tiles[gx][gy];
                 if (t.mid < 0) continue;
                 const tex = this._getTex(this._libKey('smtiles', t.midFile), t.mid);
-                if (tex) ctx.drawImage(tex, sx(gx), sy(gy));
+                if (tex) ctx.drawImage(tex.canvas, sx(gx), sy(gy));
             }
         }
 
@@ -95,51 +115,83 @@ export class MapActor {
             byRow.get(e.y).push(e);
         }
         for (let gy = top; gy <= bottom; gy++) {
-            // 对象层（anchor 下方；动画光效用加法混合消除黑底）
+            // 对象层（照 PlayScn.pas：普通对象左上+底对齐；blend 光效 x=格左+px-2, y=格顶+py-68）
             for (let gx = left; gx <= right; gx++) {
                 const t = m.tiles[gx][gy];
                 if (t.obj < 0) continue;
                 let objIdx = t.obj;
                 let blend = false;
                 if (t.hasAni) {
-                    // 动画对象：obj 索引为起始帧，循环播放
                     const frame = Math.floor(Date.now() / 200) % t.aniFrame;
                     objIdx = t.obj + frame;
                     blend = t.blend;
                 }
                 const tex = this._getTex(this._libKey('objects', t.objFile), objIdx);
                 if (tex) {
-                    const px = sx(gx);
-                    const py = sy(gy) + TILE_H - tex.height;
+                    let px, py;
+                    if (blend) {
+                        px = sx(gx) + (tex.px || 0) - 2;
+                        py = sy(gy) + (tex.py || 0) - 68;
+                    } else {
+                        px = sx(gx);
+                        py = sy(gy) + TILE_H - tex.canvas.height;
+                    }
                     if (blend) {
                         ctx.globalCompositeOperation = 'lighter';
-                        ctx.drawImage(tex, px, py);
+                        ctx.drawImage(tex.canvas, px, py);
                         ctx.globalCompositeOperation = 'source-over';
                     } else {
-                        ctx.drawImage(tex, px, py);
+                        ctx.drawImage(tex.canvas, px, py);
                     }
                 }
             }
-            // 实体（脚底 anchor = 格子底部中心，纹理 px/py 相对此锚点偏移）
+            // 实体（脚底锚点 = 格子底部中心，层 px/py 相对此锚点）
             const row = byRow.get(gy);
             if (row) {
                 for (const e of row) {
                     const anchorX = sx(e.x) + TILE_W / 2;
                     const anchorY = sy(e.y) + TILE_H;
+                    let top = anchorY;
                     if (e.layers) {
                         for (const layer of e.layers) {
-                            ctx.drawImage(layer.canvas, anchorX + layer.px, anchorY + layer.py);
+                            if (layer.canvas) {
+                                ctx.drawImage(layer.canvas, anchorX + layer.px, anchorY + layer.py);
+                                top = Math.min(top, anchorY + layer.py);
+                            } else {
+                                top = Math.min(top, anchorY + layer.py);   // 纹理加载中仍按 py 估顶
+                            }
                         }
                     } else if (e.tex) {
                         ctx.drawImage(e.tex, anchorX - e.tex.width / 2, anchorY - e.tex.height);
+                        top = anchorY - e.tex.height;
                     }
-                    // 名字（头顶上方，血条之上）
+
+                    // 血条（贴 sprite 头顶）
+                    if (e.maxHp) {
+                        const hp = Math.max(0, e.hp != null ? e.hp : e.maxHp);
+                        const bw = 40;
+                        const bx0 = anchorX - bw / 2;
+                        const by0 = top - 10;
+                        ctx.fillStyle = '#000';
+                        ctx.fillRect(bx0 - 1, by0 - 1, bw + 2, 6);
+                        ctx.fillStyle = e.isSelf ? '#0ea5e9' : '#ef4444';
+                        ctx.fillRect(bx0, by0, bw * hp / e.maxHp, 4);
+                    }
+
+                    // 施法目标高亮（框住 sprite）
+                    if (e.isTarget) {
+                        ctx.strokeStyle = '#ff3b3b';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(anchorX - 26, top - 14, 52, anchorY - top + 14);
+                    }
+
+                    // 名字（血条上方）
                     if (e.name) {
                         ctx.font = '11px SimSun,serif';
                         ctx.textAlign = 'center';
                         const tw = ctx.measureText(e.name).width;
-                        const nx = sx(e.x) + TILE_W / 2;
-                        const ny = sy(e.y) - 34;
+                        const nx = anchorX;
+                        const ny = top - 16;
                         ctx.fillStyle = 'rgba(0,0,0,0.6)';
                         ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
                         ctx.fillStyle = e.isSelf ? '#ffe9b0' : '#e0d0a0';

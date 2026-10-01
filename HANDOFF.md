@@ -191,6 +191,12 @@ jootm2/
     - 删除确认/提示用浏览器 `confirm/alert` 简化（原版 `DMessageDlg`，见 §14 待办）。
     - **坑（已修×2）**：① `createState/_nameInput` 原在 async `await` 之后初始化，外部立即访问为 undefined → DOM 同步先建、背景图异步插入；② 实例字段与原型方法同名（`_prgUrl`/`_chrTex` 既是 Map 又是方法）→ 方法被实例属性遮蔽报 "not a function"，render 每帧抛错被 loop 吞掉（表现为立绘/文字全不画）→ 字段改名 `_prgCache/_chrCache`。
     - 验证（Playwright 截图）：男武士/女法师立绘渲染正确、信息框文字正确；建角→选角→进游戏→移动全链路通过。
+35. **游戏内渲染修正（偏移/卷动）+ 远程怪 AI**：
+    - **对象层偏移**：`MapActor._getTex` 改缓存 `{canvas,px,py}`；blend 光效照原版 `PlayScn.pas` 的 `GetObjsEx` 语义 —— `x = 格左 + px - 2`、`y = 格顶 + py - 68`（普通对象仍格子左上+底对齐）。已验证火炬光效图 `Objects[2723] px=-51 py=-113` 代入后光效中心正好对准火炬头。
+    - **平滑卷动**：玩家 `move` 时记录 `_selfFrom/_selfMoveAt`，render 按 280ms 插值算 `shiftX/shiftY` 传给 `MapActor.render`（照原版 ShiftX/Y），地图从瞬跳变为滑动（Playwright 连续采样 screenX 平滑过渡）。
+    - **坐标收口**：`MapActor` 暴露 `screenX/screenY`（含 shift），血条/名字/**施法目标高亮**移入 `MapActor` 实体绘制循环并**贴 sprite 头顶**（取各层最小 py 估算顶部），地面物品改用收口坐标（照原版格子中心对齐）；删除 `PlayScene._renderHpBars`。
+    - **远程怪 AI**（对齐 `ObjAxeMon.pas TDualAxeMonster/TArcherMonster`）：`GameWorld` 加 `RANGED_RACES = {82 喷毒蜘蛛, 87 双斧骷髅, 93 暗黑战士, 94 闪电僵尸, 104 弓箭手}`；距离 ≤7 **站定攻击**（不走近）、≤4 1/3 概率**后撤保持距离**（`GetBackPosition`）、≤11 才追、>11 丢失。出生点附近「暗黑战士(93)/僵尸(94)」即远程怪——这是原版行为（需走位/技能打）。
+    - 验证：smoke test 通过；卷动采样平滑、5 秒内受击 4 次、无 console/page 错误。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -298,6 +304,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [ ] **chunk 级缓存**：当前是图级缓存（解包后存 canvas）；若解包耗时成瓶颈，改缓存「已解包的 chunk」避免重复解包同一 chunk。
 
 ### 前端渲染（阶段 2 后续）
+- [ ] **飞斧/箭矢飞行特效**：远程怪攻击目前只有 `attack` 广播（受击动画/日志），原版 `RM_FLYAXE` 有投射物飞行动画（`magiceff.pas` 的 `mtFlyAxe`，Effect 库帧 + 飞行插值），属特效系统的一部分。
 - [x] **实体真实 sprite**（已完成，见 §3 第 26 条）。
 - [x] **行走/攻击动画**（已完成，见 §3 第 27 条）。
 - [x] **点击交互**（点地走/点怪攻击/点 NPC 对话/点物拾取，已完成，见 §3 第 27 条）。

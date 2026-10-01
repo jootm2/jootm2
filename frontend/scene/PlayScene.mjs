@@ -245,8 +245,14 @@ export class PlayScene extends Scene {
         const my = e.clientY - rect.top;
         const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
         const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
-        const tx = Math.floor((mx - ox) / 48) + this.self.x;
-        const ty = Math.floor((my - oy) / 32) + this.self.y;
+        // 用「渲染中心 + 卷动偏移」反推格子（与 MapActor.screenX/screenY 严格互逆）。
+        // 之前用 self.x 且忽略 shiftX，卷动时点击会偏 1 格、走向错误目标（像「寻路乱走」）。
+        const cx = this.mapActor._cx;
+        const cy = this.mapActor._cy;
+        const shiftX = this.mapActor._shiftX;
+        const shiftY = this.mapActor._shiftY;
+        const tx = Math.floor((mx - ox + shiftX) / 48) + cx;
+        const ty = Math.floor((my - oy + shiftY) / 32) + cy;
         const run = e.button === 2;   // 左键走、右键跑
 
         const monster = this._actorAt(tx, ty, 'monster');

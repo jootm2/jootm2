@@ -228,6 +228,7 @@ jootm2/
 43. **右键播放真正的跑(run)动画**：原「跑」= walk 动画 + 2 倍速间隔（无独立 run 动作）。修复：前端 `ActorSprite.PLAYER_SEG` 补 `run: 'run'`（`HA.run start=128` 跑步帧）；`PlayScene` move 命令带 `run` 字段、onMessage 按 `msg.run` 设 `_action`；服务端 `Actor` 加 `running`、`move` 接收 `run`、`broadcastMove` 广播 `run`。验证：右键 `_action=run`、左键 `_action=walk`。
 44. **跑动动画连续循环（消除重复中间几帧）**：run 动画 720ms（6 帧×120ms）但跑动间隔曾 250ms，每次 move 重置动画相位 → 只播前 2 帧。修复：移动间隔对齐动画周期（走 540ms、跑 360ms）；walk/run 动画改循环播放（不自动回 stand）；连续同动作 move 不重置 `_actionAt` 保持相位连续；停止超时 600ms 回 stand。验证：连续跑 `_actionAt` 不重置、帧号 0→5→0 连续循环、跳变 0。
 45. **跑动改一次移动 2 格（原子）**：原跑 = 每 360ms 走 1 格 + 按住才走第 2 格，快速抬右键只走 1 格。对齐原版 `SM_RUN movestep=2`：`_runStep` 第 1 格立即 + 第 2 格 360ms 后（setTimeout 链，不受 mouseup 中断），按住循环跑周期；moveTimer 只处理走。验证：快速单击右键 2 格、按住 1.5s 跑 4 格、左键 1 格。
+46. **怪物/NPC 移动加走动画过渡（消除瞬移）**：走动画偏移 `offsetX/Y` 之前只给 self，怪物/NPC move 到达直接跳格（瞬移）。修复：`onMessage move` 记录移动起点 `_fromX/_fromY/_moveAt`；render 对非 self 实体按时间插值从旧格滑到新格（`MONSTER_MOVE_DUR=720ms`，对齐 walk 动画 6 帧×120ms）；「停止超时回 stand」扩展到所有实体。验证：构造移动实体 offsetX 从 -48 平滑到 0。注：出生点 (289,618) 在村庄围墙内（四方向直线都被墙挡），自动寻怪需 BFS 绕行或手动走出村庄。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

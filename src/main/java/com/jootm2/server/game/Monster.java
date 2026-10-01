@@ -20,6 +20,9 @@ public final class Monster extends Actor {
     public boolean pendingRespawn;
     public long respawnAt;
 
+    /** 最近攻击过本怪物的玩家 id（守卫用它判断反击，-1 无）。 */
+    public long lastHiterId = -1;
+
     /** 主人 Player id（召唤物/宠物），-1 表示普通怪物。 */
     public long masterId = -1;
 

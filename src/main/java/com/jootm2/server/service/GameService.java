@@ -893,6 +893,7 @@ public final class GameService {
         if (p.distanceTo(m) > 1) {
             return;
         }
+        m.lastHiterId = p.id;   // 记录仇恨（守卫据此反击）
         if (!hitCheck(p, m)) {
             world.sendSystem(p, "攻击未命中。");
             return;

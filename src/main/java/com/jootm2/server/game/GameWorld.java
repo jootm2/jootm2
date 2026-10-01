@@ -49,8 +49,10 @@ public final class GameWorld {
     public static final long POISON_INTERVAL_MS = 1_000L;
     public static final long DOOR_OPEN_MS = 5_000L;
 
-    /** 远程怪物 Race（照 ObjAxeMon/ObjMon：喷毒蜘蛛82/双斧骷髅87/暗黑战士93/闪电僵尸94/弓箭手104）。 */
-    private static final Set<Integer> RANGED_RACES = Set.of(82, 87, 93, 94, 104);
+    /** 远程怪物 Race（照 ObjAxeMon/ObjMon/ObjMon2：喷毒蜘蛛82/双斧骷髅87/暗黑战士93/闪电僵尸94/弓箭手104/弓箭守卫112/弓箭警察20）。 */
+    private static final Set<Integer> RANGED_RACES = Set.of(82, 87, 93, 94, 104, 112, 20);
+    /** 守卫 Race（照 ObjMon2.pas TGuardUnit/TArcherGuard：弓箭守卫112/弓箭警察20）——不主动攻击白名玩家。 */
+    private static final Set<Integer> GUARD_RACES = Set.of(20, 112);
     private static final int RANGED_ATTACK_RANGE = 7;   // 照 TDualAxeMonster.AttackTarget 的 ±7
     private static final int RANGED_KEEP_AWAY = 4;      // 距离≤4 往后逃（保持距离）
     private static final int RANGED_CHASE_RANGE = 11;   // 距离≤11 才追
@@ -1176,9 +1178,11 @@ public final class GameWorld {
 
     private Player resolveTarget(Monster m) {
         long now = System.currentTimeMillis();
+        boolean isGuard = m.template != null && GUARD_RACES.contains(m.template.race);
         Player current = m.targetId >= 0 ? (Player) actor(m.targetId) : null;
         if (current != null && current.alive && current.hideUntil <= now
-                && current.map == m.map && current.distanceTo(m) <= AGGRO_RANGE) {
+                && current.map == m.map && current.distanceTo(m) <= AGGRO_RANGE
+                && (!isGuard || guardHostile(m, current))) {
             return current;
         }
         Player best = null;
@@ -1187,6 +1191,9 @@ public final class GameWorld {
             if (p.map != m.map || p.hideUntil > now) {
                 continue;   // 隐身中不成为仇恨目标
             }
+            if (isGuard && !guardHostile(m, p)) {
+                continue;   // 守卫不打白名玩家（照 TGuardUnit.IsProperTarget：仅反击或打 PK 玩家）
+            }
             int d = p.distanceTo(m);
             if (p.alive && d <= AGGRO_RANGE && d < bestDist) {
                 best = p;
@@ -1194,6 +1201,14 @@ public final class GameWorld {
             }
         }
         return best;
+    }
+
+    /** 守卫仇恨判定（照 ObjMon2.pas TGuardUnit.IsProperTarget 非城堡分支）：反击打过自己的，或打有 PK 记录的玩家。 */
+    private boolean guardHostile(Monster m, Player p) {
+        if (p.id == m.lastHiterId) {
+            return true;   // 反击
+        }
+        return p.pkPoint > 0;   // 红名/灰名（PK 记录），白名 pkPoint=0 不打
     }
 
     private void attackPlayer(Monster m, Player target) {

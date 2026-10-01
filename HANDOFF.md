@@ -66,7 +66,7 @@ jootm2/
 ## 3. 已完成（可运行、可验证）
 
 1. **单进程 Netty 后端**：HTTP 静态 + REST + WebSocket + CORS，全部 8080。
-2. **前端静态托管**：8080 提供 `/` 静态 + `/ws` WebSocket + `/resources/*` 渲染资源（带 CORS）。**注意**：当前前端是原生 canvas 2d 重写（见第 23 条）；下面第 13/14 条是早期旧 PixiJS client 副本的工作记录，已被替代、仅供参考。
+2. **前端静态托管**：8080 提供 `/` 静态 + `/ws` WebSocket + `/resources/*` 渲染资源（带 CORS）。**注意**：当前前端是原生 canvas 2d 重写（见第 23 条）；下面第 13/14 条是早期旧 PixiJS client 副本的工作记录，已被替代、**勿参考**。
 3. **资源托管**：`/resources/*` 静态服务；`resources.json` 启动时自动生成。
 4. **Paradox 数据库导入 SQLite**：`gamedata/mud2/DB/{StdItems,Magic,Monster}.DB` → SQLite，启动首次自动导入（`INSERT OR REPLACE` 去重）。
    - 结果：物品 535、怪物 267、技能 33（原库有重复行，已去重）。
@@ -79,7 +79,7 @@ jootm2/
 11. **NPC 系统（对话 + 脚本 + 商店 + 传送）**：`game/npc/` 下新增 `Npc`（实体）/`NpcScript`（脚本解析：`[@标签]` 段 + `#IF/#ACT/#SAY/#ELSESAY/#ELSEACT` 状态机）/`NpcScriptEngine`（执行：条件 `checkgold/checkitem/checklevel/checkpkpoint/checkjob/gender/equal/large/small/random`，动作 `take/give/mapmove/goto/break/close/set/reset/inc/dec`，变量 `<$$USERNAME>`，链接 `<文字/@标签>` 提取）；`resource/NpcData.java` 加载 `Npcs.txt`+`MerChant.txt`（303 个 NPC）及 `Npc_Def/`+`Market_Def/` 脚本（大小写不敏感 + `名-地图` 优先 fallback `名`）；商人 `[@buy]/[@sell]/[goods]` 买卖（金币/物品 give/take，`GameWorld` 新增 `itemTemplateByName/countItem/takeItems/giveItem`，`ItemTemplate` 加 `index`）。协议新增 `npcTalk/npcSelect/buyItem/sellItem`（客户端→）与 `npcSay/npcClose`（服务端→）。已用测试脚本验证：传送员对话+分支、商人 11 件商品列表+买卖、`mapmove` 传送到 T334。
 12. **物品掉落/拾取/使用**：`game/GroundItem.java`（地面物品/金币堆）；`WorldData.loadMonItems` 解析 `MonItems/{怪物名}.txt`（格式 `n/m 物品名 [数量]`，判定 `selPoint>=random(maxPoint)`，金币=`count/2+random(count)`，物品掉 1 个，耐久 `20~100%` 随机）——启动加载 245 张掉落表；`GameWorld.dropLoot` 在怪物死亡时散落掉落并广播，`pickup` 拾取（距离≤1），`mapSnapshot` 附带 `groundItems`；`GameService` 新增 `pickup/useItem` 协议，`useItem` 支持吃药（stdMode 0/1/2，字段语义重载：AC=HP 恢复量、MAC=MP 恢复量）与穿装备（`slotFor` 装备位 + `needLevel` 等级检查 + `recompute`）。已用测试脚本验证：杀鸡掉鸡肉→拾取→吃药。
 13. **客户端基础交互（旧 PixiJS 副本，已废弃）**：`frontend/scene/PlayScene.mjs` 补齐可玩闭环——渲染地面物品（金色方块+名字）、鼠标点击（点物品→走近拾取、点 NPC→走近对话、点怪物→走近普攻、点空地→走过去）、B 键背包面板（点击物品 useItem）、NPC 对话框（npcSay 文本+选项按钮+商店 buy 商品列表）、HUD 加金币；`SceneManager.mjs` 新增 `itemDrop/itemRemove/npcSay/npcClose/bagUpdate` 分发与 `send_pickup/send_use_item/send_npc_talk/send_npc_select`；`index.html` 加背包面板 + NPC 对话框 DOM；服务端新增 `bagUpdate{items,gold}` 消息（pickup/useItem/equip/buy/sell 后推送）。
-14. **客户端真实画面（旧 PixiJS 副本，已废弃，但 sprite 逻辑可复用）**：复用 `frontend/actor/MapActor.mjs`（完整等距地图渲染：大地砖 tiles + 小地砖 smtiles + 对象层 objects + 遮挡 mask + 缩放，瓦片 48×32）替换原网格；`PlayScene` 改用等距坐标（`_screen`），实体改绘真实 sprite——怪物用 `raceImg`（图像种族，`RaceByPM`/`GetMonImg`/`GetOffset`）+ `appr` 定位 `mon1~23` 图片库帧，NPC 用 `npc` 库 + `GetNpcOffset`，玩家用 `hum` 库 + `HA` 站立帧（按 `job*2+sex` 分块 ×600）；`ActorDefines.mjs` 补 `export`；服务端 `Actor.toBriefJson` 新增 `raceImg` 字段（`Monster.raceImg = template.raceImg`，图像种族 9~99 与服务器 `race` 81~97 是两套值）。纹理异步加载未完成时回退圆点。
+14. **客户端真实画面（旧 PixiJS 副本，已废弃，勿参考；sprite 逻辑应以 Delphi 客户端源码为准）**：历史记录——旧副本用 `frontend/actor/MapActor.mjs` 做等距渲染，实体 sprite 用怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC `npc` 库 + `GetNpcOffset`、玩家 `hum` 库站立帧。**这些 sprite 逻辑的正确移植来源是 Delphi 客户端源码 `Client/Actor.pas`（`RaceByPM`/`GetMonImg`/`GetOffset`/`GetNpcOffset`）与 `Client/PlayScn.pas`**，而非旧 PixiJS 副本。服务端 `Actor.toBriefJson` 的 `raceImg` 字段（`Monster.raceImg = template.raceImg`，图像种族 9~99 与服务器 `race` 81~97 是两套值）已就绪。
 15. **技能/魔法系统**：`MagicTemplate` 加命名字段 + `resolve()`（字段顺序以 Paradox 实际文件顺序为准，见 §10）；`Player` 加 `skills`（magicId→`Skill{level,curTrain}`）与 `skillCooldown`；`GameWorld` 加 `magicTemplates`；`GameService` 新增 `castMagic` 协议（客户端→`castMagic{magicId,targetId}`，服务端→`spellCast{casterId,magicId,effect}` 广播）：
     - 伤害魔法（火球 1/大火球 5/雷电 11/灭天火 35，伤害=威力随技能等级缩放+MC-目标魔御）+ 治愈魔法（治愈 2/群体治愈 24）+ 推开（抗拒火环 8/气功波 37，`pushAround`）+ 传送（瞬息移动 21，`randomTeleport`）；
     - MP 消耗随技能等级递增（`GetSpellPoint`=`Round(Spell/4*(level+1))+DefSpell`）、冷却（`Delay*10`）、技能已学检查；
@@ -157,7 +157,7 @@ jootm2/
 
 **前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）。**下一步主线**（按序）：
 
-1. **实体真实 sprite**：替换 `PlayScene._renderEntities` 的圆点 → 玩家 `hum` 库站立帧、怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC `npc` 库 + `GetNpcOffset`。参考 `/Volumes/未命名/client/actor/ActorDefines.mjs` 与 §3 第 14 条（旧副本 sprite 逻辑可复用）。
+1. **实体真实 sprite**：替换 `PlayScene._renderEntities` 的圆点 → 玩家 `hum` 库站立帧、怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC `npc` 库 + `GetNpcOffset`。**移植来源 = Delphi 客户端源码**：`/Volumes/未命名/fire/Source/Client/Actor.pas`（`RaceByPM`/`GetMonImg`/`GetOffset`/`GetNpcOffset`）与 `PlayScn.pas`（玩家 hum 帧 + 游戏场景绘制）。**不参考旧 PixiJS 副本**。
 2. **点击交互**：点地走（寻路）、点怪走近攻击、点 NPC 对话、点物拾取（服务端协议 `pickup/npcTalk/attack/move` 已就绪）。
 3. **背包/装备/NPC 对话框 GUI**：`gui/` 框架（DWindow/DGrid/DButton）已就绪，接服务端 `bagUpdate/npcSay` 协议即可。
 
@@ -174,7 +174,7 @@ jootm2/
 
 - `gamedata/mud2/DB/*.DB`（Paradox 原始表）是**真实文件**，已拷入，可 git 管理。
 - `gamedata/Mir200/Envir/`（MapInfo/MonGen/Npcs/MerChant/MapQuest/MonItems/Npc_Def/Market_Def…）是**真实文件**，已拷入。
-- 前端 `frontend/` 是**原生 canvas 2d 重写**（ES Module，非框架）；旧 PixiJS client 副本在 `/Volumes/未命名/client/`（保留作 sprite 逻辑参考，见 §12）。后续改前端一律在 `frontend/` 里改。
+- 前端 `frontend/` 是**原生 canvas 2d 重写**（ES Module，非框架）。**参考依据是 Delphi 源码**（服务端 `/Volumes/未命名/fire/Source/M2Server/` + 客户端 `/Volumes/未命名/fire/Source/Client/`），**不参考旧 PixiJS 副本 `/Volumes/未命名/client/`**。后续改前端一律在 `frontend/` 里改。
 
 ## 7. WebSocket JSON 协议
 
@@ -224,10 +224,11 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 
 ## 12. 参考材料
 
-- 老 Delphi 源码：`/Volumes/未命名/fire/Source/M2Server/`（M2Share.pas / LocalDB.pas / Envir.pas / ObjBase.pas / ObjMon.pas / ObjNpc.pas / Magic.pas / svMain.pas …）
+- 老 Delphi **服务端**源码：`/Volumes/未命名/fire/Source/M2Server/`（M2Share.pas / LocalDB.pas / Envir.pas / ObjBase.pas / ObjMon.pas / ObjNpc.pas / Magic.pas / svMain.pas …）
+- 老 Delphi **客户端**源码：`/Volumes/未命名/fire/Source/Client/`（`Actor.pas` 的 `RaceByPM`/`GetMonImg`/`GetOffset`/`GetNpcOffset`、`PlayScn.pas`、`HerbActor.pas`、`AxeMon.pas` …）—— **前端 sprite/场景渲染的 1:1 移植来源**
 - 老服务端运行时+数据：`/Users/linxing/Documents/火炬源码+配套服务端/MirServer/`
-- 原始 HTML5 客户端：`/Volumes/未命名/client/`（PixiJS；`map/Maps.mjs` 是 .map 解析参考）
 - 老 Java NIO 服务端（已被本项目的 Netty 替代）：`/Volumes/未命名/jootm2-server/`
+- ~~旧 HTML5 PixiJS 副本 `/Volumes/未命名/client/`~~：已废弃，**不作为参考依据**
 - 项目 README 与本文档：`README.md`、`HANDOFF.md`
 
 ## 13. 一句总结
@@ -244,7 +245,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [ ] **chunk 级缓存**：当前是图级缓存（解包后存 canvas）；若解包耗时成瓶颈，改缓存「已解包的 chunk」避免重复解包同一 chunk。
 
 ### 前端渲染（阶段 2 后续）
-- [ ] **实体真实 sprite**：`scene/PlayScene.mjs` 的 `_renderEntities` 目前是圆点+血条（过渡）；对齐旧客户端 —— 玩家用 `hum` 库站立帧（job*2+sex 分块×600）、怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC 用 `npc` 库 + `GetNpcOffset`（参考 `/Volumes/未命名/client/actor/ActorDefines.mjs`）。
+- [ ] **实体真实 sprite**：`scene/PlayScene.mjs` 的 `_renderEntities` 目前是圆点+血条（过渡）；玩家用 `hum` 库站立帧（job*2+sex 分块×600）、怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC 用 `npc` 库 + `GetNpcOffset`。**移植来源 = Delphi 客户端源码 `Client/Actor.pas`（RaceByPM/GetMonImg/GetOffset/GetNpcOffset）+ `Client/PlayScn.pas`**。
 - [ ] **点击交互**：点地走（寻路）、点怪走近攻击、点 NPC 对话、点物品拾取。
 - [ ] **背包/装备/NPC 对话框 GUI**：`gui/` 框架已就绪（DWindow/DGrid/DButton），接服务端 `bagUpdate/npcSay` 协议即可。
 

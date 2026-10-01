@@ -493,6 +493,8 @@ public final class GameService {
         if (dir < 0 || dir > 7) {
             return;
         }
+        // 走/跑动作类型（客户端按此播放 walk/run 动画）
+        p.running = msg.has("run") && msg.get("run").getAsBoolean();
         int oldX = p.x;
         int oldY = p.y;
         world.tryMove(p, dir);

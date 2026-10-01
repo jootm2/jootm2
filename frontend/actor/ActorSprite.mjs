@@ -6,7 +6,7 @@ import { getLib } from '../image/Images.mjs';
 import * as A from './actorData.mjs';
 
 // 动作名 → 动作表段名（玩家用 HA，怪物/NPC 用 MA）
-const PLAYER_SEG = { stand: 'stand', walk: 'walk', attack: 'hit', struck: 'struck', die: 'die' };
+const PLAYER_SEG = { stand: 'stand', walk: 'walk', run: 'run', attack: 'hit', struck: 'struck', die: 'die' };
 const MON_SEG = { stand: 'stand', walk: 'walk', attack: 'attack', struck: 'struck', die: 'die' };
 
 export class ActorSprite {
@@ -51,7 +51,7 @@ export class ActorSprite {
         if (!segs) return null;
 
         // walk/attack/struck 播放完成后回 stand
-        if (action === 'walk' || action === 'attack' || action === 'struck') {
+        if (action === 'walk' || action === 'run' || action === 'attack' || action === 'struck') {
             const seg = segs[segKey] || segs.stand;
             const af = A.actionFrames(0, seg, dir);
             if (af.ftime > 0 && (now - at) > af.count * af.ftime) {

@@ -171,7 +171,7 @@ export class PlayScene extends Scene {
             const now = Date.now();
             if (now - this._lastMoveAt >= interval) {
                 this._lastMoveAt = now;
-                this.conn.send('move', { dir: this._mouseDir });
+                this.conn.send('move', { dir: this._mouseDir, run: this._mouseRun });
             }
         }, 50);
     }
@@ -228,7 +228,7 @@ export class PlayScene extends Scene {
         this._holding = true;
         this._mouseDir = dir;
         this._mouseRun = run;
-        this.conn.send('move', { dir });
+        this.conn.send('move', { dir, run });
         this._lastMoveAt = Date.now();
     }
 
@@ -304,7 +304,7 @@ export class PlayScene extends Scene {
                 const e = this.entities.get(msg.id);
                 if (e) {
                     e.x = msg.x; e.y = msg.y; e.dir = msg.dir;
-                    e._action = 'walk'; e._actionAt = Date.now();
+                    e._action = msg.run ? 'run' : 'walk'; e._actionAt = Date.now();
                 }
                 break;
             }

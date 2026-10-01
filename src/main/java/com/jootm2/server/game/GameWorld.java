@@ -1499,6 +1499,7 @@ public final class GameWorld {
         o.addProperty("x", a.x);
         o.addProperty("y", a.y);
         o.addProperty("dir", a.dir);
+        o.addProperty("run", a.running);
         broadcastAround(a.map, o, a.x, a.y, SIGHT_RANGE);
     }
 

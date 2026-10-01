@@ -14,6 +14,7 @@ public class Actor {
     public int x;
     public int y;
     public int dir;
+    public boolean running;   // 移动动作类型：走(walk)/跑(run)，广播给客户端播放对应动画
     public int hp;
     public int maxHp;
     public int mp;

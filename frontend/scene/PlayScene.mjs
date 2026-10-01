@@ -17,6 +17,9 @@ const DIRMAP = {
 const WALK_INTERVAL = 540;   // 走（左键）
 const RUN_INTERVAL = 360;    // 跑（右键）
 
+// 怪物/NPC 移动过渡时长（ms）：对齐多数怪物 walk 动画 6 帧×120ms=720ms
+const MONSTER_MOVE_DUR = 720;
+
 // 装备槽名（对应 MessageIds U_DRESS..U_CHARM）
 const SLOT_NAMES = ['衣服', '武器', '右手', '项链', '头盔', '手镯L', '手镯R', '戒指L', '戒指R', '护身符', '腰带', '靴子', '宝石'];
 
@@ -326,6 +329,8 @@ export class PlayScene extends Scene {
             case 'move': {
                 const e = this.entities.get(msg.id);
                 if (e) {
+                    // 记录移动起点（非 self 实体走动画过渡用：从旧格滑到新格）
+                    e._fromX = e.x; e._fromY = e.y;
                     e.x = msg.x; e.y = msg.y; e.dir = msg.dir;
                     const action = msg.run ? 'run' : 'walk';
                     // 动作切换才重置动画相位；连续同动作保持相位连续（避免每步重播前几帧）
@@ -334,6 +339,7 @@ export class PlayScene extends Scene {
                         e._actionAt = Date.now();
                     }
                     e._lastMoveAt = Date.now();   // 停止超时回 stand 用
+                    e._moveAt = Date.now();
                 }
                 break;
             }
@@ -597,11 +603,6 @@ export class PlayScene extends Scene {
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();
-        // 移动停止超时回站立（连续移动时 walk/run 动画循环，停止后归位 stand）
-        if ((this.self._action === 'walk' || this.self._action === 'run')
-            && (now - (this.self._lastMoveAt || 0)) > 600) {
-            this.self._action = 'stand';
-        }
         // 匀速卷动：显示中心以「移动速度」匀速逼近玩家坐标（格/ms 固定），
         // 消除 lerp 指数逼近的「先快后慢」追停抖动；shift 整数化避免浮点绘制模糊。
         if (this._viewX == null) { this._viewX = this.self.x; this._viewY = this.self.y; this._lastFrame = now; }
@@ -619,13 +620,29 @@ export class PlayScene extends Scene {
         const shiftY = Math.round((this._viewY - vcy) * 32);
         const entities = [];
         for (const e of this.entities.values()) {
+            // 移动停止超时回站立（所有实体：连续移动动画循环，停止后归位 stand）
+            if ((e._action === 'walk' || e._action === 'run')
+                && (now - (e._lastMoveAt || 0)) > 600) {
+                e._action = 'stand';
+            }
             const sp = this._sprite(e);
             const isSelf = e.id === this.self.id;
+            let ox = 0, oy = 0;
+            if (isSelf) {
+                // self 走动画偏移：从逻辑格滑向过渡位置 _viewX（地图反向偏移共用 _viewX）
+                ox = (this._viewX - e.x) * 48;
+                oy = (this._viewY - e.y) * 32;
+            } else if (e._moveAt != null && e._fromX != null) {
+                // 怪物/NPC 移动过渡：从旧格滑到新格（时长对齐 walk 动画周期）
+                const t = (now - e._moveAt) / MONSTER_MOVE_DUR;
+                if (t < 1) {
+                    ox = (e._fromX - e.x) * 48 * (1 - t);
+                    oy = (e._fromY - e.y) * 32 * (1 - t);
+                }
+            }
             entities.push({
                 x: e.x, y: e.y,   // 逻辑位置（遮挡排序用）
-                // self 的走动画偏移：从逻辑格滑向过渡位置 _viewX 的像素差（地图反向偏移共用 _viewX）
-                offsetX: isSelf ? (this._viewX - e.x) * 48 : 0,
-                offsetY: isSelf ? (this._viewY - e.y) * 32 : 0,
+                offsetX: ox, offsetY: oy,
                 name: e.name, isSelf,
                 hp: e.hp, maxHp: e.maxHp, type: e.type,
                 isTarget: this.castTarget != null && e.id === this.castTarget,

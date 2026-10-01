@@ -329,17 +329,21 @@ export class PlayScene extends Scene {
             case 'move': {
                 const e = this.entities.get(msg.id);
                 if (e) {
+                    const moved = (e.x !== msg.x || e.y !== msg.y);
                     // 记录移动起点（非 self 实体走动画过渡用：从旧格滑到新格）
                     e._fromX = e.x; e._fromY = e.y;
                     e.x = msg.x; e.y = msg.y; e.dir = msg.dir;
-                    const action = msg.run ? 'run' : 'walk';
-                    // 动作切换才重置动画相位；连续同动作保持相位连续（避免每步重播前几帧）
-                    if (e._action !== action) {
-                        e._action = action;
-                        e._actionAt = Date.now();
+                    if (moved) {
+                        const action = msg.run ? 'run' : 'walk';
+                        // 动作切换才重置动画相位；连续同动作保持相位连续（避免每步重播前几帧）
+                        if (e._action !== action) {
+                            e._action = action;
+                            e._actionAt = Date.now();
+                        }
+                        e._lastMoveAt = Date.now();   // 停止超时回 stand 用
+                        e._moveAt = Date.now();
                     }
-                    e._lastMoveAt = Date.now();   // 停止超时回 stand 用
-                    e._moveAt = Date.now();
+                    // 纯转向（位置不变，如攻击转身）：只更新 dir，不触发移动动画
                 }
                 break;
             }

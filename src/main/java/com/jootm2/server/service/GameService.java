@@ -836,6 +836,7 @@ public final class GameService {
         world.sendStats(p, null);
         world.sendSystem(p, "装备了 " + t.name + "。");
         sendBagUpdate(p);
+        world.broadcastEntityAdd(p);   // 其他玩家看到 dress/weapon 外观变化
     }
 
     /** Pushes the full inventory + gold to the player's client. */

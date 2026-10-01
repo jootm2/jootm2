@@ -285,7 +285,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [x] **血条/名字与 sprite 重叠**（已完成，见 §3 第 31 条）。
 - [x] **装备外观**（已完成，见 §3 第 29 条）。
 - [x] **宠物/玩家死亡残留**（已完成，见 §3 第 31 条 entityRemove 广播）。
-- [ ] **其他玩家装备变化同步**：穿装备后只 sendStats/sendBagUpdate 给本人，未广播给其他玩家（Delphi 用 SM_FEATURECHANGED），需补 `featureChanged` 广播或重新 entityAdd。
+- [x] **其他玩家装备变化同步**（已完成：`equip` 穿装备后补 `broadcastEntityAdd`，其他玩家收到更新后的 dress/weapon）。
 
 ### 音频
 - [ ] **音效系统**：`resource.mjs` 的 `wavUrl/wavCount` 已就绪（694 个 wav，`/resources/Wav/` 已托管 `audio/wav`），后续做 Web Audio 播放 + 按场景预加载。

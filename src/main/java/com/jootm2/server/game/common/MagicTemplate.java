@@ -6,15 +6,14 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 
 /**
- * A magic/skill definition imported from mud2/DB/Magic.DB.
+ * A magic/skill definition imported from mud2/DB/Magic.csv.
  *
  * The authoritative field layout lives in the Delphi source
- * (M2Server/LocalDB.pas {@code LoadMagic}); the Paradox file itself only stores
- * field types/sizes, so attribute values are kept in {@link #attrs} in the exact
- * column order and mapped to named fields by {@link #resolve()}.
+ * (M2Server/LocalDB.pas {@code LoadMagic}); the CSV columns after MagId/MagName
+ * are kept in {@link #attrs} in the exact column order and mapped to named
+ * fields by {@link #resolve()}.
  *
- * Column order (after MagId, MagName) is the ACTUAL Paradox file order (read
- * from the field-name table), which differs from the Delphi FieldByName order:
+ * Column order (after MagId, MagName) is:
  * EffectType, Effect, Spell(MP cost), Power(min), MaxPower,
  * DefSpell, DefPower(min), DefMaxPower, Job,
  * NeedL1, L1Train, NeedL2, L2Train, NeedL3, L3Train, Delay, Descr.

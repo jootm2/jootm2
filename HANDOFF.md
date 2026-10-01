@@ -9,7 +9,7 @@
 
 - 后端：Java 11 + **Netty**（HTTP + WebSocket 单端口）+ SQLite
 - 前端：**原生 canvas 2d**（等距地图渲染）+ DOM GUI（登录/选角/背包），ES Module 静态文件（**已从旧 PixiJS client 副本重写**，见 §3 第 23 条）
-- 服务端数据：从老 Delphi 引擎（BDE/DBC2000 的 Paradox `.DB`、`.map`、`Mir200/Envir` 文本配置）转换/读取
+- 服务端数据：从老 Delphi 引擎（BDE/DBC2000 的 Paradox `.DB` 已转 CSV、`.map`、`Mir200/Envir` 文本配置）转换/读取
 
 **单端口 8080** 同时承载：
 
@@ -26,10 +26,10 @@
 jootm2/
 ├── pom.xml                         # Gson + SQLite + netty-all 4.1.115 + shade 打 fat-jar
 ├── src/main/java/com/jootm2/server/
-│   ├── Main.java                   # 入口：装配配置/DB/Netty/游戏循环，启动时生成 resources.json + 导入 Paradox
+│   ├── Main.java                   # 入口：装配配置/DB/Netty/游戏循环，启动时生成 resources.json + 导入 CSV 模板
 │   ├── config/ServerConfig.java    # 配置加载（含 gamedataRoot/resourcesRoot 等）
-│   ├── db/                         # SQLite：账号、角色、物品/怪物/技能模板（模板从 Paradox 导入）
-│   │   └── Database.java           # schema + seedGameData()（Paradox→SQLite 导入）+ load*Templates()
+│   ├── db/                         # SQLite：账号、角色、物品/怪物/技能模板（模板从 CSV 导入）
+│   │   └── Database.java           # schema + seedGameData()（CSV→SQLite 导入）+ load*Templates()
 │   ├── game/                       # 世界：Actor/Player/Monster/GameMap/GameWorld
 │   │   └── common/                 # 数值/模板：ItemTemplate/MonsterTemplate/MagicTemplate/Direction/ExperienceTable...
 │   ├── net/                        # ★ Netty 网络层（替换了旧 jootm2-server 的手写 NIO）
@@ -79,7 +79,7 @@ jootm2/
 12. **物品掉落/拾取/使用**：`game/GroundItem.java`（地面物品/金币堆）；`WorldData.loadMonItems` 解析 `MonItems/{怪物名}.txt`（格式 `n/m 物品名 [数量]`，判定 `selPoint>=random(maxPoint)`，金币=`count/2+random(count)`，物品掉 1 个，耐久 `20~100%` 随机）——启动加载 245 张掉落表；`GameWorld.dropLoot` 在怪物死亡时散落掉落并广播，`pickup` 拾取（距离≤1），`mapSnapshot` 附带 `groundItems`；`GameService` 新增 `pickup/useItem` 协议，`useItem` 支持吃药（stdMode 0/1/2，字段语义重载：AC=HP 恢复量、MAC=MP 恢复量）与穿装备（`slotFor` 装备位 + `needLevel` 等级检查 + `recompute`）。已用测试脚本验证：杀鸡掉鸡肉→拾取→吃药。
 13. **客户端基础交互（旧 PixiJS 副本，已废弃）**：`frontend/scene/PlayScene.mjs` 补齐可玩闭环——渲染地面物品（金色方块+名字）、鼠标点击（点物品→走近拾取、点 NPC→走近对话、点怪物→走近普攻、点空地→走过去）、B 键背包面板（点击物品 useItem）、NPC 对话框（npcSay 文本+选项按钮+商店 buy 商品列表）、HUD 加金币；`SceneManager.mjs` 新增 `itemDrop/itemRemove/npcSay/npcClose/bagUpdate` 分发与 `send_pickup/send_use_item/send_npc_talk/send_npc_select`；`index.html` 加背包面板 + NPC 对话框 DOM；服务端新增 `bagUpdate{items,gold}` 消息（pickup/useItem/equip/buy/sell 后推送）。
 14. **客户端真实画面（旧 PixiJS 副本，已废弃，勿参考；sprite 逻辑应以 Delphi 客户端源码为准）**：历史记录——旧副本用 `frontend/actor/MapActor.mjs` 做等距渲染，实体 sprite 用怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC `npc` 库 + `GetNpcOffset`、玩家 `hum` 库站立帧。**这些 sprite 逻辑的正确移植来源是 Delphi 客户端源码 `Client/Actor.pas`（`RaceByPM`/`GetMonImg`/`GetOffset`/`GetNpcOffset`）与 `Client/PlayScn.pas`**，而非旧 PixiJS 副本。服务端 `Actor.toBriefJson` 的 `raceImg` 字段（`Monster.raceImg = template.raceImg`，图像种族 9~99 与服务器 `race` 81~97 是两套值）已就绪。
-15. **技能/魔法系统**：`MagicTemplate` 加命名字段 + `resolve()`（字段顺序以 Paradox 实际文件顺序为准，见 §10）；`Player` 加 `skills`（magicId→`Skill{level,curTrain}`）与 `skillCooldown`；`GameWorld` 加 `magicTemplates`；`GameService` 新增 `castMagic` 协议（客户端→`castMagic{magicId,targetId}`，服务端→`spellCast{casterId,magicId,effect}` 广播）：
+15. **技能/魔法系统**：`MagicTemplate` 加命名字段 + `resolve()`（字段顺序以 CSV 列顺序为准，见 §10）；`Player` 加 `skills`（magicId→`Skill{level,curTrain}`）与 `skillCooldown`；`GameWorld` 加 `magicTemplates`；`GameService` 新增 `castMagic` 协议（客户端→`castMagic{magicId,targetId}`，服务端→`spellCast{casterId,magicId,effect}` 广播）：
     - 伤害魔法（火球 1/大火球 5/雷电 11/灭天火 35，伤害=威力随技能等级缩放+MC-目标魔御）+ 治愈魔法（治愈 2/群体治愈 24）+ 推开（抗拒火环 8/气功波 37，`pushAround`）+ 传送（瞬息移动 21，`randomTeleport`）；
     - MP 消耗随技能等级递增（`GetSpellPoint`=`Round(Spell/4*(level+1))+DefSpell`）、冷却（`Delay*10`）、技能已学检查；
     - 技能书学习（`useItem` 里 stdMode=4，`learnSkillBook`：职业匹配 `Job`、等级 `NeedLevel[0]`、学会 level=0）；熟练度升级（施法成功 `curTrain += 1~3`，达 `MaxTrain[lv]` 升级，`CheckMagicLevelup`）；
@@ -229,7 +229,7 @@ mvn -DskipTests package          # 产物 target/jootm2.jar
 java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8080
 ```
 
-- 启动日志关键行：`[db] imported Paradox: items=541, monsters=273`、`[resources] generated ...`、`[world] map=0 700x700, spawned monsters=N`、`[main] jootm2 started on port 8080`。
+- 启动日志关键行：`[db] imported CSV: items=541, monsters=273, magics=39`、`[resources] generated ...`、`[world] map=0 700x700, spawned monsters=N`、`[main] jootm2 started on port 8080`。
 - 浏览器打开 `http://localhost:8080/` 即可玩（注册→登录→建角→进游戏）。
 - 端到端测试：先起服务，再 `python3 scripts/smoke_test.py`（通过输出 `SMOKE TEST PASSED`）。
 - **重新导入数据**：删 `data/jootm2.db*` 后再启动（模板表为空才触发 CSV 导入）。
@@ -243,16 +243,16 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 ## 10. 关键技术点（接手必读）
 
 - **游戏模板 CSV 格式**（`gamedata/mud2/DB/*.csv`）：UTF-8，首行表头，逗号分隔（带引号字段）。StdItems 24 列（Idx,Name,StdMode,Shape,Weight,AniCount,SpecialPwr,ItemDesc,Looks,DuraMax,AcMin,AcMax,MacMin,MacMax,DcMin,DcMax,McMin,McMax,ScMin,ScMax,Need,NeedLevel,Price,Stock）；Monster 22 列（Name,Race,RaceImg,Appr,Level,Undead,CoolEye,Exp,HP,MP,AC,MAC,DC,DCMax,MC,SC,Speed,Hit,WalkSpeed,WalkStep,WalkWait,AttackSpeed）；Magic 19 列（MagId,MagName,EffectType,Effect,Spell,Power,MaxPower,DefSpell,DefPower,DefMaxPower,Job,NeedL1,L1Train,NeedL2,L2Train,NeedL3,L3Train,Delay,Descr）。导入在 `Database.importCsvTable`（流式逐行，`splitCsv` 处理引号），`mapStdItem/mapMonster/mapMagic` 按列序映射。
-- **字段语义来源**：老 Delphi `M2Server/LocalDB.pas` 的 `LoadStdItems / LoadMonsters / LoadMagic`。`Magic.DB` 只有类型/长度、不存字段名，id+name 之外用类型化列表保留在 `MagicTemplate.attrs`，再经 `resolve()` 映射为命名字段。
-- **Magic.DB 字段顺序（坑！）**：`FieldByName` 是按名查，顺序 ≠ 文件顺序。Paradox 文件里**实际字段顺序**（从 header 字段名表读出）是：`MagID, MagName, EffectType, Effect, Spell(MP), Power(min), MaxPower, DefSpell, DefPower(min), DefMaxPower, Job, NeedL1, L1Train, NeedL2, L2Train, NeedL3, L3Train, Delay, Descr`（19 字段，`attrs` 去掉 MagId/Name 后 17 个）。`DelayTime = Delay*10`；`NeedLevel` 是学习门槛（施放不检查），`Spell` 是施法 MP 消耗。
+- **字段语义来源**：老 Delphi `M2Server/LocalDB.pas` 的 `LoadStdItems / LoadMonsters / LoadMagic`。Magic 的 id+name 之外用列表保留在 `MagicTemplate.attrs`，再经 `resolve()` 映射为命名字段。
+- **Magic 字段顺序（坑！）**：Delphi `FieldByName` 是按名查，顺序 ≠ 文件顺序。CSV 列顺序（沿用旧 Paradox 文件实际顺序）是：`MagId, MagName, EffectType, Effect, Spell(MP), Power(min), MaxPower, DefSpell, DefPower(min), DefMaxPower, Job, NeedL1, L1Train, NeedL2, L2Train, NeedL3, L3Train, Delay, Descr`（19 列，`attrs` 去掉 MagId/Name 后 17 个）。`DelayTime = Delay*10`；`NeedLevel` 是学习门槛（施放不检查），`Spell` 是施法 MP 消耗。
 - **.map 格式**（`resource/MapFileReader.java`）：52 字节头（宽/高/标题/日期/保留）+ `宽*高` 个 12 字节瓦片；bng/mid/obj 各 2 字节，`0x8000` 位=阻挡。
-- **编码**：所有 gamedata 文本（MapInfo/MonGen/Npcs/…）与 Paradox Alpha 字段都是 **GBK**（Java 用 `Charset.forName("GBK")`）。SQLite 内部存 UTF-8（Gson JSON）。
+- **编码**：gamedata 文本（MapInfo/MonGen/Npcs/…）是 **GBK**（Java 用 `Charset.forName("GBK")`）；`mud2/DB/*.csv` 模板是 **UTF-8**（`StandardCharsets.UTF_8` 读取）。SQLite 内部存 UTF-8（Gson JSON）。
 - **模板表**：`std_items(idx,data)` `monsters(name,data)` `magics(mag_id,data)`，`data` 是模板类的 Gson JSON，见 `db/Database.java`。
 - **前端入口与架构**：入口是 `frontend/main.mjs`（`loadResources()` → WS `/ws` → LoginScene → 主循环）；场景由 `scene/SceneManager.mjs` 驱动，`conn.on('*')` 把服务端消息路由到当前场景的 `onMessage(type, msg)`。所有通信是 JSON（§7），无二进制协议。（旧 client 副本里的 `EDcode/GB2312Encoder/SDK` 二进制协议代码在新前端里**已不存在**。）
 
 ## 11. 已发现的坑 / 注意
 
-- **怪物/技能名带数字后缀**：导入自我托管数据，原 `Monster.DB`/`Magic.DB` 本身就有 `骷髅精灵10`、`驽马精灵0` 这类名字，是源数据如此，非解析 bug（`洞蛆`/`多钩猫`/`火球术` 等均正确）。
+- **怪物/技能名带数字后缀**：源数据（`Monster.csv`/`Magic.csv`）本身就有 `骷髅精灵10`、`驽马精灵0` 这类名字，是源数据如此，非解析 bug（`洞蛆`/`多钩猫`/`火球术` 等均正确）。
 - **.DB 有重复行**：`跳跳蜂1`×7、magId 11/15/20/26/29/30 各×2、idx 476×7，已用 `INSERT OR REPLACE` 去重（后写覆盖）。
 - **之前的手写 NIO 版有 bug**：`addActor` 没把怪物挂到地图导致 `tryMove` 会 NPE；已修（`GameWorld.addActor` 里 `if(a.map==null) a.map=defaultMap`）。
 - **smoke_test 战斗偶发「未击杀」**：怪物池从 3 个变 267 个后，可能随到高 HP 怪，是测试的随机性，非代码错误（`SMOKE TEST PASSED` 仍输出）。

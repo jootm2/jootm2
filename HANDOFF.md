@@ -37,7 +37,6 @@ jootm2/
 │   │   ├── HttpServerHandler.java  # 路由：/ /api/ /resources/ + CORS
 │   │   └── ws/WebSocketFrameHandler.java # WebSocket 帧 ⇄ GameService，实现 PlayerSession
 │   ├── resource/                   # ★ 数据读取器
-│   │   ├── ParadoxDb.java          # Paradox .DB 解析（DBC2000/BDE），已用 Python 原型验证
 │   │   ├── MapFileReader.java      # .map → GameMap 可行走栅格
 │   │   ├── WorldData.java          # StartPoint.txt / MonGen.txt 文本解析（GBK）
 │   │   └── ResourcesIndexGenerator.java # 启动时扫描 Data/Map/Wav 生成 resources.json
@@ -68,7 +67,7 @@ jootm2/
 1. **单进程 Netty 后端**：HTTP 静态 + REST + WebSocket + CORS，全部 8080。
 2. **前端静态托管**：8080 提供 `/` 静态 + `/ws` WebSocket + `/resources/*` 渲染资源（带 CORS）。**注意**：当前前端是原生 canvas 2d 重写（见第 23 条）；下面第 13/14 条是早期旧 PixiJS client 副本的工作记录，已被替代、**勿参考**。
 3. **资源托管**：`/resources/*` 静态服务；`resources.json` 启动时自动生成。
-4. **Paradox 数据库导入 SQLite**：`gamedata/mud2/DB/{StdItems,Magic,Monster}.DB` → SQLite，启动首次自动导入（`INSERT OR REPLACE` 去重）。
+4. **游戏模板 CSV 导入 SQLite**：`gamedata/mud2/DB/{StdItems,Magic,Monster}.csv`（UTF-8，带表头，可直接编辑）→ SQLite，启动首次自动流式导入（`INSERT OR REPLACE` 去重）。CSV 由 `scripts/paradox_to_csv.py` 从旧 Delphi Paradox `.DB` 一次性导出（`.DB` 已删除，不再保留二进制格式）。
    - 结果：物品 535、怪物 267、技能 33（原库有重复行，已去重）。
 5. **登录/注册/角色**：账号、角色持久化（SQLite FDB 替代）。
 6. **真实地图**：`MapFileReader` 读 `.map` 得到 700×700 等真实可行走栅格；出生点来自 `StartPoint.txt`。
@@ -170,6 +169,12 @@ jootm2/
     - **点墙就近寻路**：`PlayScene._walkTo` 目标不可站时在 ±2 格内就近找可站格（曼哈顿距离最小），修复点墙不响应。
     - **血条/名字位置**：血条从格顶 `sy-4` 上移到 `sy-18`、名字从 `sy+4` 上移到 `sy-34`（sprite 头顶上方），施法目标高亮框同步调整，消除与 sprite 重叠。
     - 验证：smoke test 通过；点墙格 (292,615)→就近移动到 (291,615)。
+32. **Paradox `.DB` → CSV + 配置/路径健壮性**（数据可维护性 + 部署）：
+    - 删除 `resource/ParadoxDb.java` 与 `gamedata/mud2/DB/*.DB`（二进制），改为 UTF-8 CSV（带表头，可直接编辑）；`scripts/paradox_to_csv.py` 为一次性导出脚本（已运行生成 3 个 csv）。
+    - `Database.importParadox` → `importCsv`：`importCsvTable` 流式逐行读 CSV（`splitCsv` 处理引号），导入 SQLite 后释放，不常驻内存。
+    - `ServerConfig.load` 找不到 config 时回退内置默认值（不再抛异常）。
+    - `Main` 加 `projectRoot()/resolve()`：数据目录（frontend/resources/gamedata/data）按「工作目录优先、找不到回退 jar 父目录（项目根）」归一化，从任意目录启动都能定位数据。
+    - 验证：删库重导 items=541/monsters=273/magics=39（去重后 535/267/33 与旧一致）；从 `target/` 运行不再报 config 错、前端/resources 正常。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -204,7 +209,7 @@ jootm2/
 | `resources/` | `/Users/linxing/Desktop/Legend of Mir` | 客户端渲染资源（Data 图片库 / Map / Wav），`resources.json` 也是生成到这里 |
 | `gamedata/Mir200/Map/` | `/Users/linxing/Documents/火炬源码+配套服务端/MirServer/Mir200/Map` | 服务端 `.map`（可行走栅格） |
 
-- `gamedata/mud2/DB/*.DB`（Paradox 原始表）是**真实文件**，已拷入，可 git 管理。
+- `gamedata/mud2/DB/*.csv`（StdItems/Monster/Magic，UTF-8 带表头）是**可直接编辑的模板数据**，已拷入 git（由 `scripts/paradox_to_csv.py` 从旧 `.DB` 导出，`.DB` 已删除）。
 - `gamedata/Mir200/Envir/`（MapInfo/MonGen/Npcs/MerChant/MapQuest/MonItems/Npc_Def/Market_Def…）是**真实文件**，已拷入。
 - 前端 `frontend/` 是**原生 canvas 2d 重写**（ES Module，非框架）。**参考依据是 Delphi 源码**（服务端 `/Volumes/未命名/fire/Source/M2Server/` + 客户端 `/Volumes/未命名/fire/Source/Client/`），**不参考旧 PixiJS 副本 `/Volumes/未命名/client/`**。后续改前端一律在 `frontend/` 里改。
 
@@ -227,7 +232,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - 启动日志关键行：`[db] imported Paradox: items=541, monsters=273`、`[resources] generated ...`、`[world] map=0 700x700, spawned monsters=N`、`[main] jootm2 started on port 8080`。
 - 浏览器打开 `http://localhost:8080/` 即可玩（注册→登录→建角→进游戏）。
 - 端到端测试：先起服务，再 `python3 scripts/smoke_test.py`（通过输出 `SMOKE TEST PASSED`）。
-- **重新导入数据**：删 `data/jootm2.db*` 后再启动（模板表为空才触发 Paradox 导入）。
+- **重新导入数据**：删 `data/jootm2.db*` 后再启动（模板表为空才触发 CSV 导入）。
 - Docker：`docker compose up --build`；`resources/` 与 `data/` 用卷挂载（`gamedata` 未打进镜像，需在镜像内挂载（见 `docker-compose.yml` 与 README）。
 
 ## 9. 配置项（config/server.properties）
@@ -237,7 +242,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 
 ## 10. 关键技术点（接手必读）
 
-- **Paradox .DB 格式**（`resource/ParadoxDb.java`）：头部 `recordSize(0x00)`/`blockSize(0x02)`/`记录数(0x06)`；`0x78` 起是「字段类型+长度」2 字节描述；数据块 = 6 字节块头 + 连续定长记录。整数是大端 + 高字节标志位，字符串是 GBK、NUL 补齐。
+- **游戏模板 CSV 格式**（`gamedata/mud2/DB/*.csv`）：UTF-8，首行表头，逗号分隔（带引号字段）。StdItems 24 列（Idx,Name,StdMode,Shape,Weight,AniCount,SpecialPwr,ItemDesc,Looks,DuraMax,AcMin,AcMax,MacMin,MacMax,DcMin,DcMax,McMin,McMax,ScMin,ScMax,Need,NeedLevel,Price,Stock）；Monster 22 列（Name,Race,RaceImg,Appr,Level,Undead,CoolEye,Exp,HP,MP,AC,MAC,DC,DCMax,MC,SC,Speed,Hit,WalkSpeed,WalkStep,WalkWait,AttackSpeed）；Magic 19 列（MagId,MagName,EffectType,Effect,Spell,Power,MaxPower,DefSpell,DefPower,DefMaxPower,Job,NeedL1,L1Train,NeedL2,L2Train,NeedL3,L3Train,Delay,Descr）。导入在 `Database.importCsvTable`（流式逐行，`splitCsv` 处理引号），`mapStdItem/mapMonster/mapMagic` 按列序映射。
 - **字段语义来源**：老 Delphi `M2Server/LocalDB.pas` 的 `LoadStdItems / LoadMonsters / LoadMagic`。`Magic.DB` 只有类型/长度、不存字段名，id+name 之外用类型化列表保留在 `MagicTemplate.attrs`，再经 `resolve()` 映射为命名字段。
 - **Magic.DB 字段顺序（坑！）**：`FieldByName` 是按名查，顺序 ≠ 文件顺序。Paradox 文件里**实际字段顺序**（从 header 字段名表读出）是：`MagID, MagName, EffectType, Effect, Spell(MP), Power(min), MaxPower, DefSpell, DefPower(min), DefMaxPower, Job, NeedL1, L1Train, NeedL2, L2Train, NeedL3, L3Train, Delay, Descr`（19 字段，`attrs` 去掉 MagId/Name 后 17 个）。`DelayTime = Delay*10`；`NeedLevel` 是学习门槛（施放不检查），`Spell` 是施法 MP 消耗。
 - **.map 格式**（`resource/MapFileReader.java`）：52 字节头（宽/高/标题/日期/保留）+ `宽*高` 个 12 字节瓦片；bng/mid/obj 各 2 字节，`0x8000` 位=阻挡。

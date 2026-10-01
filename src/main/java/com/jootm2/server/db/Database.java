@@ -3,9 +3,11 @@ package com.jootm2.server.db;
 import com.jootm2.server.game.common.ItemTemplate;
 import com.jootm2.server.game.common.MagicTemplate;
 import com.jootm2.server.game.common.MonsterTemplate;
-import com.jootm2.server.resource.ParadoxDb;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -14,7 +16,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -122,7 +126,7 @@ public final class Database implements AutoCloseable {
     }
 
     /**
-     * Populates the template tables once. When the Paradox tables exist under
+     * Populates the template tables once. When the CSV tables exist under
      * mud2/DB they win (the authoritative game data); otherwise a tiny starter
      * set keeps the server playable.
      */
@@ -131,49 +135,95 @@ public final class Database implements AutoCloseable {
             return;
         }
         boolean ok = false;
-        if (mud2Dir != null && Files.exists(mud2Dir.resolve("StdItems.DB"))) {
-            ok = importParadox(mud2Dir);
+        if (mud2Dir != null && Files.exists(mud2Dir.resolve("StdItems.csv"))) {
+            ok = importCsv(mud2Dir);
         }
         if (!ok) {
             seedDefaults();
         }
     }
 
-    private boolean importParadox(Path mud2Dir) {
+    /** Streams CSV tables (one row at a time) into SQLite; frees memory as it goes. */
+    private boolean importCsv(Path mud2Dir) {
         try {
-            ParadoxDb std = ParadoxDb.read(mud2Dir.resolve("StdItems.DB"));
-            ParadoxDb mons = ParadoxDb.read(mud2Dir.resolve("Monster.DB"));
-
             try (Statement st = connection.createStatement()) {
                 st.executeUpdate("DELETE FROM std_items");
                 st.executeUpdate("DELETE FROM monsters");
                 st.executeUpdate("DELETE FROM magics");
             }
 
-            for (Object[] r : std.records) {
-                insertStdItem(num(r[0]), mapStdItem(r));
-            }
-            for (Object[] r : mons.records) {
-                insertMonster(mapMonster(r));
-            }
-            Path magicFile = mud2Dir.resolve("Magic.DB");
-            if (Files.exists(magicFile)) {
-                for (Object[] r : ParadoxDb.read(magicFile).records) {
-                    insertMagic(mapMagic(r));
-                }
-            }
-            System.out.println("[db] imported Paradox: items=" + std.records.size()
-                    + ", monsters=" + mons.records.size());
-            return std.records.size() > 0;
+            int items = importCsvTable(mud2Dir.resolve("StdItems.csv"), r -> insertStdItem(num(r[0]), mapStdItem(r)));
+            int monsters = importCsvTable(mud2Dir.resolve("Monster.csv"), r -> insertMonster(mapMonster(r)));
+            int magics = importCsvTable(mud2Dir.resolve("Magic.csv"), r -> insertMagic(mapMagic(r)));
+            System.out.println("[db] imported CSV: items=" + items + ", monsters=" + monsters + ", magics=" + magics);
+            return items > 0;
         } catch (Exception e) {
-            System.err.println("[db] failed to import Paradox tables: " + e.getMessage());
+            System.err.println("[db] failed to import CSV tables: " + e.getMessage());
             return false;
         }
     }
 
-    private static ItemTemplate mapStdItem(Object[] r) {
+    /** Reads one CSV file line-by-line (skipping the header) and feeds each row to the consumer. */
+    private int importCsvTable(Path file, RowConsumer consumer) throws IOException, SQLException {
+        if (!Files.exists(file)) {
+            return 0;
+        }
+        int count = 0;
+        try (BufferedReader br = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            String line;
+            boolean header = true;
+            while ((line = br.readLine()) != null) {
+                if (header) {
+                    header = false;
+                    continue;
+                }
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
+                String[] cols = splitCsv(line);
+                if (cols.length == 0) {
+                    continue;
+                }
+                consumer.accept(cols);
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @FunctionalInterface
+    private interface RowConsumer {
+        void accept(String[] cols) throws SQLException;
+    }
+
+    /** Minimal CSV field splitter honouring double-quoted fields. */
+    private static String[] splitCsv(String line) {
+        List<String> out = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    sb.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                out.add(sb.toString());
+                sb.setLength(0);
+            } else {
+                sb.append(c);
+            }
+        }
+        out.add(sb.toString());
+        return out.toArray(new String[0]);
+    }
+
+    private static ItemTemplate mapStdItem(String[] r) {
         ItemTemplate t = new ItemTemplate();
-        t.name = (String) r[1];
+        t.name = r[1];
         t.stdMode = num(r[2]);
         t.shape = num(r[3]);
         t.weight = num(r[4]);
@@ -199,9 +249,9 @@ public final class Database implements AutoCloseable {
         return t;
     }
 
-    private static MonsterTemplate mapMonster(Object[] r) {
+    private static MonsterTemplate mapMonster(String[] r) {
         MonsterTemplate m = new MonsterTemplate();
-        m.name = (String) r[0];
+        m.name = r[0];
         m.race = num(r[1]);
         m.raceImg = num(r[2]);
         m.appr = num(r[3]);
@@ -223,16 +273,15 @@ public final class Database implements AutoCloseable {
         return m;
     }
 
-    private static MagicTemplate mapMagic(Object[] r) {
+    private static MagicTemplate mapMagic(String[] r) {
         MagicTemplate m = new MagicTemplate();
         m.magId = num(r[0]);
-        m.name = (String) r[1];
+        m.name = r[1];
         for (int i = 2; i < r.length; i++) {
-            Object v = r[i];
-            if (v instanceof String) {
-                m.attrs.add((String) v);
-            } else if (v instanceof Number) {
-                m.attrs.add(((Number) v).intValue());
+            if (i == r.length - 1) {
+                m.attrs.add(r[i]);        // Descr（描述文本）
+            } else {
+                m.attrs.add(num(r[i]));   // 数字字段
             }
         }
         return m;
@@ -262,8 +311,15 @@ public final class Database implements AutoCloseable {
         return map;
     }
 
-    private static int num(Object v) {
-        return (v instanceof Number) ? ((Number) v).intValue() : 0;
+    private static int num(String v) {
+        if (v == null || v.trim().isEmpty()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     private void insertStdItem(int idx, ItemTemplate item) throws SQLException {

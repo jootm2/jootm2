@@ -6,6 +6,7 @@ import com.jootm2.server.net.NettyServer;
 import com.jootm2.server.resource.ResourcesIndexGenerator;
 import com.jootm2.server.service.GameService;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.Executors;
@@ -26,13 +27,18 @@ public final class Main {
         String configPath = args.length > 0 ? args[0] : "config/server.properties";
         ServerConfig config = ServerConfig.load(configPath);
 
-        Database db = new Database(config.dbFile());
-        Path mud2Dir = Paths.get(config.gamedataRoot(), "mud2", "DB").toAbsolutePath();
+        // 数据目录归一化：无论从哪个工作目录启动，都能定位到项目根下的数据。
+        Path root = projectRoot();
+        Path webRoot = resolve(root, config.webRoot());
+        Path resourcesRoot = resolve(root, config.resourcesRoot());
+        Path gamedataRoot = resolve(root, config.gamedataRoot());
+        Path dbFile = resolve(root, config.dbFile());
+
+        Database db = new Database(dbFile.toString());
+        Path mud2Dir = gamedataRoot.resolve("mud2").resolve("DB");
         db.seedGameData(mud2Dir);
         GameService game = new GameService(config, db);
 
-        Path webRoot = Paths.get(config.webRoot()).toAbsolutePath();
-        Path resourcesRoot = Paths.get(config.resourcesRoot()).toAbsolutePath();
         try {
             ResourcesIndexGenerator.generate(resourcesRoot);
         } catch (Exception e) {
@@ -70,5 +76,30 @@ public final class Main {
         System.out.println("[main]   client  : http://localhost:" + config.port() + "/");
         System.out.println("[main]   ws      : ws://localhost:" + config.port() + "/ws");
         System.out.println("[main]   resource: http://localhost:" + config.port() + config.resourcesPrefix() + "/resources.json");
+    }
+
+    /** 项目根目录（jar 所在目录的父目录），用于定位 frontend/resources/gamedata。 */
+    private static Path projectRoot() {
+        try {
+            Path jar = Paths.get(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            Path dir = Files.isDirectory(jar) ? jar : jar.getParent();
+            Path root = dir != null ? dir.getParent() : null;
+            if (root != null && Files.exists(root.resolve("gamedata"))) {
+                return root;
+            }
+            return dir != null ? dir : Paths.get("").toAbsolutePath();
+        } catch (Exception e) {
+            return Paths.get("").toAbsolutePath();
+        }
+    }
+
+    /** 优先用当前工作目录的相对路径，找不到再回退到项目根目录。 */
+    private static Path resolve(Path root, String p) {
+        Path abs = Paths.get(p).toAbsolutePath();
+        if (Files.exists(abs)) {
+            return abs;
+        }
+        Path alt = root.resolve(p);
+        return Files.exists(alt) ? alt.toAbsolutePath() : abs;
     }
 }

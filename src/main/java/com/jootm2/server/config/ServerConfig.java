@@ -57,7 +57,8 @@ public final class ServerConfig {
             cfg.playerSpawnX = getInt(props, "world.playerSpawnX", cfg.playerSpawnX);
             cfg.playerSpawnY = getInt(props, "world.playerSpawnY", cfg.playerSpawnY);
         } else {
-            throw new IllegalStateException("Config file not found: " + path);
+            // 未找到配置文件时回退到内置默认值，避免直接报错。
+            System.out.println("[config] " + path + " not found, using built-in defaults");
         }
         return cfg;
     }

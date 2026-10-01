@@ -138,6 +138,18 @@ jootm2/
     - `resource.mjs` 加 `wavUrl(soundId)` / `wavCount()`（对接 `resources.json` 的 `wavs` 键）。
     - 后端 `HttpServerHandler.contentType` 加 `.wav→audio/wav`（另加 mp3/ogg）；已确认支持 Range 206 + CORS `*`。
     - 验证：Playwright `Audio` 元素加载成功可播放（duration 1.5s）。音效播放系统本身未做（§14 待办）。
+26. **实体真实 sprite**（前端阶段 2 后续，替代圆点）：
+    - `frontend/actor/actorData.mjs`：1:1 移植 Delphi `Client/Actor.pas` —— 人类动作表 `HA`、怪物/NPC 动作表 `MA9~MA52`（stand 字段）、`RaceByPM`（raceImg 9~99 → 动作表，已核对 DB 全部 distinct raceImg 均覆盖）、`GetMonImg`（appr div 10 → `mon1~mon21`/`effect` 图库 key）、`GetOffset`（ appr → 帧偏移，含 13/18/19/20/90 特例表）、`GetNpcOffset`（appr → 60 帧块偏移）。
+    - `frontend/actor/ActorSprite.mjs`：按实体类型计算站立帧图索引（公式 `方向块起始 = offset + act.start + dir*(frame+skip)`，`ftime` 循环动画，实体 id 相位错开防同步），分层返回：玩家 = 武器(`weaponLooks>=2`)→身体→头发(`hair>=1`)，`hum`/`hair`/`weapon` 库各 `600 帧/外观`，`dress = job*2+sex`（初始外观）；怪物/ NPC 单层。纹理懒加载（同步查缓存 + 异步触发）。
+    - `MapActor.render` 实体绘制改为 `layers` 多层（锚点 = 格子底部中心 + 纹理 `px/py` 偏移），名字照旧；`PlayScene` 弃用圆点，`_renderEntities` → `_renderHpBars`（只画血条），sprite 按 id 缓存（entityAdd 替换对象后自动重建）。
+    - 服务端：`Player.toPlayerJson` 补 `weaponLooks` 字段（与 toBriefJson 一致，self 也带武器外观）。
+    - 验证（Playwright 截图）：玩家/怪物（稻草人 raceImg=18 appr=27）/NPC sprite 渲染正常，血条 + 名字正常，攻击日志正常。
+27. **行走/攻击动画 + 点击交互**：
+    - `actorData.mjs` 补全 MA 表完整动作段（stand/walk/attack/struck/die/death 各 `start/frame/skip/ftime`，来自 `Actor.pas` MA9~MA52 全量）。
+    - `ActorSprite.mjs` 动作状态机：实体 `_action`（stand/walk/attack/struck/die）+ `_actionAt` 驱动帧段切换；walk/attack/struck 播完自动回 stand、die 停在末帧（普通怪物重生时 entityAdd 替换对象恢复）；玩家动作映射 HA（attack→hit 段）。
+    - `map/pathfind.mjs`：8 方向 A* 寻路（切比雪夫启发式 + 斜线 1.4 代价），返回方向序列（与服务器 Direction 一致）。
+    - `PlayScene`：canvas 点击 → cell 换算（`tx=round((mx-ox)/48+self.x)`，ox=376/oy=206）→ 目标判定（怪物→走近攻击、NPC→走近 npcTalk、地面物品→走近 pickup、空地→寻路移动）；`moveTimer` 支持 path 队列 + 到达回调（覆盖键盘移动）；维护地面物品（enterGame/changeMap 快照 `groundItems` + `itemDrop/itemRemove` 消息）；地面物品渲染（金币金色圆点/物品绿块+名字）。
+    - 验证：点击移动成功（(289,618)→(290,623)）；findPath 到可站格返回正确方向序列、到墙格（canStand=false）返回 null。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -155,11 +167,11 @@ jootm2/
 
 **后端（M2Server 移植）已 100% 完成**（§3 第 1-22 条覆盖全部核心玩法子系统），`mvn package` + smoke test 通过，无待办。
 
-**前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）。**下一步主线**（按序）：
+**前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）+ **实体真实 sprite**（§3 第 26 条）+ **行走/攻击动画 + 点击交互**（§3 第 27 条）。**下一步主线**（按序）：
 
-1. **实体真实 sprite**：替换 `PlayScene._renderEntities` 的圆点 → 玩家 `hum` 库站立帧、怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC `npc` 库 + `GetNpcOffset`。**移植来源 = Delphi 客户端源码**：`/Volumes/未命名/fire/Source/Client/Actor.pas`（`RaceByPM`/`GetMonImg`/`GetOffset`/`GetNpcOffset`）与 `PlayScn.pas`（玩家 hum 帧 + 游戏场景绘制）。**不参考旧 PixiJS 副本**。
-2. **点击交互**：点地走（寻路）、点怪走近攻击、点 NPC 对话、点物拾取（服务端协议 `pickup/npcTalk/attack/move` 已就绪）。
-3. **背包/装备/NPC 对话框 GUI**：`gui/` 框架（DWindow/DGrid/DButton）已就绪，接服务端 `bagUpdate/npcSay` 协议即可。
+1. **背包/装备/NPC 对话框 GUI**：`gui/` 框架（DWindow/DGrid/DButton）已就绪，接服务端 `bagUpdate/npcSay` 协议即可；背包格点击 useItem/穿装备、NPC 商店 buy/sell 列表。
+2. **卖出**：NPC 商店 sellItem 接口（`sellItem{npcId,makeIndex}` 已就绪，客户端接 GUI）。
+3. **装备外观/技能栏**：穿装备后 dress 跟随 U_DRESS 外观（当前 `dress=job*2+sex` 初始外观）；技能栏 F1-F8 施法（castMagic 已就绪）。
 
 详细待办与优化项见 §14。
 
@@ -219,7 +231,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - **.DB 有重复行**：`跳跳蜂1`×7、magId 11/15/20/26/29/30 各×2、idx 476×7，已用 `INSERT OR REPLACE` 去重（后写覆盖）。
 - **之前的手写 NIO 版有 bug**：`addActor` 没把怪物挂到地图导致 `tryMove` 会 NPE；已修（`GameWorld.addActor` 里 `if(a.map==null) a.map=defaultMap`）。
 - **smoke_test 战斗偶发「未击杀」**：怪物池从 3 个变 267 个后，可能随到高 HP 怪，是测试的随机性，非代码错误（`SMOKE TEST PASSED` 仍输出）。
-- **客户端游戏画面**：旧 client 副本（`/Volumes/未命名/client/`）的 PlayScene 是简化网格；新前端（`frontend/`，见 §3 第 23 条）已用真实等距地图渲染，实体暂为圆点+血条（真实 sprite 见 §14 待办）。
+- **客户端游戏画面**：旧 client 副本（`/Volumes/未命名/client/`）的 PlayScene 是简化网格；新前端（`frontend/`，见 §3 第 23 条）已用真实等距地图渲染 + 实体真实 sprite（§3 第 26 条，站立帧）。
 - **无残留进程**：交接前已停掉我起的服务端/资源服务器，端口 8080/55842 均空闲。
 
 ## 12. 参考材料
@@ -233,7 +245,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 
 ## 13. 一句总结
 
-**后端 M2Server 移植已全部完成**（账号角色/多地图/NPC 脚本商店/掉落拾取/技能魔法/战斗 buff 宠物/任务/装备套装/行会攻城/组队仓库交易，§3 第 1-22 条），`mvn package` + smoke test 通过。**前端重写进行中**：已完成 GUI 框架 + 登录/选角/游戏场景（真实等距地图渲染 + 移动/聊天/战斗闭环，§3 第 23-25 条）；下一步是**实体真实 sprite → 点击交互 → 背包/NPC GUI**（§5）。接手先读 §2 目录、§5 方向、§10 关键点、§11 坑、§14 待办。
+**后端 M2Server 移植已全部完成**（账号角色/多地图/NPC 脚本商店/掉落拾取/技能魔法/战斗 buff 宠物/任务/装备套装/行会攻城/组队仓库交易，§3 第 1-22 条），`mvn package` + smoke test 通过。**前端重写进行中**：已完成 GUI 框架 + 登录/选角/游戏场景（真实等距地图渲染 + 移动/聊天/战斗闭环 + **实体真实 sprite**，§3 第 23-26 条）；下一步是**行走/攻击动画 → 点击交互 → 背包/NPC GUI**（§5）。接手先读 §2 目录、§5 方向、§10 关键点、§11 坑、§14 待办。
 
 ## 14. 优化项备忘（先记不做，优先保证主线）
 
@@ -245,9 +257,14 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [ ] **chunk 级缓存**：当前是图级缓存（解包后存 canvas）；若解包耗时成瓶颈，改缓存「已解包的 chunk」避免重复解包同一 chunk。
 
 ### 前端渲染（阶段 2 后续）
-- [ ] **实体真实 sprite**：`scene/PlayScene.mjs` 的 `_renderEntities` 目前是圆点+血条（过渡）；玩家用 `hum` 库站立帧（job*2+sex 分块×600）、怪物 `raceImg`+`appr` 定位 `mon1~23`、NPC 用 `npc` 库 + `GetNpcOffset`。**移植来源 = Delphi 客户端源码 `Client/Actor.pas`（RaceByPM/GetMonImg/GetOffset/GetNpcOffset）+ `Client/PlayScn.pas`**。
-- [ ] **点击交互**：点地走（寻路）、点怪走近攻击、点 NPC 对话、点物品拾取。
+- [x] **实体真实 sprite**（已完成，见 §3 第 26 条）。
+- [x] **行走/攻击动画**（已完成，见 §3 第 27 条）。
+- [x] **点击交互**（点地走/点怪攻击/点 NPC 对话/点物拾取，已完成，见 §3 第 27 条）。
 - [ ] **背包/装备/NPC 对话框 GUI**：`gui/` 框架已就绪（DWindow/DGrid/DButton），接服务端 `bagUpdate/npcSay` 协议即可。
+- [ ] **点墙就近寻路**：点击不可站格（canStand=false）目前不移动；应就近找一个可站格作为寻路目标。
+- [ ] **血条/名字与 sprite 重叠**：血条画在格顶（sy-4）而 sprite 向上延伸超出格顶，二者重叠；应改为「头顶上方」固定偏移（按 sprite 实际高度计算）。
+- [ ] **装备外观**：穿装备后 dress 未跟随 U_DRESS 外观（当前 `dress=job*2+sex` 初始外观）。
+- [ ] **宠物/玩家死亡残留**：服务端 `removeActor` 不广播 `entityRemove`（宠物死亡/玩家登出后前端实体残留尸体），需补 `entityRemove` 广播或前端超时清理。
 
 ### 音频
 - [ ] **音效系统**：`resource.mjs` 的 `wavUrl/wavCount` 已就绪（694 个 wav，`/resources/Wav/` 已托管 `audio/wav`），后续做 Web Audio 播放 + 按场景预加载。

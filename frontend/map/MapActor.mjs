@@ -120,12 +120,18 @@ export class MapActor {
                     }
                 }
             }
-            // 实体（脚底 anchor）
+            // 实体（脚底 anchor = 格子底部中心，纹理 px/py 相对此锚点偏移）
             const row = byRow.get(gy);
             if (row) {
                 for (const e of row) {
-                    if (e.tex) {
-                        ctx.drawImage(e.tex, sx(e.x), sy(e.y) + TILE_H - e.tex.height);
+                    const anchorX = sx(e.x) + TILE_W / 2;
+                    const anchorY = sy(e.y) + TILE_H;
+                    if (e.layers) {
+                        for (const layer of e.layers) {
+                            ctx.drawImage(layer.canvas, anchorX + layer.px, anchorY + layer.py);
+                        }
+                    } else if (e.tex) {
+                        ctx.drawImage(e.tex, anchorX - e.tex.width / 2, anchorY - e.tex.height);
                     }
                     // 名字
                     if (e.name) {

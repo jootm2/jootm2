@@ -292,6 +292,7 @@ public final class Player extends Actor {
         o.addProperty("gold", gold);
         o.addProperty("race", race);
         o.addProperty("appr", appr);
+        o.addProperty("weaponLooks", weaponLooks());
         o.add("items", itemsJson(world));
         return o;
     }

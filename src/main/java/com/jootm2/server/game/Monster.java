@@ -20,6 +20,15 @@ public final class Monster extends Actor {
     public boolean pendingRespawn;
     public long respawnAt;
 
+    /** 主人 Player id（召唤物/宠物），-1 表示普通怪物。 */
+    public long masterId = -1;
+
+    /** 重生间隔（毫秒），0 表示用默认 RESPAWN_MS（来自 MonGen 刷怪时间字段）。 */
+    public long respawnIntervalMs = 0;
+
+    /** 麻痹持续到的时间戳（ms），0 表示未麻痹（麻痹武器命中后定身）。 */
+    public long paralyzedUntil = 0;
+
     public Monster(long id, MonsterTemplate template, int x, int y) {
         super(id);
         this.template = template;

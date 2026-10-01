@@ -40,6 +40,9 @@ class Images {
                     if (pixiTex) {
                         globalThis.BaseTextureCache[`${libName}/${no}`] = pixiTex
                     }
+                    // 记录图像锚点偏移（脚底相对纹理左上角的像素偏移）
+                    if (!globalThis.TextureOffsetCache) globalThis.TextureOffsetCache = {}
+                    globalThis.TextureOffsetCache[`${libName}/${no}`] = { x: tex.offsetX, y: tex.offsetY }
                     if (textureConsumer != null) {
                         textureConsumer(libName, no, tex)
                     }

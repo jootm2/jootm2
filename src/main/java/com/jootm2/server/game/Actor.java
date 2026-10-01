@@ -26,6 +26,11 @@ public class Actor {
     public boolean alive = true;
     public GameMap map;
 
+    // 中毒状态（施毒术等）：poisonTicks 为剩余跳数，0 表示未中毒
+    public int poisonTicks;
+    public int poisonDamage;
+    public long lastPoisonAt;
+
     protected Actor(long id) {
         this.id = id;
     }

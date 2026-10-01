@@ -29,6 +29,7 @@ public final class CharacterRecord {
     public int homeX;
     public int homeY;
     public List<ItemInstance> items = new ArrayList<>();
+    public List<ItemInstance> storage = new ArrayList<>();
     public String skills = "[]";
     public long createdAt;
 

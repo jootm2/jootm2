@@ -4,6 +4,7 @@ dependency-reduced-pom.xml
 
 # --- runtime data ---
 data/
+gamedata/Mir200/Envir/GuildBase/
 
 # --- symlinked data (not versioned) ---
 resources

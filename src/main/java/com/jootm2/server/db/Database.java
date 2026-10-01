@@ -73,9 +73,16 @@ public final class Database implements AutoCloseable {
                     "home_x INTEGER NOT NULL DEFAULT 0," +
                     "home_y INTEGER NOT NULL DEFAULT 0," +
                     "items TEXT NOT NULL DEFAULT '[]'," +
+                    "storage TEXT NOT NULL DEFAULT '[]'," +
                     "skills TEXT NOT NULL DEFAULT '[]'," +
                     "created_at INTEGER NOT NULL," +
                     "FOREIGN KEY (account_id) REFERENCES accounts(id))");
+            // 迁移：旧库补 storage 列
+            try {
+                st.executeUpdate("ALTER TABLE characters ADD COLUMN storage TEXT NOT NULL DEFAULT '[]'");
+            } catch (SQLException ignored) {
+                // 列已存在
+            }
             st.executeUpdate("CREATE TABLE IF NOT EXISTS std_items (" +
                     "idx INTEGER PRIMARY KEY," +
                     "data TEXT NOT NULL)");
@@ -246,7 +253,9 @@ public final class Database implements AutoCloseable {
             try (Statement st = connection.createStatement();
                  ResultSet rs = st.executeQuery("SELECT mag_id, data FROM magics ORDER BY mag_id")) {
                 while (rs.next()) {
-                    map.put(rs.getInt(1), MagicTemplate.deserialize(rs.getString(2)));
+                    MagicTemplate m = MagicTemplate.deserialize(rs.getString(2));
+                    m.resolve();
+                    map.put(rs.getInt(1), m);
                 }
             }
         }

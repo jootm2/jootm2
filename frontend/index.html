@@ -245,6 +245,20 @@
         </div>
     </div>
     <script type="module">
+        // 全局错误提示：任何未捕获 JS 错误/未处理 Promise 拒绝都显示到页面顶部
+        window.addEventListener('error', (e) => {
+            const el = document.createElement('div')
+            el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c00;color:#fff;z-index:99999;padding:6px 10px;font:12px/1.4 monospace;white-space:pre-wrap'
+            el.textContent = 'JS ERROR: ' + (e.message || e.type) + ' @ ' + (e.filename || '?') + ':' + (e.lineno || '?')
+            document.body.appendChild(el)
+        })
+        window.addEventListener('unhandledrejection', (e) => {
+            const el = document.createElement('div')
+            el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c0c;color:#fff;z-index:99999;padding:6px 10px;font:12px/1.4 monospace;white-space:pre-wrap'
+            el.textContent = 'PROMISE REJECTION: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)
+            document.body.appendChild(el)
+        })
+
         import * as JootM2 from "./JootM2.mjs"
         import { Images } from "./image/Images.mjs"
         import * as PIXI from "./pixi.mjs"

@@ -5,9 +5,9 @@ import { HA, RaceByPM, GetMonImg, GetOffset, GetNpcOffset } from "../actor/Actor
 import { Images } from "../image/Images.mjs"
 
 // 8 方向移动映射（与服务器 Direction 一致）
-const TILE = 40        // 每个格子像素（等距视角用 48x32，见 _screen）
-const VIEW = 7         // 以玩家为中心，上下左右可见的格子数
-const GRID = VIEW * 2 + 1
+// 地图块像素尺寸（与 MapActor 保持一致）：宽 48、高 32
+// 平滑移动插值时长（毫秒），与移动循环的 600ms 步频一致
+const MOVE_MS = 600
 
 const DIRMAP = {
     "0,-1": 0, "1,-1": 1, "1,0": 2, "1,1": 3,
@@ -26,7 +26,6 @@ class PlayScene {
         this.map = null
 
         this.world_container = null
-        this.grid = null
         this.entity_layer = null
         this.map_actor = null
         this.hud_text = null
@@ -48,6 +47,9 @@ class PlayScene {
         this.gold = 0
         this.npc_dialog = null
         this.click_target = null
+
+        // 动画状态：id -> { action, dir, startedAt }
+        this.anim = {}
 
         this.canvas = document.getElementById("game_canvas")
         this.bag_panel = document.getElementById("game_bag_panel")
@@ -96,7 +98,14 @@ class PlayScene {
     on_server_msg(msg) {
         switch (msg.type) {
             case 'entityAdd': {
-                if (msg.entity) this.entities[msg.entity.id] = msg.entity
+                if (msg.entity) {
+                    if (this.self && msg.entity.id === this.self.id) {
+                        // 自己：原地合并，保持 this.self 与 entities[self.id] 是同一引用
+                        Object.assign(this.self, msg.entity)
+                    } else {
+                        this.entities[msg.entity.id] = msg.entity
+                    }
+                }
                 break
             }
             case 'entityRemove': {
@@ -106,9 +115,21 @@ class PlayScene {
             case 'move': {
                 const e = this.entities[msg.id]
                 if (e) {
+                    // 记录移动前位置，用于渲染时平滑插值（从旧格滑到新格）
+                    e._px = e.x
+                    e._py = e.y
                     e.x = msg.x
                     e.y = msg.y
+                    e._mt = performance.now()
                     e.dir = msg.dir
+                    const prev = this.anim[msg.id]
+                    if (prev && prev.action === 'walk') {
+                        // 保持 startedAt 让帧持续循环，只刷新方向与活跃时间
+                        prev.dir = msg.dir
+                        prev.lastActive = performance.now()
+                    } else {
+                        this.anim[msg.id] = { action: 'walk', dir: msg.dir, startedAt: performance.now(), lastActive: performance.now() }
+                    }
                 }
                 break
             }
@@ -126,6 +147,10 @@ class PlayScene {
             }
             case 'attack': {
                 this._log("攻击 " + msg.targetId + "，伤害 " + msg.damage)
+                if (msg.attackerId !== undefined) {
+                    const atk = this.entities[msg.attackerId]
+                    this.anim[msg.attackerId] = { action: 'hit', dir: atk ? atk.dir : 0, startedAt: performance.now(), lastActive: performance.now() }
+                }
                 break
             }
             case 'death': {
@@ -172,123 +197,184 @@ update() {
 
     _render() {
         if (!this.entity_layer || !this.self) return
-        const cx = this.self.x
-        const cy = this.self.y
+        const selfRp = this._renderPos(this.self)
         if (this.map_actor) {
             // enter 是幂等的（相同 mapNo 直接返回），放在这里避免
             // on_enter_game 早于 _build_scene 执行导致 map_actor 未创建
             if (this.map) {
                 this.map_actor.enter(this.map.name)
             }
-            this.map_actor.setCenter(cx, cy)
+            this.map_actor.setCenter(selfRp.x, selfRp.y)
             this.map_actor.update()
         }
         this.entity_layer.removeChildren()
         for (const id in this.entities) {
-            this._draw_entity(this.entities[id], cx, cy)
+            this._draw_entity(this.entities[id], selfRp)
         }
         for (const id in this.ground_items) {
-            this._draw_ground_item(this.ground_items[id], cx, cy)
+            this._draw_ground_item(this.ground_items[id])
         }
         this._render_hud()
     }
 
-    _screen(e, cx, cy) {
-        // 等距视角：地图块 48x32，玩家所在块居中
-        return {
-            x: (this.view_width - 48) / 2 + (e.x - cx) * 48 + 24,
-            y: (this.view_height - 32) / 2 + (e.y - cy) * 32 + 16
+    /** 实体当前的渲染坐标：移动时在旧格与新格之间按时间平滑插值。 */
+    _renderPos(e) {
+        if (e._mt && e._px !== undefined && e._py !== undefined) {
+            const t = Math.min(1, (performance.now() - e._mt) / MOVE_MS)
+            return { x: e._px + (e.x - e._px) * t, y: e._py + (e.y - e._py) * t }
         }
+        return { x: e.x, y: e.y }
     }
 
-    _draw_entity(e, cx, cy) {
-        const s = this._screen(e, cx, cy)
-        if (s.x < -48 || s.y < -48 || s.x > this.view_width + 48 || s.y > this.view_height + 48) {
+    _screen(rp) {
+        // 绝对像素坐标：块 (x,y) 中心
+        return { x: rp.x * 48 + 24, y: rp.y * 32 + 16 }
+    }
+
+    _draw_entity(e, selfRp) {
+        const rp = this._renderPos(e)
+        const s = this._screen(rp)
+        // 粗裁剪（相对中心块的可见范围）
+        const dx = (rp.x - selfRp.x) * 48
+        const dy = (rp.y - selfRp.y) * 32
+        if (Math.abs(dx) > this.view_width / 2 + 64 || Math.abs(dy) > this.view_height / 2 + 64) {
             return
         }
 
         const is_self = this.self && e.id === this.self.id
         const is_monster = e.type === 'monster'
 
-        // 精灵渲染（纹理未加载时回退为圆点）
-        const frame = this._sprite_frame(e)
-        const key = `${frame.lib}/${frame.no}`
-        const tex = globalThis.BaseTextureCache[key]
-        if (tex) {
-            const sprite = new PIXI.Sprite(new PIXI.Texture(tex))
-            sprite.anchor.set(0.5, 0.8)
-            sprite.x = s.x
-            sprite.y = s.y
-            this.entity_layer.addChild(sprite)
-        } else {
-            Images.load(frame.lib, frame.no)
+        // 人物脚底对齐块底部中心；精灵按图像 offset 锚点对齐脚底
+        const footX = s.x
+        const footY = s.y + 16
+
+        const frames = this._sprite_frames(e)
+        let loaded = 0
+        let headY = footY - 40   // 纹理未就绪时的头顶兜底值
+        for (const fr of frames) {
+            const key = `${fr.lib}/${fr.no}`
+            const tex = globalThis.BaseTextureCache[key]
+            const off = globalThis.TextureOffsetCache ? globalThis.TextureOffsetCache[key] : null
+            if (tex) {
+                const sprite = new PIXI.Sprite(new PIXI.Texture(tex))
+                if (off) {
+                    // 图像左上角 = 脚底 + offset（offsetY 为负即向上），脚底落在块底中心
+                    sprite.anchor.set(0, 0)
+                    sprite.x = footX - off.x
+                    sprite.y = footY + off.y
+                    if (fr === frames[0]) headY = footY + off.y   // 身体层头顶
+                } else {
+                    sprite.anchor.set(0.5, 0.8)
+                    sprite.x = footX
+                    sprite.y = footY
+                }
+                this.entity_layer.addChild(sprite)
+                loaded++
+            } else {
+                Images.load(fr.lib, fr.no)
+            }
+        }
+        if (loaded === 0) {
             const body = new PIXI.Graphics()
             body.beginFill(is_self ? 0x38bdf8 : (is_monster ? 0xef4444 : 0x60a5fa))
-            body.drawCircle(s.x, s.y, 12)
+            body.drawCircle(footX, footY - 14, 12)
             body.endFill()
             this.entity_layer.addChild(body)
+            headY = footY - 26
         }
 
-        // 血条（玩家/怪物）
+        // 血条（玩家/怪物）：贴在头顶上方
         if (is_self || is_monster) {
             const max_hp = e.maxHp || 1
             const hp = Math.max(0, e.hp != null ? e.hp : max_hp)
             const bw = 40
             const bh = 3
-            const barY = s.y - 40
+            const barY = headY - 6
             const bg = new PIXI.Graphics()
             bg.beginFill(0x000000)
-            bg.drawRect(s.x - bw / 2, barY, bw, bh)
+            bg.drawRect(footX - bw / 2, barY, bw, bh)
             bg.endFill()
             this.entity_layer.addChild(bg)
             const bar = new PIXI.Graphics()
             bar.beginFill(is_self ? 0x0ea5e9 : 0xef4444)
-            bar.drawRect(s.x - bw / 2, barY, bw * (hp / max_hp), bh)
+            bar.drawRect(footX - bw / 2, barY, bw * (hp / max_hp), bh)
             bar.endFill()
             this.entity_layer.addChild(bar)
         }
 
-        // 名字
+        // 名字：头顶上方
         const name = new PIXI.Text(e.name || ('#' + e.id), {
             fontFamily: 'monospace', fontSize: 10, fill: 0xffffff, align: 'center'
         })
-        name.anchor.set(0.5, 0)
-        name.x = s.x
-        name.y = s.y + 12
+        name.anchor.set(0.5, 1)
+        name.x = footX
+        name.y = headY - (is_self || is_monster ? 12 : 6)
         this.entity_layer.addChild(name)
     }
 
-    /** 计算实体的精灵纹理（图片库 + 帧号）。 */
-    _sprite_frame(e) {
+    /** 当前实体的动画动作（站立/行走/攻击），带超时回退。 */
+    _anim_action(e) {
+        const a = this.anim[e.id]
+        const now = performance.now()
+        if (a && now - a.lastActive < (a.action === 'walk' ? 300 : 600)) {
+            const key = a.action === 'walk' ? 'ActWalk' : (a.action === 'hit' ? 'ActHit' : 'ActStand')
+            return { key, startedAt: a.startedAt }
+        }
+        return { key: 'ActStand', startedAt: 0 }
+    }
+
+    /** 计算实体的精灵纹理层（身体 + 头发 + 武器），含动画帧切换。 */
+    _sprite_frames(e) {
         const dir = (e.dir || 0) & 7
+        const anim = this._anim_action(e)
+        const now = performance.now()
         if (e.type === 'monster') {
             const appr = e.appr || 0
             const raceImg = e.raceImg || 0
             const ma = RaceByPM(raceImg, appr)
-            const act = ma ? ma.ActStand : null
+            // 怪物攻击动作名是 ActAttack，其余同人类
+            const key = anim.key === 'ActHit' ? 'ActAttack' : anim.key
+            const act = ma ? (ma[key] || ma.ActStand) : null
             const lib = GetMonImg(appr)
-            const no = GetOffset(appr) + (act ? act.start : 0) + dir * (act ? act.frame : 4)
-            return { lib, no }
+            const step = act ? (act.frame + act.skip) : 4
+            const f = act ? Math.floor((now - anim.startedAt) / act.ftime) % act.frame : 0
+            const no = GetOffset(appr) + (act ? act.start : 0) + dir * step + f
+            return [{ lib, no }]
         } else if (e.type === 'npc') {
             const appr = e.appr || 0
-            return { lib: 'npc', no: GetNpcOffset(appr) + dir * 4 }
+            const f = Math.floor((now - anim.startedAt) / 200) % 4
+            return [{ lib: 'npc', no: GetNpcOffset(appr) + dir * 4 + f }]
         } else {
-            // 玩家：hum 库，按 job/sex 分块（每块 600 帧）
+            // 玩家：hum 身体 + hair 头发 + weapon 武器（按 job/sex 分块，每块 600 帧）
+            // 方向间隔 = frame + skip（传奇图像每方向的有效帧后还有 skip 帧跳过）
             const base = ((e.job || 0) * 2 + (e.sex || 0)) * 600
-            return { lib: 'hum', no: base + HA.ActStand.start + dir * HA.ActStand.frame }
+            const act = HA[anim.key] || HA.ActStand
+            const step = act.frame + act.skip
+            const f = Math.floor((now - anim.startedAt) / act.ftime) % act.frame
+            const frameNo = base + act.start + dir * step + f
+            const frames = [{ lib: 'hum', no: frameNo }]
+            if (e.hair) {
+                frames.push({ lib: 'hair', no: e.hair * 600 + act.start + dir * step + f })
+            }
+            if (e.weaponLooks) {
+                frames.push({ lib: 'weapon', no: e.weaponLooks * 600 + act.start + dir * step + f })
+            }
+            return frames
         }
     }
 
-    _draw_ground_item(gi, cx, cy) {
-        const s = this._screen(gi, cx, cy)
-        if (s.x < -TILE || s.y < -TILE || s.x > GRID * TILE + TILE || s.y > GRID * TILE + TILE) {
+    _draw_ground_item(gi) {
+        const s = this._screen(gi)
+        const dx = (gi.x - this.self.x) * 48
+        const dy = (gi.y - this.self.y) * 32
+        if (Math.abs(dx) > this.view_width / 2 + 64 || Math.abs(dy) > this.view_height / 2 + 64) {
             return
         }
         const is_gold = (gi.gold || 0) > 0
         const color = is_gold ? 0xfacc15 : 0xfbbf24
         const g = new PIXI.Graphics()
         g.beginFill(color)
-        g.drawRect(s.x - TILE * 0.2, s.y - TILE * 0.2, TILE * 0.4, TILE * 0.4)
+        g.drawRect(s.x - 8, s.y - 8, 16, 16)
         g.endFill()
         this.entity_layer.addChild(g)
 
@@ -296,7 +382,7 @@ update() {
         const t = new PIXI.Text(label, { fontFamily: 'monospace', fontSize: 9, fill: 0xfde68a, align: 'center' })
         t.anchor.set(0.5, 0)
         t.x = s.x
-        t.y = s.y + TILE * 0.18
+        t.y = s.y + 8
         this.entity_layer.addChild(t)
     }
 
@@ -388,10 +474,9 @@ update() {
         const rect = this.canvas.getBoundingClientRect()
         const px = e.clientX - rect.left
         const py = e.clientY - rect.top
-        const cx = this.self.x
-        const cy = this.self.y
-        const wx = cx - VIEW + Math.floor(px / TILE)
-        const wy = cy - VIEW + Math.floor(py / TILE)
+        // 屏幕坐标 -> 游戏块坐标（相机居中，块 48x32）
+        const wx = Math.floor((px - this.view_width / 2 + this.self.x * 48 + 24) / 48)
+        const wy = Math.floor((py - this.view_height / 2 + this.self.y * 32 + 16) / 32)
         for (const id in this.ground_items) {
             const gi = this.ground_items[id]
             if (gi.x === wx && gi.y === wy) {
@@ -509,7 +594,7 @@ _on_key_down(e) {
                     this.manager.send_move(d)
                 }
             }
-        }, 120)
+        }, 600)   // 传奇标准步频：600ms/格（匹配 ActWalk 动画 90ms*6 帧）
     }
 
     _attack_nearest() {

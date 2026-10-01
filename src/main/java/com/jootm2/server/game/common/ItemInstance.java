@@ -17,6 +17,7 @@ public final class ItemInstance {
     public int index;          // standard item template id
     public int durability;
     public int durabilityMax;
+    public int lucky;          // 武器实例幸运值（祝福油提升，0..7）
 
     public ItemInstance() {
     }

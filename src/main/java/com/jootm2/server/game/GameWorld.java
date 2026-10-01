@@ -4,15 +4,20 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.jootm2.server.config.ServerConfig;
 import com.jootm2.server.game.common.Direction;
+import com.jootm2.server.game.common.ExperienceTable;
 import com.jootm2.server.game.common.ItemInstance;
 import com.jootm2.server.game.common.ItemTemplate;
+import com.jootm2.server.game.common.MagicTemplate;
 import com.jootm2.server.game.common.MonsterTemplate;
 import com.jootm2.server.game.npc.Npc;
+import com.jootm2.server.game.npc.NpcScript;
+import com.jootm2.server.game.npc.NpcScriptEngine;
 import com.jootm2.server.resource.MapFileReader;
 import com.jootm2.server.resource.NpcData;
 import com.jootm2.server.resource.WorldData;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,16 +39,21 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class GameWorld {
 
+    private static final Charset GBK = Charset.forName("GBK");
+
     public static final int SIGHT_RANGE = 12;
     public static final int AGGRO_RANGE = 8;
     public static final int MONSTER_COUNT = 30;
     public static final long RESPAWN_MS = 15_000L;
     public static final long REGEN_INTERVAL_MS = 2_000L;
+    public static final long POISON_INTERVAL_MS = 1_000L;
+    public static final long DOOR_OPEN_MS = 5_000L;
 
     public final Object lock = new Object();
 
     public final Map<Integer, ItemTemplate> itemTemplates = new HashMap<>();
     public final Map<String, MonsterTemplate> monsterTemplates = new HashMap<>();
+    public final Map<Integer, MagicTemplate> magicTemplates = new HashMap<>();
     private final Map<String, GameMap> maps = new HashMap<>();
     private final Map<Long, Actor> actors = new HashMap<>();
     private final Map<String, Player> playersByName = new HashMap<>();
@@ -63,14 +73,24 @@ public final class GameWorld {
     private final Map<String, List<Npc>> npcsByMap = new HashMap<>();
     private final Map<String, List<WorldData.DropEntry>> dropTables = new HashMap<>();
     private final Map<Long, GroundItem> groundItems = new HashMap<>();
+    private List<WorldData.MapQuestEntry> mapQuests = new ArrayList<>();
+    private final Map<String, NpcScript> questScripts = new HashMap<>();
+    private final NpcScriptEngine npcEngine = new NpcScriptEngine(this);
+    private final List<FireWall> fireWalls = new ArrayList<>();
+    private final Map<String, Guild> guilds = new HashMap<>();
+    private final Map<String, String> guildOfPlayer = new HashMap<>();
+    private final Map<Long, Party> partyOf = new HashMap<>();
+    private Castle castle;
 
     private long lastRegenAt = System.currentTimeMillis();
 
     public GameWorld(ServerConfig config,
                      Map<Integer, ItemTemplate> itemTemplates,
-                     Map<String, MonsterTemplate> monsterTemplates) {
+                     Map<String, MonsterTemplate> monsterTemplates,
+                     Map<Integer, MagicTemplate> magicTemplates) {
         this.itemTemplates.putAll(itemTemplates);
         this.monsterTemplates.putAll(monsterTemplates);
+        this.magicTemplates.putAll(magicTemplates);
 
         Path root = Paths.get(config.gamedataRoot()).toAbsolutePath();
         this.mapDir = root.resolve("Mir200").resolve("Map");
@@ -86,9 +106,330 @@ public final class GameWorld {
         loadMapInfo();
         this.monGenEntries = WorldData.loadMonGen(envDir.resolve("MonGen.txt"));
         loadNpcs();
+        loadMapQuests();
+        this.castle = WorldData.loadCastle(envDir.resolve("Castle").resolve("Sabuk.txt"));
+        loadGuilds();
         loadDropTables();
         spawnMonsters(defaultMap);
         attachNpcs(defaultMap);
+        System.out.println("[world] castle=" + castle.name + " map=" + castle.mapId
+                + " doorHP=" + castle.mainDoorMaxHp + " ownGuild=" + (castle.ownGuild.isEmpty() ? "(无主)" : castle.ownGuild));
+    }
+
+    private void loadMapQuests() {
+        mapQuests = WorldData.loadMapQuest(envDir.resolve("MapQuest.txt"));
+        Path questDir = envDir.resolve("MapQuest_Def");
+        for (WorldData.MapQuestEntry e : mapQuests) {
+            if (questScripts.containsKey(e.qfile)) {
+                continue;
+            }
+            NpcScript s = NpcData.loadScript(questDir, e.qfile, "");
+            questScripts.put(e.qfile, s);
+        }
+        System.out.println("[world] loaded " + mapQuests.size() + " map quests, "
+                + questScripts.size() + " quest scripts");
+    }
+
+    // -- guilds / castle siege ------------------------------------------------
+
+    public Castle castle() {
+        return castle;
+    }
+
+    public Collection<Guild> guilds() {
+        return guilds.values();
+    }
+
+    // -- parties (组队) ---------------------------------------------------------
+
+    public Party partyOf(long playerId) {
+        return partyOf.get(playerId);
+    }
+
+    /** 创建队伍（队长 + 首名成员）。 */
+    public Party createParty(long leaderId, long memberId) {
+        Party p = new Party(leaderId);
+        p.memberIds.add(memberId);
+        partyOf.put(leaderId, p);
+        partyOf.put(memberId, p);
+        return p;
+    }
+
+    /** 加入已有队伍。 */
+    public boolean joinParty(long playerId, long leaderId) {
+        if (partyOf.containsKey(playerId)) {
+            return false;
+        }
+        Party p = partyOf.get(leaderId);
+        if (p == null) {
+            return false;
+        }
+        p.memberIds.add(playerId);
+        partyOf.put(playerId, p);
+        return true;
+    }
+
+    /** 退队；人数不足则解散。 */
+    public boolean leaveParty(long playerId) {
+        Party p = partyOf.remove(playerId);
+        if (p == null) {
+            return false;
+        }
+        p.memberIds.remove(playerId);
+        if (p.size() <= 1) {
+            for (long id : new ArrayList<>(p.memberIds)) {
+                partyOf.remove(id);
+            }
+        }
+        return true;
+    }
+
+    /** 创建行会（创建者成为会长）。 */
+    public Guild createGuild(String name, String master) {
+        if (name == null || name.isBlank() || guilds.containsKey(name)) {
+            return null;
+        }
+        if (guildOfPlayer.containsKey(master)) {
+            return null;   // 创建者已在行会
+        }
+        Guild g = new Guild(name, master);
+        guilds.put(name, g);
+        guildOfPlayer.put(master, name);
+        saveGuild(g);
+        return g;
+    }
+
+    public Guild guildByName(String name) {
+        return guilds.get(name);
+    }
+
+    public Guild guildOf(String playerName) {
+        String gname = guildOfPlayer.get(playerName);
+        return gname == null ? null : guilds.get(gname);
+    }
+
+    public boolean joinGuild(String playerName, String guildName) {
+        if (guildOfPlayer.containsKey(playerName)) {
+            return false;
+        }
+        Guild g = guilds.get(guildName);
+        if (g == null || !g.addMember(playerName)) {
+            return false;
+        }
+        guildOfPlayer.put(playerName, guildName);
+        saveGuild(g);
+        return true;
+    }
+
+    /** 退会；会长退会则解散行会。 */
+    public boolean leaveGuild(String playerName) {
+        String gname = guildOfPlayer.remove(playerName);
+        if (gname == null) {
+            return false;
+        }
+        Guild g = guilds.get(gname);
+        if (g != null) {
+            g.removeMember(playerName);
+            if (g.masterName.equals(playerName)) {
+                guilds.remove(gname);
+                deleteGuildFile(gname);
+            } else {
+                saveGuild(g);
+            }
+        }
+        return true;
+    }
+
+    /** 行会 A 对行会 B 宣战（互相加入敌对列表）。 */
+    public boolean declareGuildWar(String aName, String bName) {
+        Guild a = guilds.get(aName);
+        Guild b = guilds.get(bName);
+        if (a == null || b == null) {
+            return false;
+        }
+        if (!a.warGuilds.contains(bName)) {
+            a.warGuilds.add(bName);
+            b.warGuilds.add(aName);
+            saveGuild(a);
+            saveGuild(b);
+        }
+        return true;
+    }
+
+    /** 行会 A 与行会 B 结盟（移除敌对并互相加入同盟列表）。 */
+    public boolean makeGuildAlly(String aName, String bName) {
+        Guild a = guilds.get(aName);
+        Guild b = guilds.get(bName);
+        if (a == null || b == null) {
+            return false;
+        }
+        a.warGuilds.remove(bName);
+        b.warGuilds.remove(aName);
+        if (!a.allyGuilds.contains(bName)) {
+            a.allyGuilds.add(bName);
+            b.allyGuilds.add(aName);
+            saveGuild(a);
+            saveGuild(b);
+        }
+        return true;
+    }
+
+    // -- guild persistence ------------------------------------------------------
+
+    private Path guildDir() {
+        return envDir.resolve("GuildBase");
+    }
+
+    /** 启动时加载 GuildBase 下所有行会文件。 */
+    private void loadGuilds() {
+        Path dir = guildDir();
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        int loaded = 0;
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, "*.txt")) {
+            for (Path p : ds) {
+                Guild g = loadGuildFile(p);
+                if (g != null) {
+                    guilds.put(g.name, g);
+                    for (String m : g.members) {
+                        guildOfPlayer.put(m, g.name);
+                    }
+                    loaded++;
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[world] cannot list GuildBase (" + e.getMessage() + ")");
+        }
+        System.out.println("[world] loaded " + loaded + " guilds");
+    }
+
+    private Guild loadGuildFile(Path file) {
+        try {
+            String gname = file.getFileName().toString();
+            if (gname.endsWith(".txt")) {
+                gname = gname.substring(0, gname.length() - 4);
+            }
+            Guild g = new Guild(gname, "");
+            g.members.clear();
+            for (String line : Files.readAllLines(file, GBK)) {
+                String t = line.trim();
+                if (t.startsWith("+")) {
+                    String member = t.substring(1).trim();
+                    if (member.isEmpty()) {
+                        continue;
+                    }
+                    if (g.masterName.isEmpty()) {
+                        g.masterName = member;
+                    }
+                    g.members.add(member);
+                } else if (t.equals("城主")) {
+                    g.ownsCastle = true;
+                } else if (t.startsWith("盟友 ")) {
+                    g.allyGuilds.add(t.substring(3).trim());
+                } else if (t.startsWith("敌对 ")) {
+                    g.warGuilds.add(t.substring(3).trim());
+                }
+            }
+            if (g.masterName.isEmpty() && !g.members.isEmpty()) {
+                g.masterName = g.members.get(0);
+            }
+            return g.members.isEmpty() ? null : g;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /** 保存行会到 GuildBase/{name}.txt。 */
+    private void saveGuild(Guild g) {
+        try {
+            Files.createDirectories(guildDir());
+            List<String> lines = new ArrayList<>();
+            lines.add("行会成员");
+            lines.add("#0 会长");
+            lines.add("+" + g.masterName);
+            lines.add("#99 成员");
+            for (String m : g.members) {
+                if (!m.equals(g.masterName)) {
+                    lines.add("+" + m);
+                }
+            }
+            if (g.ownsCastle) {
+                lines.add("城主");
+            }
+            for (String a : g.allyGuilds) {
+                lines.add("盟友 " + a);
+            }
+            for (String w : g.warGuilds) {
+                lines.add("敌对 " + w);
+            }
+            Files.write(guildDir().resolve(g.name + ".txt"), lines, GBK);
+        } catch (IOException e) {
+            System.err.println("[world] cannot save guild " + g.name + " (" + e.getMessage() + ")");
+        }
+    }
+
+    private void deleteGuildFile(String gname) {
+        try {
+            Files.deleteIfExists(guildDir().resolve(gname + ".txt"));
+        } catch (IOException ignored) {
+        }
+    }
+
+    /** 申请攻城（攻城期间城门/城墙可被攻击）。 */
+    public boolean declareSiege(String guildName, int durationSec) {
+        if (castle.warActive || guilds.get(guildName) == null) {
+            return false;
+        }
+        castle.warActive = true;
+        castle.warEndAt = System.currentTimeMillis() + durationSec * 1000L;
+        castle.warGuild = guildName;
+        broadcastAll(castleMsg("行会 " + guildName + " 开始攻打 " + castle.name + "！"));
+        return true;
+    }
+
+    /** 攻击城门，返回伤害（攻城期间、靠近城门才有效）。 */
+    public int attackCastleDoor(Player p, int damage) {
+        if (!castle.warActive || !castle.mapId.equals(p.map.name)) {
+            return 0;
+        }
+        int dx = Math.abs(p.x - castle.mainDoorX);
+        int dy = Math.abs(p.y - castle.mainDoorY);
+        if (dx > 1 || dy > 1 || castle.doorBroken()) {
+            return 0;
+        }
+        castle.mainDoorHp = Math.max(0, castle.mainDoorHp - damage);
+        if (castle.doorBroken()) {
+            castle.mainDoorOpen = true;
+            broadcastAll(castleMsg(castle.name + " 的城门已被攻破！"));
+        }
+        return damage;
+    }
+
+    /** 攻城结束判定：城门+城墙全破则攻城行会占领。 */
+    private void tickSiege(long now) {
+        if (!castle.warActive || now < castle.warEndAt) {
+            return;
+        }
+        castle.warActive = false;
+        if (castle.doorBroken() && castle.wallsBroken()) {
+            castle.ownGuild = castle.warGuild;
+            Guild g = guilds.get(castle.warGuild);
+            if (g != null) {
+                g.ownsCastle = true;
+            }
+            broadcastAll(castleMsg("攻城战结束，行会 " + castle.warGuild + " 占领了 " + castle.name + "！"));
+        } else {
+            broadcastAll(castleMsg("攻城战结束，守城成功。"));
+        }
+        castle.warGuild = "";
+    }
+
+    private JsonObject castleMsg(String text) {
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "systemMessage");
+        o.addProperty("text", text);
+        return o;
     }
 
     private void loadDropTables() {
@@ -384,6 +725,7 @@ public final class GameWorld {
                 Monster m = new Monster(newId(), t, pos[0], pos[1]);
                 m.map = map;
                 m.spawnMap = map;
+                m.respawnIntervalMs = e.intervalMin > 0 ? e.intervalMin * 60_000L : 0;
                 addActor(m);
                 spawned++;
             }
@@ -441,12 +783,52 @@ public final class GameWorld {
         removeActor(p.id);
     }
 
+    /** 创建一个召唤物（宠物）怪物，跟随 owner 并协助其攻击。 */
+    public Monster spawnSummon(Player owner, String monsterName) {
+        MonsterTemplate t = monsterTemplates.get(monsterName);
+        if (t == null) {
+            return null;
+        }
+        int[] pos = freeNear(owner.map, owner.x, owner.y, 2);
+        if (pos == null) {
+            return null;
+        }
+        Monster m = new Monster(newId(), t, pos[0], pos[1]);
+        m.map = owner.map;
+        m.masterId = owner.id;
+        addActor(m);
+        broadcastEntityAdd(m);
+        return m;
+    }
+
+    /** 移除召唤物（宠物）：不重生、不掉落。 */
+    public void removeSummon(Monster m) {
+        m.alive = false;
+        m.pendingRespawn = false;
+        removeActor(m.id);
+        JsonObject death = new JsonObject();
+        death.addProperty("type", "death");
+        death.addProperty("id", m.id);
+        broadcastAround(m.map, death, m.x, m.y, SIGHT_RANGE);
+    }
+
     /** Attempts a single-tile move in the given direction. */
     public boolean tryMove(Actor a, int dir) {
         int nx = a.x + Direction.dx(dir);
         int ny = a.y + Direction.dy(dir);
         a.dir = dir;
-        if (!a.map.inside(nx, ny) || !a.map.canWalk(nx, ny)) {
+        if (!a.map.inside(nx, ny)) {
+            return false;
+        }
+        // 门：关闭时由玩家自动推开
+        if (a.map.isDoor(nx, ny) && !a.map.isDoorOpen(nx, ny)) {
+            if (!(a instanceof Player)) {
+                return false;
+            }
+            a.map.openDoor(nx, ny, System.currentTimeMillis());
+            broadcastDoor(a.map, nx, ny, true);
+        }
+        if (!a.map.canWalk(nx, ny)) {
             return false;
         }
         if (nx == a.x && ny == a.y) {
@@ -496,8 +878,140 @@ public final class GameWorld {
             } else if (a instanceof Monster) {
                 monsterAi((Monster) a, now);
             }
+            applyPoison(a, now);
         }
+        closeTimedOutDoors(now);
+        tickFireWalls(now);
+        tickSiege(now);
         respawnDead(now);
+    }
+
+    /** 关闭所有打开超时的门并广播。 */
+    private void closeTimedOutDoors(long now) {
+        for (GameMap map : maps.values()) {
+            for (int[] p : map.closeTimedOutDoors(now, DOOR_OPEN_MS)) {
+                broadcastDoor(map, p[0], p[1], false);
+            }
+        }
+    }
+
+    /** 广播门状态变化（开/关）。 */
+    private void broadcastDoor(GameMap map, int x, int y, boolean open) {
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "doorState");
+        o.addProperty("x", x);
+        o.addProperty("y", y);
+        o.addProperty("open", open);
+        broadcastAround(map, o, x, y, SIGHT_RANGE);
+    }
+
+    // -- fire wall (火墙) ----------------------------------------------------
+
+    /** 在目标周围十字 5 格生成火墙，返回生成数量。 */
+    public int makeFireWall(Player p, long targetId, int damage, int durationSec) {
+        Actor t = actor(targetId);
+        int tx = t != null ? t.x : p.x;
+        int ty = t != null ? t.y : p.y;
+        long expire = System.currentTimeMillis() + durationSec * 1000L;
+        int[][] cells = {{tx, ty - 1}, {tx - 1, ty}, {tx, ty}, {tx + 1, ty}, {tx, ty + 1}};
+        int made = 0;
+        for (int[] c : cells) {
+            if (p.map.inside(c[0], c[1])) {
+                fireWalls.add(new FireWall(p.map, c[0], c[1], expire, damage, p.id));
+                made++;
+            }
+        }
+        if (made > 0) {
+            JsonObject o = new JsonObject();
+            o.addProperty("type", "fireWall");
+            o.addProperty("x", tx);
+            o.addProperty("y", ty);
+            broadcastAround(p.map, o, tx, ty, SIGHT_RANGE);
+        }
+        return made;
+    }
+
+    /** 火墙每秒对踩上的怪物造成伤害。 */
+    private void tickFireWalls(long now) {
+        Iterator<FireWall> it = fireWalls.iterator();
+        while (it.hasNext()) {
+            FireWall f = it.next();
+            if (now >= f.expireAt) {
+                it.remove();
+                continue;
+            }
+            if (now - f.lastTick < 1000) {
+                continue;
+            }
+            f.lastTick = now;
+            for (Actor a : new ArrayList<>(f.map.actors())) {
+                if (!(a instanceof Monster) || !a.alive || a.id == f.ownerId) {
+                    continue;
+                }
+                Monster m = (Monster) a;
+                if (m.x == f.x && m.y == f.y) {
+                    m.hp = Math.max(0, m.hp - f.damage);
+                    JsonObject o = new JsonObject();
+                    o.addProperty("type", "attack");
+                    o.addProperty("attackerId", f.ownerId);
+                    o.addProperty("targetId", m.id);
+                    o.addProperty("damage", f.damage);
+                    o.addProperty("magicId", 22);
+                    o.addProperty("x", m.x);
+                    o.addProperty("y", m.y);
+                    broadcastAround(f.map, o, m.x, m.y, SIGHT_RANGE);
+                    sendStats(m, null);
+                    if (m.hp <= 0) {
+                        Player owner = (Player) actor(f.ownerId);
+                        killMonster(m, now, owner);
+                        if (owner != null) {
+                            grantExpTo(owner, m);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** 一个火墙单元（地面持续伤害效果）。 */
+    private static final class FireWall {
+        final GameMap map;
+        final int x;
+        final int y;
+        final long expireAt;
+        final int damage;
+        final long ownerId;
+        long lastTick;
+
+        FireWall(GameMap map, int x, int y, long expireAt, int damage, long ownerId) {
+            this.map = map;
+            this.x = x;
+            this.y = y;
+            this.expireAt = expireAt;
+            this.damage = damage;
+            this.ownerId = ownerId;
+        }
+    }
+
+    /** 中毒持续伤害：每 POISON_INTERVAL_MS 跳一次。 */
+    private void applyPoison(Actor a, long now) {
+        if (a.poisonTicks <= 0 || !a.alive) {
+            return;
+        }
+        if (now - a.lastPoisonAt < POISON_INTERVAL_MS) {
+            return;
+        }
+        a.lastPoisonAt = now;
+        a.hp = Math.max(0, a.hp - a.poisonDamage);
+        a.poisonTicks--;
+        sendStats(a, null);
+        if (a.hp <= 0) {
+            if (a instanceof Monster) {
+                killMonster((Monster) a, now, null);
+            } else if (a instanceof Player) {
+                killPlayer((Player) a);
+            }
+        }
     }
 
     private void regen(Player p, long now) {
@@ -521,6 +1035,13 @@ public final class GameWorld {
 
     private void monsterAi(Monster m, long now) {
         if (m.pendingRespawn || !m.alive) {
+            return;
+        }
+        if (now < m.paralyzedUntil) {
+            return;   // 麻痹定身
+        }
+        if (m.masterId >= 0) {
+            summonAi(m, now);
             return;
         }
         Player target = resolveTarget(m);
@@ -551,17 +1072,85 @@ public final class GameWorld {
         }
     }
 
+    /** 宠物 AI：跟随主人并协助攻击其附近的怪物。 */
+    private void summonAi(Monster m, long now) {
+        Player master = (Player) actor(m.masterId);
+        if (master == null || !master.alive || master.map != m.map) {
+            return;
+        }
+        Monster enemy = nearestEnemy(master, m);
+        if (enemy != null) {
+            if (m.distanceTo(enemy) == 1) {
+                if (now >= m.nextAttackAt) {
+                    m.nextAttackAt = now + m.template.attackSpeed;
+                    m.dir = dirTowards(m, enemy);
+                    int dmg = Math.max(1, m.rollAttack() - enemy.template.ac);
+                    enemy.hp = Math.max(0, enemy.hp - dmg);
+                    sendHits(m, enemy, dmg);
+                    if (enemy.hp <= 0) {
+                        killMonster(enemy, now, master);
+                        grantExpTo(master, enemy);
+                    }
+                }
+            } else if (now >= m.nextMoveAt) {
+                m.nextMoveAt = now + m.template.walkSpeed;
+                m.dir = dirTowards(m, enemy);
+                if (tryMove(m, m.dir)) {
+                    broadcastMove(m);
+                }
+            }
+        } else if (m.distanceTo(master) > 2 && now >= m.nextMoveAt) {
+            m.nextMoveAt = now + m.template.walkSpeed;
+            m.dir = dirTowards(m, master);
+            if (tryMove(m, m.dir)) {
+                broadcastMove(m);
+            }
+        }
+    }
+
+    /** 主人附近可攻击的普通怪物（最近的）。 */
+    private Monster nearestEnemy(Player master, Monster self) {
+        Monster best = null;
+        int bestDist = 6;
+        for (Actor a : nearby(master.map, master.x, master.y, 6)) {
+            if (a instanceof Monster && a.alive && a.id != self.id && ((Monster) a).masterId < 0) {
+                int d = self.distanceTo(a);
+                if (d < bestDist) {
+                    bestDist = d;
+                    best = (Monster) a;
+                }
+            }
+        }
+        return best;
+    }
+
+    /** 宠物击杀：经验归主人。 */
+    private void grantExpTo(Player p, Monster m) {
+        p.exp += m.template.exp;
+        int oldLevel = p.level;
+        int newLevel = ExperienceTable.levelForExp(p.exp);
+        if (newLevel > oldLevel) {
+            p.level = newLevel;
+            p.recompute(this);
+            p.hp = p.maxHp;
+            p.mp = p.maxMp;
+            sendSystem(p, "恭喜！你升到了 " + newLevel + " 级。");
+        }
+        sendStats(p, null);
+    }
+
     private Player resolveTarget(Monster m) {
+        long now = System.currentTimeMillis();
         Player current = m.targetId >= 0 ? (Player) actor(m.targetId) : null;
-        if (current != null && current.alive && current.map == m.map
-                && current.distanceTo(m) <= AGGRO_RANGE) {
+        if (current != null && current.alive && current.hideUntil <= now
+                && current.map == m.map && current.distanceTo(m) <= AGGRO_RANGE) {
             return current;
         }
         Player best = null;
         int bestDist = Integer.MAX_VALUE;
         for (Player p : players()) {
-            if (p.map != m.map) {
-                continue;
+            if (p.map != m.map || p.hideUntil > now) {
+                continue;   // 隐身中不成为仇恨目标
             }
             int d = p.distanceTo(m);
             if (p.alive && d <= AGGRO_RANGE && d < bestDist) {
@@ -575,6 +1164,12 @@ public final class GameWorld {
     private void attackPlayer(Monster m, Player target) {
         int raw = m.rollAttack();
         int dmg = Math.max(1, raw - target.combat.acMax);
+        // 护身：伤害先由 MP 抵消
+        if (target.manaToHealth > 0 && target.mp > 0) {
+            int mpCost = Math.min(target.mp, dmg);
+            target.mp -= mpCost;
+            dmg -= mpCost;
+        }
         target.hp = Math.max(0, target.hp - dmg);
         sendHits(m, target, dmg);
         if (target.hp <= 0) {
@@ -583,6 +1178,20 @@ public final class GameWorld {
     }
 
     public void killPlayer(Player p) {
+        // 复活戒指：免死一次，戒指损毁
+        if (p.revivalRing) {
+            removeEquippedByShape(p, 114);
+            p.recompute(this);
+            p.hp = p.maxHp / 2;
+            p.mp = p.maxMp;
+            JsonObject msg = new JsonObject();
+            msg.addProperty("type", "systemMessage");
+            msg.addProperty("text", "复活戒指生效，你免于一死！");
+            p.session.sendText(msg.toString());
+            sendStats(p, null);
+            return;
+        }
+
         JsonObject death = new JsonObject();
         death.addProperty("type", "death");
         death.addProperty("id", p.id);
@@ -619,6 +1228,21 @@ public final class GameWorld {
         }
     }
 
+    /** 移除玩家身上第一件指定 Shape 的装备（复活戒指损毁等）。 */
+    private void removeEquippedByShape(Player p, int shape) {
+        for (int slot = 0; slot < p.equipment.length; slot++) {
+            ItemInstance it = p.equipment[slot];
+            if (it == null) {
+                continue;
+            }
+            ItemTemplate t = itemTemplates.get(it.index);
+            if (t != null && t.shape == shape) {
+                p.equipment[slot] = null;
+                break;
+            }
+        }
+    }
+
     /** Builds the enter/change-map snapshot (map + self + nearby) for a player. */
     public JsonObject mapSnapshot(Player p, String type) {
         JsonObject o = new JsonObject();
@@ -649,19 +1273,48 @@ public final class GameWorld {
     }
 
     /** Marks a monster dead and schedules its respawn (does not remove the Actor). */
-    public void killMonster(Monster m, long now) {
+    public void killMonster(Monster m, long now, Player killer) {
         m.alive = false;
         m.pendingRespawn = true;
-        m.respawnAt = now + RESPAWN_MS;
+        m.respawnAt = now + (m.respawnIntervalMs > 0 ? m.respawnIntervalMs : RESPAWN_MS);
         m.hp = 0;
         m.targetId = -1;
 
         dropLoot(m);
+        if (killer != null) {
+            triggerMapQuest(killer, m);
+        }
 
         JsonObject death = new JsonObject();
         death.addProperty("type", "death");
         death.addProperty("id", m.id);
         broadcastAround(m.map, death, m.x, m.y, SIGHT_RANGE);
+    }
+
+    /** 击杀怪物时触发对应地图任务脚本（MapQuest）。 */
+    private void triggerMapQuest(Player p, Monster m) {
+        if (mapQuests.isEmpty() || m.map == null) {
+            return;
+        }
+        for (WorldData.MapQuestEntry e : mapQuests) {
+            if (!e.mapId.equals(m.map.name)) {
+                continue;
+            }
+            if (e.monName.isEmpty() || !e.monName.equals(m.name)) {
+                continue;
+            }
+            if (p.questParams[e.setNumber] != e.value) {
+                continue;
+            }
+            NpcScript script = questScripts.get(e.qfile);
+            if (script == null) {
+                continue;
+            }
+            NpcScriptEngine.Result r = npcEngine.executeScript(p, null, script, "main");
+            if (!r.sayText.isEmpty()) {
+                sendSystem(p, r.sayText);
+            }
+        }
     }
 
     // -- item drops / pickup -------------------------------------------------

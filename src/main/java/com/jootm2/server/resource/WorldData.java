@@ -1,5 +1,7 @@
 package com.jootm2.server.resource;
 
+import com.jootm2.server.game.Castle;
+
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
@@ -49,14 +51,147 @@ public final class WorldData {
                 }
                 String[] p = t.split("\\s+");
                 if (p.length >= 6) {
+                    int interval = p.length >= 7 ? parseInt(p[6]) : 0;   // 刷怪间隔（分钟），0=默认
                     list.add(new MonGenEntry(p[0], parseInt(p[1]), parseInt(p[2]),
-                            p[3], parseInt(p[4]), parseInt(p[5])));
+                            p[3], parseInt(p[4]), parseInt(p[5]), interval));
                 }
             }
         } catch (IOException e) {
             System.err.println("[world] cannot read MonGen (" + e.getMessage() + ")");
         }
         return list;
+    }
+
+    /**
+     * Parses {@code MapQuest.txt}: each row is
+     * {@code mapId [setNumber] value monName itemName qfile [GROUP]}.
+     * {@code monName}/{@code itemName} = {@code *} means "unused" (die-only or
+     * pickup-only quests). Mirrors {@code TFrmDB.LoadMapQuestInfos} in LocalDB.pas.
+     */
+    public static List<MapQuestEntry> loadMapQuest(Path file) {
+        List<MapQuestEntry> list = new ArrayList<>();
+        try {
+            for (String line : Files.readAllLines(file, GBK)) {
+                String t = line.trim();
+                if (t.isEmpty() || t.startsWith(";")) {
+                    continue;
+                }
+                String[] p = splitQuoted(t);
+                if (p.length < 6) {
+                    continue;
+                }
+                String mapId = p[0];
+                int setNumber = parseBracket(p[1]);
+                int value = parseInt(p[2]);
+                String monName = star(p[3]);
+                String itemName = star(p[4]);
+                String qfile = p[5];
+                boolean group = p.length > 6 && p[6].toUpperCase().startsWith("GROUP");
+                if (!mapId.isEmpty() && setNumber >= 0 && !qfile.isEmpty()) {
+                    list.add(new MapQuestEntry(mapId, setNumber, value, monName, itemName, qfile, group));
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[world] cannot read MapQuest (" + e.getMessage() + ")");
+        }
+        return list;
+    }
+
+    /**
+     * Parses {@code Castle/Sabuk.txt}: an INI-like file with
+     * {@code [SetUp]} / {@code [Defense]} sections. Extracts the castle name,
+     * owning guild, map, and the main door + 3 wall segments.
+     */
+    public static Castle loadCastle(Path file) {
+        Castle c = new Castle();
+        try {
+            for (String line : Files.readAllLines(file, GBK)) {
+                String t = line.trim();
+                if (t.isEmpty() || t.startsWith(";") || t.startsWith("[")) {
+                    continue;
+                }
+                int eq = t.indexOf('=');
+                if (eq < 0) {
+                    continue;
+                }
+                String key = t.substring(0, eq).trim();
+                String val = t.substring(eq + 1).trim();
+                switch (key) {
+                    case "CastleName": c.name = val; break;
+                    case "OwnGuild": c.ownGuild = val; break;
+                    case "CastleMap": c.mapId = val; break;
+                    case "MainDoorX": c.mainDoorX = parseInt(val); break;
+                    case "MainDoorY": c.mainDoorY = parseInt(val); break;
+                    case "MainDoorHP": c.mainDoorHp = c.mainDoorMaxHp = parseInt(val); break;
+                    case "MainDoorOpen": c.mainDoorOpen = parseInt(val) != 0; break;
+                    case "LeftWallX": c.wallX[0] = parseInt(val); break;
+                    case "LeftWallY": c.wallY[0] = parseInt(val); break;
+                    case "LeftWallHP": c.wallHp[0] = c.wallMaxHp[0] = parseInt(val); break;
+                    case "CenterWallX": c.wallX[1] = parseInt(val); break;
+                    case "CenterWallY": c.wallY[1] = parseInt(val); break;
+                    case "CenterWallHP": c.wallHp[1] = c.wallMaxHp[1] = parseInt(val); break;
+                    case "RightWallX": c.wallX[2] = parseInt(val); break;
+                    case "RightWallY": c.wallY[2] = parseInt(val); break;
+                    case "RightWallHP": c.wallHp[2] = c.wallMaxHp[2] = parseInt(val); break;
+                    default: break;
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[world] cannot read castle (" + e.getMessage() + ")");
+        }
+        return c;
+    }
+
+    /** "[401]" -> 401 (or plain number). */
+    private static int parseBracket(String s) {
+        if (s == null) {
+            return -1;
+        }
+        String t = s.trim();
+        if (t.startsWith("[") && t.endsWith("]")) {
+            t = t.substring(1, t.length() - 1);
+        }
+        return parseInt(t);
+    }
+
+    /** "*" or empty means "unused". */
+    private static String star(String s) {
+        if (s == null) {
+            return "";
+        }
+        String t = s.trim();
+        return (t.isEmpty() || t.equals("*")) ? "" : t;
+    }
+
+    /** Whitespace split honouring double-quoted (spaced) fields. */
+    private static String[] splitQuoted(String line) {
+        List<String> out = new ArrayList<>();
+        int i = 0;
+        int n = line.length();
+        while (i < n) {
+            while (i < n && Character.isWhitespace(line.charAt(i))) {
+                i++;
+            }
+            if (i >= n) {
+                break;
+            }
+            if (line.charAt(i) == '"') {
+                int end = line.indexOf('"', i + 1);
+                if (end < 0) {
+                    out.add(line.substring(i));
+                    break;
+                }
+                out.add(line.substring(i + 1, end));
+                i = end + 1;
+            } else {
+                int start = i;
+                while (i < n && !Character.isWhitespace(line.charAt(i))) {
+                    i++;
+                }
+                out.add(line.substring(start, i));
+            }
+        }
+        return out.toArray(new String[0]);
     }
 
     private static int parseInt(String s) {
@@ -215,14 +350,38 @@ public final class WorldData {
         public final String monsterName;
         public final int range;
         public final int count;
+        public final int intervalMin;   // 刷怪间隔（分钟），0 = 用默认重生时间
 
-        public MonGenEntry(String mapId, int x, int y, String monsterName, int range, int count) {
+        public MonGenEntry(String mapId, int x, int y, String monsterName, int range, int count, int intervalMin) {
             this.mapId = mapId;
             this.x = x;
             this.y = y;
             this.monsterName = monsterName;
             this.range = range;
             this.count = count;
+            this.intervalMin = intervalMin;
+        }
+    }
+
+    /** One MapQuest.txt row: a quest triggered by killing/picking up on a map. */
+    public static final class MapQuestEntry {
+        public final String mapId;
+        public final int setNumber;   // 旗标号（触发条件：玩家旗标 == value）
+        public final int value;       // 旗标值
+        public final String monName;  // 怪物名（"" = 不按杀怪触发）
+        public final String itemName; // 物品名（"" = 不按捡物触发）
+        public final String qfile;    // MapQuest_Def 脚本文件名
+        public final boolean enableGroup;
+
+        public MapQuestEntry(String mapId, int setNumber, int value, String monName,
+                             String itemName, String qfile, boolean enableGroup) {
+            this.mapId = mapId;
+            this.setNumber = setNumber;
+            this.value = value;
+            this.monName = monName;
+            this.itemName = itemName;
+            this.qfile = qfile;
+            this.enableGroup = enableGroup;
         }
     }
 

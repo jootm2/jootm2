@@ -47,6 +47,11 @@ public final class NpcScriptEngine {
     }
 
     public Result execute(Player p, Npc npc, String startLabel) {
+        return executeScript(p, npc, npc.script, startLabel);
+    }
+
+    /** Executes an arbitrary script (used for MapQuest scripts without a live Npc). */
+    public Result executeScript(Player p, Npc npc, NpcScript script, String startLabel) {
         Result r = new Result();
         String label = startLabel == null ? "main" : startLabel;
         if (label.startsWith("@")) {
@@ -54,7 +59,7 @@ public final class NpcScriptEngine {
         }
         int depth = 0;
         while (label != null && depth++ < MAX_DEPTH) {
-            NpcScript.Section sec = npc.script == null ? null : npc.script.section(label);
+            NpcScript.Section sec = script == null ? null : script.section(label);
             if (sec == null) {
                 break;
             }
@@ -175,6 +180,8 @@ public final class NpcScriptEngine {
                 return matchesJob(p.job, c.param);
             case "gender":
                 return "MAN".equalsIgnoreCase(c.param) ? p.sex == 0 : p.sex == 1;
+            case "check":
+                return p.questParams[questIndex(c.param)] >= c.tagInt(0);
             case "equal":
                 return p.questParams[questIndex(c.param)] == c.tagInt(0);
             case "large":
@@ -182,7 +189,8 @@ public final class NpcScriptEngine {
             case "small":
                 return p.questParams[questIndex(c.param)] < c.tagInt(0);
             case "random":
-                return c.paramInt(0) <= 0 || (int) (Math.random() * c.paramInt(0)) != 0;
+                // Delphi: Random(n) = 0 才通过（random 5 = 1/5 概率）
+                return c.paramInt(0) <= 0 || (int) (Math.random() * c.paramInt(0)) == 0;
             default:
                 return true;   // unsupported condition passes
         }
@@ -209,7 +217,7 @@ public final class NpcScriptEngine {
         }
         try {
             int n = Integer.parseInt(s);
-            return n >= 0 && n < 100 ? n : 0;
+            return n >= 0 && n < 1000 ? n : 0;
         } catch (Exception e) {
             return 0;
         }

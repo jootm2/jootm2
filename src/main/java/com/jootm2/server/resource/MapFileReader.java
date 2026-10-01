@@ -34,17 +34,24 @@ public final class MapFileReader {
             GameMap map = new GameMap(mapId, width, height);
 
             int off = 52;
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
+            // 注意：.map 的 tile 按「列优先」存储（x 外层、y 内层），
+            // 必须与客户端解析顺序一致，否则阻挡网格会被转置、碰撞错位。
+            for (int x = 0; x < width; x++) {
+                for (int y = 0; y < height; y++) {
                     if (off + 12 > all.length) {
                         return map;
                     }
                     int bng = buf.getShort(off) & 0xFFFF;
                     int mid = buf.getShort(off + 2) & 0xFFFF;
                     int obj = buf.getShort(off + 4) & 0xFFFF;
+                    int doorIndex = buf.get(off + 6) & 0xFF;   // 第 7 字节：门标志+门号
                     off += 12;
                     if ((bng & 0x8000) != 0 || (mid & 0x8000) != 0 || (obj & 0x8000) != 0) {
                         map.setBlocked(x, y, true);
+                    }
+                    // 门：0x80 位=门标志，低 7 位=门号
+                    if ((doorIndex & 0x80) != 0 && (doorIndex & 0x7F) > 0) {
+                        map.setDoor(x, y);
                     }
                 }
             }

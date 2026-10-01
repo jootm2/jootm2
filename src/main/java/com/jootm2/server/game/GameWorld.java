@@ -1304,9 +1304,11 @@ public final class GameWorld {
         o.add("map", map);
         o.add("player", p.toPlayerJson(this));
         JsonArray nearby = new JsonArray();
+        p.seen.clear();
         for (Actor a : nearby(p.map, p.x, p.y, SIGHT_RANGE)) {
             if (a.id != p.id) {
                 nearby.add(a.toBriefJson());
+                p.seen.add(a.id);
             }
         }
         o.add("nearby", nearby);
@@ -1320,6 +1322,33 @@ public final class GameWorld {
         }
         o.add("groundItems", ground);
         return o;
+    }
+
+    /** 玩家移动后增量更新视野：广播新进入的实体（entityAdd）与离开的（entityRemove）。 */
+    public void updateSight(Player p) {
+        Set<Long> nowSeen = new HashSet<>();
+        for (Actor a : actors.values()) {
+            if (a.alive && a.id != p.id && a.map == p.map
+                    && Math.max(Math.abs(a.x - p.x), Math.abs(a.y - p.y)) <= SIGHT_RANGE) {
+                nowSeen.add(a.id);
+                if (!p.seen.contains(a.id)) {
+                    JsonObject o = new JsonObject();
+                    o.addProperty("type", "entityAdd");
+                    o.add("entity", a.toBriefJson());
+                    p.session.sendText(o.toString());
+                }
+            }
+        }
+        for (long id : new ArrayList<>(p.seen)) {
+            if (!nowSeen.contains(id)) {
+                JsonObject o = new JsonObject();
+                o.addProperty("type", "entityRemove");
+                o.addProperty("id", id);
+                p.session.sendText(o.toString());
+            }
+        }
+        p.seen.clear();
+        p.seen.addAll(nowSeen);
     }
 
     /** Marks a monster dead and schedules its respawn (does not remove the Actor). */

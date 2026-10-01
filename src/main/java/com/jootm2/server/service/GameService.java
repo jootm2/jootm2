@@ -500,6 +500,7 @@ public final class GameService {
         world.tryMove(p, dir);
         world.broadcastMove(p);
         if (p.x != oldX || p.y != oldY) {
+            world.updateSight(p);   // 增量更新视野：广播新进入/离开的实体
             WorldData.Gate gate = world.gateAt(p.map.name, p.x, p.y);
             if (gate != null) {
                 doChangeMap(p, gate);

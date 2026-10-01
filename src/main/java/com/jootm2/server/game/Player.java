@@ -11,9 +11,11 @@ import com.jootm2.server.game.common.Skill;
 import com.jootm2.server.service.PlayerSession;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A logged-in or persisted human character. Combines the Delphi THuman/PlayerObject
@@ -81,6 +83,9 @@ public final class Player extends Actor {
 
     public GameWorld world;
     public PlayerSession session;
+
+    /** 当前视野内的实体 id（用于移动时增量广播 entityAdd/entityRemove）。 */
+    public final Set<Long> seen = new HashSet<>();
 
     public Player(long id, long accountId) {
         super(id);

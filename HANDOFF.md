@@ -225,6 +225,7 @@ jootm2/
     - 注意：出生点 (289,618) 向右只能走 7 格（297,618 是墙），测试撞墙属正常，非间隔 bug。
 41. **卷动改匀速**：lerp 指数逼近（每帧追 25% 剩余，「先快后慢」）产生追停抖动 → 改匀速 clamp 步进（速度 = 走 500ms/格、跑 250ms/格，与 move 节奏同步）。shift 仍整数化。验证 shiftY 相邻差集中在 1~4。
 42. **人物走动画过渡（消除一步跨格）**：原实现人物直接画在逻辑格 `self.x`（move 到达瞬间跨 48×32 到目标），地图却单独卷动 → 不协调。修复：self 增加 `offsetX/offsetY` 走动画偏移（`(viewX - self.x)*48` / `(viewY - self.y)*32`），从逻辑格滑向过渡位置 `_viewX`；地图反向偏移共用同一 `_viewX`，严格同步。MapActor 锚点/血条/名字/高亮统一用含 offset 的 anchorX/anchorY。验证：移动时 self 屏幕位置恒定 376（画面中心）、相邻差 0。
+43. **右键播放真正的跑(run)动画**：原「跑」= walk 动画 + 2 倍速间隔（无独立 run 动作）。修复：前端 `ActorSprite.PLAYER_SEG` 补 `run: 'run'`（`HA.run start=128` 跑步帧）；`PlayScene` move 命令带 `run` 字段、onMessage 按 `msg.run` 设 `_action`；服务端 `Actor` 加 `running`、`move` 接收 `run`、`broadcastMove` 广播 `run`。验证：右键 `_action=run`、左键 `_action=walk`。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

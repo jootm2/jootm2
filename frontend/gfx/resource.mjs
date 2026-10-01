@@ -3,6 +3,7 @@
 
 let _images = null;   // { key: { x: wix路径, l: wil路径 } }
 let _maps = null;     // { mapId: map路径 }
+let _wavs = null;     // { soundId: wav路径 }
 
 export async function loadResources() {
     const resp = await fetch('/resources/resources.json');
@@ -10,6 +11,7 @@ export async function loadResources() {
     const data = await resp.json();
     _images = data.images || {};
     _maps = data.maps || {};
+    _wavs = data.wavs || {};
     return data;
 }
 
@@ -24,4 +26,15 @@ export function imageUrls(key) {
 export function mapUrl(mapId) {
     const m = _maps?.[mapId];
     return m ? `/resources/${m}` : null;
+}
+
+// 取音频 URL（soundId 如 '001'/'1'/'100'，对应旧 SoundUtil 的音效索引）
+export function wavUrl(soundId) {
+    const w = _wavs?.[String(soundId)];
+    return w ? `/resources/${w}` : null;
+}
+
+// 音频总数
+export function wavCount() {
+    return _wavs ? Object.keys(_wavs).length : 0;
 }

@@ -1,6 +1,7 @@
 // 入口（对应 mir2.dpr + ClMain.InitializeClient）
-import { loadResources, imageUrls } from './gfx/resource.mjs';
+import { loadResources, imageUrls, wavUrl, wavCount } from './gfx/resource.mjs';
 import { WIL } from './gfx/wil.mjs';
+import { scheduler } from './gfx/scheduler.mjs';
 import { Loop } from './core/loop.mjs';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './core/config.mjs';
 import { DWinManager } from './gui/manager.mjs';
@@ -83,6 +84,9 @@ async function init() {
     console.log('[init] GUI 演示就绪（窗口/网格/按钮）');
     window.__libs = libs;
     window.__winManager = winManager;
+    window.__scheduler = scheduler;
+    window.__wavUrl = wavUrl;
+    window.__wavCount = wavCount;
 }
 
 init().catch(e => console.error('[init]', e));

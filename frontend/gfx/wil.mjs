@@ -1,8 +1,11 @@
 // WIL 图片库加载 + 纹理缓存（对应旧 WIL.pas）
 // 8 位索引色 + 256 色调色板 → RGBA ImageData → 离屏 canvas 缓存
-// 懒加载：按需 HTTP Range 拉取单图，缓存超过 5 分钟未用则释放（对应 FreeOldMemorys）
+// 加载：经全局调度器（5 并发 + 去重）拉取 512K 片段，一次性解包范围内所有图缓存。
 
 import { PALETTE_RGBA, widthBytes, skipBytes } from './palette.mjs';
+import { scheduler } from './scheduler.mjs';
+
+const CHUNK_SIZE = 512 * 1024;   // 单次请求最大字节数
 
 // 兼容创建离屏画布
 function createCanvas(w, h) {
@@ -22,24 +25,29 @@ export class WIL {
         this.imageCount = 0;
         this.offsetList = [];        // 每图在 wil 的偏移（0=空图）
         this.indexLoaded = false;
+        this._indexLoading = null;   // 防重复加载索引
         this.textures = new Map();   // index -> { canvas, px, py, width, height }
         this.lastUse = new Map();    // index -> 最后使用时间戳
         this.memCheckTime = Date.now();
     }
 
-    // 加载 WIX 索引
-    async loadIndex() {
-        if (this.indexLoaded) return;
-        const resp = await fetch(this.wixUrl);
-        if (!resp.ok) throw new Error(`加载 ${this.wixUrl} 失败`);
-        const buf = await resp.arrayBuffer();
-        const view = new DataView(buf);
-        this.imageCount = view.getUint32(44, true);
-        for (let i = 0; i < this.imageCount; i++) {
-            const off = view.getUint32(48 + i * 4, true);
-            this.offsetList[i] = off < 1080 ? 0 : off;
-        }
-        this.indexLoaded = true;
+    // 加载 WIX 索引（防并发重复）
+    loadIndex() {
+        if (this.indexLoaded) return Promise.resolve();
+        if (this._indexLoading) return this._indexLoading;
+        this._indexLoading = (async () => {
+            const resp = await fetch(this.wixUrl);
+            if (!resp.ok) throw new Error(`加载 ${this.wixUrl} 失败`);
+            const buf = await resp.arrayBuffer();
+            const view = new DataView(buf);
+            this.imageCount = view.getUint32(44, true);
+            for (let i = 0; i < this.imageCount; i++) {
+                const off = view.getUint32(48 + i * 4, true);
+                this.offsetList[i] = off < 1080 ? 0 : off;
+            }
+            this.indexLoaded = true;
+        })();
+        return this._indexLoading;
     }
 
     // 释放超时缓存（>5 分钟未用）
@@ -71,35 +79,51 @@ export class WIL {
             this.freeOldTextures();
         }
 
-        // 拉取 WIL 片段（最多 512K，含后续多图，一次网络交互多解几张）
-        const end = off + 512 * 1024;
-        const resp = await fetch(this.wilUrl, { headers: { Range: `bytes=${off}-${end}` } });
-        if (!resp.ok) return null;
-        const buf = await resp.arrayBuffer();
-        const view = new DataView(buf);
+        // 经全局调度器拉取片段（5 并发 + 去重）
+        const end = off + CHUNK_SIZE;
+        const { start, buffer } = await scheduler.schedule(this.wilUrl, off, end);
 
-        const tex = this._unpackOne(view, index, off);
-        if (tex) {
-            this.textures.set(index, tex);
-            this.lastUse.set(index, Date.now());
-        }
-        return tex;
+        // 一次性解包整个片段范围内的所有图（冗余缓存，后续请求直接命中）
+        this._unpackRange(new DataView(buffer), start);
+
+        return this.textures.get(index) || null;
     }
 
-    // 从片段数据解一张图（片段相对 offset 的偏移为 0，即 off 处就是图头）
-    _unpackOne(view, index, fileOff) {
-        // 片段起始即该图头
-        let p = 0;
+    // 解包 [start, start+buffer.byteLength) 范围内的所有图
+    _unpackRange(view, start) {
+        const viewEnd = start + view.byteLength;
+        for (let i = 0; i < this.imageCount; i++) {
+            const off = this.offsetList[i];
+            if (off === 0 || off < start || off >= viewEnd) continue;
+            if (this.textures.has(i)) continue;
+            const tex = this._unpackOne(view, off - start, i);
+            if (tex) {
+                this.textures.set(i, tex);
+                this.lastUse.set(i, Date.now());
+            }
+        }
+    }
+
+    // 解包单张图（图头在 buffer 的 localOff 处）
+    _unpackOne(view, localOff, index) {
+        let p = localOff;
+        if (p + 8 > view.byteLength) return null;
         const width = view.getUint16(p, true); p += 2;
         const height = view.getUint16(p, true); p += 2;
         const px = view.getInt16(p, true); p += 2;
         const py = view.getInt16(p, true); p += 2;
 
         if (width <= 0 || height <= 0) return null;
+        if (height === 1) return null;   // 1x1 占位图，旧代码跳过（视为空）
 
         // 位深：下一图偏移 - 本图偏移 判定（8 位或 16 位 RGB565）
+        const fileOff = this.offsetList[index];
         const nextOff = this.offsetList[index + 1] || (fileOff + 8 + width * height);
         const bitCount = (nextOff - fileOff >= 8 + width * height * 2) ? 16 : 8;
+
+        // 数据不足则跳过
+        const dataLen = bitCount === 8 ? width * height : width * height * 2;
+        if (p + dataLen > view.byteLength) return null;
 
         const rgba = new Uint8Array(width * height * 4);
 

@@ -229,6 +229,9 @@ private void respond(ChannelHandlerContext ctx, FullHttpRequest req, FullHttpRes
         if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
         if (n.endsWith(".gif")) return "image/gif";
         if (n.endsWith(".ico")) return "image/x-icon";
+        if (n.endsWith(".wav")) return "audio/wav";
+        if (n.endsWith(".mp3")) return "audio/mpeg";
+        if (n.endsWith(".ogg")) return "audio/ogg";
         return "application/octet-stream";
     }
 }

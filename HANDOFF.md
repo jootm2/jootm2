@@ -202,6 +202,12 @@ jootm2/
     - `GameWorld` 加 `GUARD_RACES = {20 弓箭警察, 112 弓箭守卫}` + `guardHostile(m,p)`：`p.id==m.lastHiterId`（反击）或 `p.pkPoint > 0`（红名/灰名）；`resolveTarget` 对守卫过滤白名（pkPoint=0 且非反击者不当目标）。
     - `Monster.lastHiterId`（`GameService.attack` 玩家攻击时记录，守卫据此反击）；守卫也加入 `RANGED_RACES`（`TArcherGuard.ShotArrow` 远程）。
     - 验证：smoke test 通过；白名玩家在守卫区 8 秒无守卫攻击。
+37. **实体锚点修正 + 卷动 lerp + 点击走/跑**：
+    - **锚点**（照 `PlayScn.pas` DrawChr）：实体图左上 = **格左 + px, 格顶 + py**（hum 站立帧 px≈8-15, py≈-47/-48，脚落在格底上方 ~9px）。此前错用「格子底部中心」锚点导致人物+血条+名字整体偏移 32px。
+    - **名字/血条**：原版固定偏移 —— 名字 = 格顶 - 47（照 SayY）、血条 = 格顶 - 30，水平格子中心；不再动态贴 sprite 顶（图框含透明边距，动态顶不可靠）。
+    - **卷动**：显示中心 lerp 追踪玩家（`_viewX += (self.x-_viewX)*0.25`，亚像素 shift），替代「每步重置插值」——后者在连续移动时 shift 从 27 跳回 48 造成画面跳变（用户反馈「放大一瞬」）。changeMap 时重置 _viewX。
+    - **点击移动**：去掉 A* 寻路（`findPath` 已移除引用），改**贪心直线**走向点击点（卡住 4 tick 自动放弃）；**左键走**（每 2 tick 一步 = 200ms/格）、**右键跑**（每 tick 一步 = 100ms/格），`contextmenu` 已拦截（右键不再弹浏览器菜单）。点怪/NPC/物品仍是走近后执行动作。
+    - 验证：左键 2 格 vs 右键 4 格（速度差异）、右键拦截、sprite/名字/血条对齐、无错误。注意 hum 大图首次加载有几秒延迟（优先级队列 §14 可解）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

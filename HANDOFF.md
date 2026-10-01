@@ -217,8 +217,12 @@ jootm2/
     - **点击语义（用户澄清）**：原版是「按下时朝鼠标相对画面中心的方向走 1 格（左键）/ 2 格（右键）」，不是「寻路走到目标点」。移除 `_clickTarget` 寻路，改 `_dirFromMouse`（鼠标偏移按 48/32 纵横比归一化映射 8 方向）+ `_stepsLeft/_stepDir`（点击立即走第一步，右键余 1 步由 moveTimer 走）。保留相邻怪→攻击/相邻 NPC→对话/脚下物→拾取。
     - **名字上移**：格顶 -17（人物身体，用户仍嫌偏下）→ **-71**（血条 -57 上方，一起在头顶上方）。
     - 验证：左键右方 1 格、右键右方 2 格、上方 y-1、名字/血条位置正确。
-
-关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
+40. **删键盘移动 + 鼠标按住持续走 + 走/跑间隔 + 方向实时判断**：
+    - **删键盘移动**：移除 WASD/方向键移动（`_currentDir`/`keys`），保留 Space 攻击/B 背包/F1-F8 施法。
+    - **鼠标按住持续走**：`mousedown` 记方向 + 立即走一步，`moveTimer`（50ms 轮询）在 `_holding` 为真时按间隔持续走；`mouseup`（document）停止。不再「点一下走一下」。
+    - **走/跑间隔**：`WALK_INTERVAL=500`、`RUN_INTERVAL=250`（ms/步），动作之间有明确间隔。验证：1.6s 内走 3 步、跑 6 步（2 倍速）。
+    - **方向实时判断**：新增 `mousemove` 监听，按住移动时实时更新 `_mouseDir`——先向右走，移动鼠标到左上，下一步即朝左上。验证：向右走到墙边后转向左上（dy=-2）。
+    - 注意：出生点 (289,618) 向右只能走 7 格（297,618 是墙），测试撞墙属正常，非间隔 bug。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

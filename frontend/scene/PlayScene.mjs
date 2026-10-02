@@ -4,6 +4,7 @@
 import { Scene } from './Scene.mjs';
 import { MapActor } from '../map/MapActor.mjs';
 import { ActorSprite } from '../actor/ActorSprite.mjs';
+import { getLib } from '../image/Images.mjs';
 import { SCREEN_WIDTH, SCREEN_HEIGHT, MAPSURFACEHEIGHT } from '../core/config.mjs';
 
 // 8 方向映射（与服务器 Direction 一致）
@@ -514,85 +515,112 @@ export class PlayScene extends Scene {
         }
     }
 
-    // ---- NPC 对话框 ----
+    // ---- NPC 对话框（原版 DMerchantDlg 样式）----
+
+    // Prguse 图 → img URL（缓存）
+    async _prgUrl(idx) {
+        if (this._prgCache == null) this._prgCache = new Map();
+        if (this._prgCache.has(idx)) return this._prgCache.get(idx);
+        const lib = getLib('prguse');
+        if (!lib) return null;
+        const tex = await lib.getTexture(idx);
+        if (!tex) return null;
+        const url = tex.canvas.toDataURL
+            ? tex.canvas.toDataURL('image/png')
+            : URL.createObjectURL(await tex.canvas.convertToBlob());
+        this._prgCache.set(idx, url);
+        return url;
+    }
+
     _showNpcDialog(msg) {
         this._closeNpcDialog();
         const gui = this.manager.winManager.container;
         const dlg = document.createElement('div');
-        dlg.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:360px;max-height:430px;'
-            + 'overflow-y:auto;background:rgba(0,0,0,0.94);border:1px solid #8a6d3b;border-radius:6px;padding:16px;'
-            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
+        dlg.style.cssText = 'position:absolute;left:0;top:0;width:416px;height:176px;pointer-events:auto;';
+        this.npcDlg = dlg;
+        gui.appendChild(dlg);
 
-        const title = document.createElement('div');
-        title.textContent = msg.name || 'NPC';
-        title.style.cssText = 'font-size:18px;color:#ffd76a;margin-bottom:10px;';
-        dlg.appendChild(title);
+        // 背景 Prguse[384]（商人对话框 416×176，异步插入不阻塞文本）
+        this._prgUrl(384).then((bgUrl) => {
+            if (bgUrl && this.npcDlg === dlg) {
+                const bg = document.createElement('img');
+                bg.src = bgUrl;
+                bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;z-index:-1;';
+                dlg.insertBefore(bg, dlg.firstChild);
+            }
+        });
 
+        // NPC 名字 + 说话文本（白描边，从 30,20 开始；原版 lx=30 ly=20）
         const text = document.createElement('div');
-        text.textContent = msg.text || '';
-        text.style.cssText = 'font-size:13px;line-height:1.6;margin-bottom:12px;white-space:pre-wrap;';
+        text.style.cssText = 'position:absolute;left:30px;top:20px;width:330px;height:118px;'
+            + 'font-family:SimSun,serif;font-size:14px;color:#ffffff;line-height:1.45;'
+            + 'text-shadow:1px 1px 0 #000;white-space:pre-wrap;overflow:hidden;pointer-events:none;';
+        text.textContent = (msg.name ? msg.name + '：\n' : '') + (msg.text || '');
         dlg.appendChild(text);
 
-        // 商店：buy 显示 goods，sell 显示背包物品
+        // 商店列表（buy=商品 / sell=背包）
         if (msg.shop === 'buy' && msg.goods) {
             const grid = document.createElement('div');
-            grid.style.cssText = 'margin-bottom:12px;max-height:180px;overflow-y:auto;';
+            grid.style.cssText = 'position:absolute;left:30px;top:128px;width:330px;height:44px;'
+                + 'display:flex;flex-wrap:wrap;gap:2px 8px;overflow:hidden;font-size:12px;';
             for (const g of msg.goods) {
-                const row = document.createElement('div');
-                row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;'
-                    + 'padding:4px 0;border-bottom:1px dashed #4a3d22;font-size:12px;';
-                const nm = document.createElement('span');
-                nm.textContent = `${g.name}（${g.price} 金币）`;
-                const btn = document.createElement('button');
-                btn.textContent = '购买';
-                btn.style.cssText = 'font-size:12px;padding:2px 8px;cursor:pointer;';
-                btn.addEventListener('click', () => this.conn.send('buyItem', { npcId: msg.npcId, index: g.index, count: 1 }));
-                row.appendChild(nm);
-                row.appendChild(btn);
-                grid.appendChild(row);
+                const item = document.createElement('a');
+                item.textContent = `${g.name}(${g.price})`;
+                item.style.cssText = 'color:#ffd76a;text-decoration:underline;cursor:pointer;text-shadow:1px 1px 0 #000;';
+                item.addEventListener('click', () => this.conn.send('buyItem', { npcId: msg.npcId, index: g.index, count: 1 }));
+                grid.appendChild(item);
             }
             dlg.appendChild(grid);
         } else if (msg.shop === 'sell') {
             const grid = document.createElement('div');
-            grid.style.cssText = 'margin-bottom:12px;max-height:180px;overflow-y:auto;';
+            grid.style.cssText = 'position:absolute;left:30px;top:128px;width:330px;height:44px;'
+                + 'display:flex;flex-wrap:wrap;gap:2px 8px;overflow:hidden;font-size:12px;';
             const bagItems = (this.self.items || []).filter(x => x.slot === undefined);
             for (const it of bagItems) {
-                const row = document.createElement('div');
-                row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;'
-                    + 'padding:4px 0;border-bottom:1px dashed #4a3d22;font-size:12px;';
-                const nm = document.createElement('span');
-                nm.textContent = it.name;
-                const btn = document.createElement('button');
-                btn.textContent = '出售';
-                btn.style.cssText = 'font-size:12px;padding:2px 8px;cursor:pointer;';
-                btn.addEventListener('click', () => this.conn.send('sellItem', { npcId: msg.npcId, makeIndex: it.makeIndex }));
-                row.appendChild(nm);
-                row.appendChild(btn);
-                grid.appendChild(row);
+                const item = document.createElement('a');
+                item.textContent = it.name;
+                item.style.cssText = 'color:#ffd76a;text-decoration:underline;cursor:pointer;text-shadow:1px 1px 0 #000;';
+                item.addEventListener('click', () => this.conn.send('sellItem', { npcId: msg.npcId, makeIndex: it.makeIndex }));
+                grid.appendChild(item);
             }
             dlg.appendChild(grid);
         }
 
-        // 选项按钮
-        for (const op of msg.options || []) {
-            const btn = document.createElement('button');
-            btn.textContent = op.label;
-            btn.style.cssText = 'display:block;width:100%;margin-bottom:6px;padding:7px;font-size:13px;cursor:pointer;'
-                + 'border:1px solid #5a4a2a;background:#221c12;color:#c9b98a;border-radius:3px;text-align:left;';
-            btn.addEventListener('click', () => this.conn.send('npcSelect', { npcId: msg.npcId, value: op.value }));
-            dlg.appendChild(btn);
+        // 选项（黄色下划线链接，点击触发；原版内联在文本里，这里放文本下方）
+        if (!msg.shop && (msg.options || []).length) {
+            const optWrap = document.createElement('div');
+            optWrap.style.cssText = 'position:absolute;left:30px;top:128px;width:330px;'
+                + 'display:flex;flex-wrap:wrap;gap:4px 16px;';
+            for (const op of msg.options) {
+                const a = document.createElement('a');
+                a.textContent = op.label;
+                a.style.cssText = 'font-family:SimSun,serif;font-size:14px;color:#ffd76a;text-decoration:underline;'
+                    + 'cursor:pointer;text-shadow:1px 1px 0 #000;';
+                a.addEventListener('click', () => this.conn.send('npcSelect', { npcId: msg.npcId, value: op.value }));
+                optWrap.appendChild(a);
+            }
+            dlg.appendChild(optWrap);
         }
 
-        // 关闭按钮
-        const close = document.createElement('button');
-        close.textContent = '关 闭';
-        close.style.cssText = 'display:block;width:100%;margin-top:8px;padding:7px;font-size:13px;cursor:pointer;'
-            + 'border:1px solid #6b3a3a;background:#2a1414;color:#e08a80;border-radius:3px;';
+        // 关闭按钮 Prguse[64]（399,1）：文字 fallback，异步图加载后替换
+        const close = document.createElement('div');
+        close.textContent = '×';
+        close.style.cssText = 'position:absolute;left:399px;top:1px;width:16px;height:23px;cursor:pointer;'
+            + 'color:#e8d9b0;text-align:center;line-height:23px;font-size:15px;text-shadow:1px 1px 0 #000;';
         close.addEventListener('click', () => this.conn.send('npcSelect', { npcId: msg.npcId, value: 'exit' }));
         dlg.appendChild(close);
-
-        this.npcDlg = dlg;
-        gui.appendChild(dlg);
+        this._prgUrl(64).then((closeUrl) => {
+            if (closeUrl && this.npcDlg === dlg) {
+                const img = document.createElement('img');
+                img.src = closeUrl;
+                img.draggable = false;
+                img.style.cssText = 'position:absolute;left:399px;top:1px;cursor:pointer;';
+                img.addEventListener('click', () => this.conn.send('npcSelect', { npcId: msg.npcId, value: 'exit' }));
+                dlg.appendChild(img);
+                close.remove();
+            }
+        });
     }
 
     _closeNpcDialog() {

@@ -24,6 +24,29 @@ const MONSTER_MOVE_DUR = 720;
 // 装备槽名（对应 MessageIds U_DRESS..U_CHARM）
 const SLOT_NAMES = ['衣服', '武器', '右手', '项链', '头盔', '手镯L', '手镯R', '戒指L', '戒指R', '护身符', '腰带', '靴子', '宝石'];
 
+// 装备槽位（相对 F9 状态窗口坐标，对齐原版 FState.pas DSWxxx）[slot, x, y, w, h]
+const EQUIP_SLOTS = [
+    [0,   96, 122, 53, 112],   // 衣服 DSWDress
+    [1,   47,  80, 47,  87],   // 武器 DSWWeapon
+    [2,  168, 125, 34,  31],   // 右手(蜡烛) DSWLight
+    [3,  168,  87, 34,  31],   // 项链 DSWNecklace
+    [4,  115,  93, 18,  18],   // 头盔 DSWHelmet
+    [5,  168, 176, 34,  31],   // 手镯L DSWArmRingL
+    [6,   42, 176, 34,  31],   // 手镯R DSWArmRingR
+    [7,  168, 215, 34,  31],   // 戒指L DSWRingL
+    [8,   42, 215, 34,  31],   // 戒指R DSWRingR
+    [9,   42, 254, 34,  31],   // 护身符 DSWBujuk
+    [10,  84, 254, 34,  31],   // 腰带 DSWBelt
+    [11, 126, 254, 34,  31],   // 靴子 DSWBoots
+    [12, 168, 254, 34,  31],   // 宝石 DSWCharm
+];
+
+// 属性数值行（原版 DStateWin StatePage 1：x=112，y 每 20px）[字段, y]
+const ATTR_ROWS = [
+    ['ac', 99], ['mac', 119], ['dc', 139], ['mc', 159], ['sc', 179],
+    ['hp', 199], ['mp', 219],
+];
+
 // 需要施法目标的魔法（伤害/施毒/火墙/诱惑）
 const TARGET_MAGICS = new Set([1, 5, 6, 11, 20, 22, 35]);
 
@@ -474,35 +497,100 @@ export class PlayScene extends Scene {
                 win.insertBefore(bg, win.firstChild);
             }
         });
-        // 角色信息（左上）
-        this.stateInfoEl = document.createElement('div');
-        this.stateInfoEl.style.cssText = 'position:absolute;left:16px;top:22px;width:200px;'
-            + 'font-size:12px;line-height:17px;text-shadow:1px 1px 0 #000;';
-        win.appendChild(this.stateInfoEl);
-        // 属性数值（中下）
-        this.stateAttrEl = document.createElement('div');
-        this.stateAttrEl.style.cssText = 'position:absolute;left:120px;top:66px;width:96px;'
-            + 'font-size:12px;line-height:17px;text-shadow:1px 1px 0 #000;text-align:left;';
-        win.appendChild(this.stateAttrEl);
-        // 装备栏（左下）
+        // 装备页（人物底图 + 13 装备槽）
+        this.stateEquipWrap = document.createElement('div');
+        this.stateEquipWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;';
+        win.appendChild(this.stateEquipWrap);
+        this.stateBodyEl = document.createElement('div');
+        this.stateBodyEl.style.cssText = 'position:absolute;left:38px;top:52px;';
+        this.stateEquipWrap.appendChild(this.stateBodyEl);
         this.stateEquipEl = document.createElement('div');
-        this.stateEquipEl.style.cssText = 'position:absolute;left:12px;top:60px;width:104px;'
-            + 'display:grid;grid-template-columns:repeat(2,1fr);gap:3px;';
-        win.appendChild(this.stateEquipEl);
+        this.stateEquipEl.style.cssText = 'position:absolute;left:0;top:0;';
+        this.stateEquipWrap.appendChild(this.stateEquipEl);
+        // 属性页（数值对齐背景标签 + 角色信息）
+        this.stateAttrWrap = document.createElement('div');
+        this.stateAttrWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
+        win.appendChild(this.stateAttrWrap);
+        this.stateInfoEl = document.createElement('div');
+        this.stateInfoEl.style.cssText = 'position:absolute;left:12px;top:16px;width:208px;'
+            + 'font-size:12px;line-height:18px;text-shadow:1px 1px 0 #000;';
+        this.stateAttrWrap.appendChild(this.stateInfoEl);
+        this.stateAttrEl = document.createElement('div');
+        this.stateAttrEl.style.cssText = 'position:absolute;left:112px;top:99px;width:96px;'
+            + 'font-size:12px;line-height:20px;text-shadow:1px 1px 0 #000;';
+        this.stateAttrWrap.appendChild(this.stateAttrEl);
+        // 翻页按钮（底部）
+        const mkTab = (label, page, x) => {
+            const b = document.createElement('div');
+            b.textContent = label;
+            b.style.cssText = `position:absolute;left:${x}px;top:300px;width:40px;height:20px;`
+                + 'text-align:center;font-size:11px;color:#c9b98a;cursor:pointer;line-height:20px;'
+                + 'background:rgba(0,0,0,0.45);border-radius:2px;';
+            b.addEventListener('click', () => { this.statePage = page; this._refreshStateWin(); });
+            win.appendChild(b);
+        };
+        mkTab('装备', 0, 150);
+        mkTab('属性', 1, 192);
         this.stateWin = win;
+        this.statePage = 0;
         gui.appendChild(win);
     }
 
     _refreshStateWin() {
         if (!this.stateWin || !this.self) return;
         const p = this.self;
+        // 分页显示
+        this.stateEquipWrap.style.display = this.statePage === 0 ? 'block' : 'none';
+        this.stateAttrWrap.style.display = this.statePage === 1 ? 'block' : 'none';
+        if (this.statePage === 0) {
+            this._refreshEquipPage();
+        } else {
+            this._refreshAttrPage();
+        }
+    }
+
+    // 装备页：人物底图（男376/女377）+ 13 槽图标
+    _refreshEquipPage() {
+        const p = this.self;
+        this.stateBodyEl.innerHTML = '';
+        const bodyIdx = p.sex === 1 ? 377 : 376;
+        this._libUrl('prguse', bodyIdx).then((url) => {
+            if (url && this.stateWin && this.stateBodyEl) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                this.stateBodyEl.appendChild(im);
+            }
+        });
+        this.stateEquipEl.innerHTML = '';
+        const items = p.items || [];
+        for (const [slot, x, y, w, h] of EQUIP_SLOTS) {
+            const it = items.find(v => v.slot === slot);
+            const cell = document.createElement('div');
+            cell.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;`
+                + 'display:flex;align-items:center;justify-content:center;overflow:hidden;';
+            if (it) {
+                cell.title = `${SLOT_NAMES[slot]}：${it.name}`;
+                this._libUrl('stateitem', it.looks).then((url) => {
+                    if (url) {
+                        const im = document.createElement('img');
+                        im.src = url; im.draggable = false;
+                        im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+                        cell.appendChild(im);
+                    }
+                });
+            }
+            this.stateEquipEl.appendChild(cell);
+        }
+    }
+
+    // 属性页：角色信息 + 属性数值（纯数字，标签由背景图提供）
+    _refreshAttrPage() {
+        const p = this.self;
         const JOB = ['战士', '法师', '道士'];
         this.stateInfoEl.innerHTML = '';
         const rows = [
             `${p.name}（${JOB[p.job] || '?'}）`,
             `等级 ${p.level}  经验 ${p.exp}`,
-            `HP ${p.hp}/${p.maxHp}`,
-            `MP ${p.mp}/${p.maxMp}`,
             `金币 ${p.gold || 0}`,
         ];
         for (const r of rows) {
@@ -510,45 +598,14 @@ export class PlayScene extends Scene {
             div.textContent = r;
             this.stateInfoEl.appendChild(div);
         }
-        // 属性
         this.stateAttrEl.innerHTML = '';
-        const attrs = [
-            ['攻击', p.dc], ['魔法', p.mc], ['道术', p.sc],
-            ['防御', p.ac], ['魔御', p.mac],
-        ];
-        for (const [label, val] of attrs) {
+        for (const [field, y] of ATTR_ROWS) {
             const div = document.createElement('div');
-            div.textContent = `${label} ${val || '0-0'}`;
+            div.style.cssText = `position:absolute;left:0;top:${y - 99}px;`;
+            div.textContent = field === 'hp' ? `${p.hp}/${p.maxHp}`
+                : field === 'mp' ? `${p.mp}/${p.maxMp}`
+                : (p[field] || '0-0');
             this.stateAttrEl.appendChild(div);
-        }
-        // 装备栏
-        this.stateEquipEl.innerHTML = '';
-        const items = p.items || [];
-        for (let slot = 0; slot < 13; slot++) {
-            const it = items.find(x => x.slot === slot);
-            const cell = document.createElement('div');
-            cell.style.cssText = 'width:48px;height:48px;background:rgba(0,0,0,0.45);'
-                + 'border:1px solid #4a3d22;display:flex;flex-direction:column;align-items:center;'
-                + 'justify-content:center;overflow:hidden;';
-            const nm = document.createElement('div');
-            nm.textContent = SLOT_NAMES[slot] || slot;
-            nm.style.cssText = 'font-size:9px;color:#9a8b6a;';
-            cell.appendChild(nm);
-            if (it) {
-                const wrap = document.createElement('div');
-                wrap.style.cssText = 'width:32px;height:32px;display:flex;align-items:center;justify-content:center;';
-                cell.appendChild(wrap);
-                this._libUrl('stateitem', it.looks).then((url) => {
-                    if (url) {
-                        const im = document.createElement('img');
-                        im.src = url; im.draggable = false;
-                        im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
-                        wrap.appendChild(im);
-                    }
-                });
-                cell.title = it.name;
-            }
-            this.stateEquipEl.appendChild(cell);
         }
     }
 
@@ -577,28 +634,19 @@ export class PlayScene extends Scene {
                 panel.insertBefore(bg, panel.firstChild);
             }
         });
-        // 关闭按钮（红X）
+        // 关闭按钮（红X，原版 DCloseBag 309,203）
         const close = document.createElement('div');
-        close.style.cssText = 'position:absolute;right:12px;top:8px;width:16px;height:23px;cursor:pointer;';
+        close.style.cssText = 'position:absolute;left:309px;top:203px;width:14px;height:20px;cursor:pointer;';
         close.addEventListener('click', () => { panel.style.display = 'none'; });
         panel.appendChild(close);
-        // 金币
+        // 金币（原版 DGold 10,190）
         this.goldEl = document.createElement('div');
-        this.goldEl.style.cssText = 'position:absolute;left:120px;top:224px;font-size:13px;color:#fbbf24;text-shadow:1px 1px 0 #000;';
+        this.goldEl.style.cssText = 'position:absolute;left:10px;top:190px;font-size:13px;color:#fbbf24;text-shadow:1px 1px 0 #000;';
         panel.appendChild(this.goldEl);
-        // 技能列表（原底部技能栏移入 F10）
-        const skLabel = document.createElement('div');
-        skLabel.textContent = '技能（F1-F8 施放）';
-        skLabel.style.cssText = 'position:absolute;left:16px;top:96px;font-size:11px;color:#9a8b6a;';
-        panel.appendChild(skLabel);
-        this.skillListEl = document.createElement('div');
-        this.skillListEl.style.cssText = 'position:absolute;left:16px;top:114px;width:304px;height:60px;'
-            + 'display:flex;flex-wrap:wrap;gap:4px;overflow-y:auto;';
-        panel.appendChild(this.skillListEl);
-        // 背包物品区
+        // 背包物品格子（原版 DItemGrid 20,13 286x162，8 列）
         this.bagGridEl = document.createElement('div');
-        this.bagGridEl.style.cssText = 'position:absolute;left:16px;top:180px;width:304px;height:44px;'
-            + 'display:flex;flex-wrap:wrap;gap:4px;overflow-y:auto;';
+        this.bagGridEl.style.cssText = 'position:absolute;left:20px;top:13px;width:286px;height:162px;'
+            + 'display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(4,40px);';
         panel.appendChild(this.bagGridEl);
         this.bagPanel = panel;
         gui.appendChild(panel);
@@ -609,33 +657,12 @@ export class PlayScene extends Scene {
         this.goldEl.textContent = '金币 ' + (this.self.gold || 0);
         const items = this.self.items || [];
 
-        // 技能列表
-        this.skillListEl.innerHTML = '';
-        const skills = this.self.skills || {};
-        const entries = Object.entries(skills);
-        if (!entries.length) {
-            const empty = document.createElement('div');
-            empty.textContent = '（无技能）';
-            empty.style.cssText = 'font-size:11px;color:#9a8b6a;';
-            this.skillListEl.appendChild(empty);
-        }
-        entries.forEach(([magicId, sk], i) => {
-            const cell = document.createElement('div');
-            cell.style.cssText = 'padding:3px 8px;background:rgba(0,0,0,0.5);border:1px solid #4a3d22;'
-                + 'border-radius:3px;font-size:11px;color:#e8d9b0;cursor:pointer;';
-            cell.title = `F${i + 1} 施放`;
-            cell.textContent = `F${i + 1} ${sk.name || magicId}`;
-            cell.addEventListener('click', () => this._castMagic(Number(magicId)));
-            this.skillListEl.appendChild(cell);
-        });
-
-        // 背包物品
+        // 背包物品（8 列网格，图标居中）
         this.bagGridEl.innerHTML = '';
         const bagItems = items.filter(x => x.slot === undefined);
         for (const it of bagItems) {
             const cell = document.createElement('div');
-            cell.style.cssText = 'width:34px;height:34px;background:rgba(0,0,0,0.5);'
-                + 'border:1px solid #4a3d22;display:flex;align-items:center;justify-content:center;'
+            cell.style.cssText = 'display:flex;align-items:center;justify-content:center;'
                 + 'overflow:hidden;cursor:pointer;';
             cell.title = it.name + '（点击使用）';
             this._libUrl('items', it.looks).then((url) => {
@@ -648,12 +675,6 @@ export class PlayScene extends Scene {
             });
             cell.addEventListener('click', () => this.conn.send('useItem', { makeIndex: it.makeIndex }));
             this.bagGridEl.appendChild(cell);
-        }
-        if (!bagItems.length) {
-            const empty = document.createElement('div');
-            empty.textContent = '（空）';
-            empty.style.cssText = 'font-size:11px;color:#9a8b6a;';
-            this.bagGridEl.appendChild(empty);
         }
     }
 

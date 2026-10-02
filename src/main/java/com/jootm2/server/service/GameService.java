@@ -109,6 +109,9 @@ public final class GameService {
                 case "enterGame":
                     enterGame(session, msg);
                     break;
+                case "noticeOk":
+                    noticeOk(session, msg);
+                    break;
                 case "move":
                     move(session, msg);
                     break;
@@ -411,28 +414,59 @@ public final class GameService {
     }
 
     private void enterGame(PlayerSession session, JsonObject msg) {
-        if (session.getAccountId() <= 0) {
-            return;
-        }
         String name = str(msg, "name");
         if (name == null) {
             return;
         }
-        CharacterRecord rec = characterDao.findByName(name);
-        JsonObject r = new JsonObject();
-        r.addProperty("type", "enterGameResult");
-        if (rec == null || rec.accountId != session.getAccountId()) {
+        String err = validateEnter(session, name);
+        if (err != null) {
+            JsonObject r = new JsonObject();
+            r.addProperty("type", "enterGameResult");
             r.addProperty("ok", false);
-            r.addProperty("error", "角色不存在。");
+            r.addProperty("error", err);
             session.sendJson(r);
             return;
+        }
+        // 选角后先发公告（notice），客户端确认后（noticeOk）才真正进游戏
+        JsonObject n = new JsonObject();
+        n.addProperty("type", "notice");
+        JsonArray lines = new JsonArray();
+        for (String l : world.noticeLines()) {
+            lines.add(l);
+        }
+        n.add("lines", lines);
+        session.sendText(n.toString());
+    }
+
+    /** 玩家确认公告后，完成进入游戏（创建 Player + 发 enterGame 快照）。 */
+    private void noticeOk(PlayerSession session, JsonObject msg) {
+        String name = str(msg, "name");
+        if (name == null) {
+            return;
+        }
+        if (validateEnter(session, name) != null) {
+            return;
+        }
+        doEnter(session, name);
+    }
+
+    /** 校验能否以 name 进入游戏；返回 null 表示通过，否则为错误信息。 */
+    private String validateEnter(PlayerSession session, String name) {
+        if (session.getAccountId() <= 0) {
+            return "未登录。";
+        }
+        CharacterRecord rec = characterDao.findByName(name);
+        if (rec == null || rec.accountId != session.getAccountId()) {
+            return "角色不存在。";
         }
         if (world.player(name) != null) {
-            r.addProperty("ok", false);
-            r.addProperty("error", "该角色已在线。");
-            session.sendJson(r);
-            return;
+            return "该角色已在线。";
         }
+        return null;
+    }
+
+    private void doEnter(PlayerSession session, String name) {
+        CharacterRecord rec = characterDao.findByName(name);
 
         // 旧角色（还在旧 "default" 地图上）迁移到真实出生地图
         GameMap targetMap = world.getOrLoadMap(rec.mapName);
@@ -476,6 +510,8 @@ public final class GameService {
         session.setPlayerName(p.name);
         world.addPlayer(p);
 
+        JsonObject r = new JsonObject();
+        r.addProperty("type", "enterGameResult");
         r.addProperty("ok", true);
         session.sendJson(r);
 

@@ -90,6 +90,9 @@ public final class GameWorld {
     private final Map<Long, Party> partyOf = new HashMap<>();
     private Castle castle;
 
+    /** 登录公告（选角后 notice 界面显示的内容，来自 Mir200/Notice/Notice.txt）。 */
+    private final List<String> noticeLines = new ArrayList<>();
+
     private long lastRegenAt = System.currentTimeMillis();
 
     public GameWorld(ServerConfig config,
@@ -103,6 +106,7 @@ public final class GameWorld {
         Path root = Paths.get(config.gamedataRoot()).toAbsolutePath();
         this.mapDir = root.resolve("Mir200").resolve("Map");
         this.envDir = root.resolve("Mir200").resolve("Envir");
+        loadNotice(root.resolve("Mir200").resolve("Notice").resolve("Notice.txt"));
 
         WorldData.StartPoint sp = WorldData.loadStartPoint(envDir.resolve("StartPoint.txt"));
         this.startX = sp.x;
@@ -280,6 +284,30 @@ public final class GameWorld {
             saveGuild(b);
         }
         return true;
+    }
+
+    // -- notice ----------------------------------------------------------------
+
+    /** 加载登录公告（Notice.txt，GBK），过滤空行与纯空白行。 */
+    private void loadNotice(Path file) {
+        noticeLines.clear();
+        try {
+            if (!Files.exists(file)) {
+                return;
+            }
+            for (String line : Files.readAllLines(file, GBK)) {
+                String t = line.trim();
+                if (!t.isEmpty()) {
+                    noticeLines.add(t);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[world] cannot load Notice.txt (" + e.getMessage() + ")");
+        }
+    }
+
+    public List<String> noticeLines() {
+        return noticeLines;
     }
 
     // -- guild persistence ------------------------------------------------------

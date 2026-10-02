@@ -117,6 +117,7 @@ export class SelectCharScene extends Scene {
     _start() {
         const c = this.chars[this.selected];
         if (c) {
+            this._pendingName = c.name;   // 记住角色名，notice 确认后用它进游戏
             this.conn.send('enterGame', { name: c.name });
         } else {
             this._msg('一开始你应该创建一个新角色。\n选择「创建角色」你就能建立一个新角色了。');
@@ -241,9 +242,48 @@ export class SelectCharScene extends Scene {
             this.conn.send('listCharacters');
         } else if (type === 'enterGameResult') {
             if (!msg.ok) this._msg(msg.error || '进入游戏失败。');
+        } else if (type === 'notice') {
+            this._showNotice(msg.lines || []);
         } else if (type === 'enterGame') {
             this.manager.switchTo(new PlayScene(this.manager, msg));
         }
+    }
+
+    // ---- notice（登录公告）对话框 -------------------------------------------
+    // 照原版 DMessageDlg DialogSize=2：背景 Prguse[380]（256×359 居中）、确定按钮 Prguse[361]。
+    async _showNotice(lines) {
+        const [bgUrl, okUrl] = await Promise.all([this._prgUrl(380), this._prgUrl(361)]);
+        const dlg = document.createElement('div');
+        dlg.style.cssText = 'position:absolute;left:272px;top:120px;width:256px;height:359px;pointer-events:auto;';
+        if (bgUrl) {
+            const bg = document.createElement('img');
+            bg.src = bgUrl;
+            bg.draggable = false;
+            bg.style.cssText = 'position:absolute;left:0;top:0;';
+            dlg.appendChild(bg);
+        }
+        const text = document.createElement('div');
+        text.style.cssText = 'position:absolute;left:23px;top:20px;width:210px;height:272px;'
+            + 'font-family:SimSun,serif;font-size:14px;color:#f0e6c8;line-height:1.8;'
+            + 'text-shadow:1px 1px 0 #000;text-align:left;';
+        for (const l of lines) {
+            const row = document.createElement('div');
+            row.textContent = l;
+            text.appendChild(row);
+        }
+        dlg.appendChild(text);
+        if (okUrl) {
+            const ok = document.createElement('img');
+            ok.src = okUrl;
+            ok.draggable = false;
+            ok.style.cssText = 'position:absolute;left:90px;top:305px;cursor:pointer;';
+            ok.addEventListener('click', () => {
+                dlg.remove();
+                this.conn.send('noticeOk', { name: this._pendingName });
+            });
+            dlg.appendChild(ok);
+        }
+        this.root.appendChild(dlg);
     }
 
     // ---- 渲染 ---------------------------------------------------------------

@@ -15,6 +15,13 @@
             justify-content: center;
             align-items: center;
             overflow: hidden;
+            user-select: none;           /* 全局禁文本/元素框选（按住移动时避免选中） */
+            -webkit-user-select: none;
+        }
+        /* 输入框仍可正常输入选择文本（游戏仅登录/注册/聊天输入） */
+        input, textarea {
+            user-select: text;
+            -webkit-user-select: text;
         }
         #stage {
             position: relative;

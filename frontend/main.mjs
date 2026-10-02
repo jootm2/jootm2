@@ -18,6 +18,9 @@ const ctx = canvas.getContext('2d');
 
 // 全局屏蔽浏览器右键菜单（右键用于游戏跑动，任何界面包括 NPC 对话框都不弹菜单）
 document.addEventListener('contextmenu', (e) => e.preventDefault());
+// 全局禁用文本/元素框选与图片拖拽（按住移动时避免误选内容）
+document.addEventListener('selectstart', (e) => e.preventDefault());
+document.addEventListener('dragstart', (e) => e.preventDefault());
 
 const guiEl = document.getElementById('gui');
 const winManager = new DWinManager(guiEl);

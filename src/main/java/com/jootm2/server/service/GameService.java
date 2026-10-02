@@ -585,18 +585,24 @@ public final class GameService {
         if (value == null || value.isEmpty()) {
             value = "main";
         }
-        if ("exit".equals(value) || "@exit".equals(value)) {
+        String label = value.startsWith("@") ? value.substring(1) : value;
+        // 关闭语义：@exit/@Quit（脚本里 16 处「关闭/退出」用 @Quit，原版与 @exit 同义）
+        if (label.equalsIgnoreCase("exit") || label.equalsIgnoreCase("quit")) {
             sendNpcClose(session, npc.id);
             return;
         }
-        String label = value.startsWith("@") ? value.substring(1) : value;
-        boolean isBuy = "buy".equals(label);
-        boolean isSell = "sell".equals(label);
+        boolean isBuy = label.equalsIgnoreCase("buy");
+        boolean isSell = label.equalsIgnoreCase("sell");
         NpcScriptEngine.Result r = npcEngine.execute(p, npc, label);
         if (isBuy) {
             r.shopMode = "buy";
         } else if (isSell) {
             r.shopMode = "sell";
+        }
+        // 链接指向不存在的 section（如 <返 回/@main1> 而脚本无 [@main1]）时回退主对话，避免空白框
+        if (r.sayText.isEmpty() && r.shopMode == null && !r.closed && !r.moved
+                && !"main".equalsIgnoreCase(label)) {
+            r = npcEngine.execute(p, npc, "main");
         }
         handleNpcResult(session, p, npc, r);
     }

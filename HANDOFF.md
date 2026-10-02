@@ -313,6 +313,9 @@ jootm2/
     - 购买列表加回「物品列表/价格」标题（代码绘制 y=11，背景图 385 无标题），列表 y=30 保持不挤。
     - 关闭 NPC 对话框（红X）同步关闭买卖面板：`_closeNpcDialog` 里 `_closeShopPanel`。
     - 真实验证：临时把书店老板移到出生点，买→购买菜单开、返回→回主对话+面板关；测完恢复坐标。
+66. **购买列表标题布局 + 卖出返回确认**：
+    - 标题「物品列表」y=11→9（上移 2px），「价格」独立定位到 x=156（原版 DMenuDlgDirectPaint 坐标），不再用内联 span（absolute 相对 panel 导致换行错位）。
+    - 卖出「返回」确认正常：真实书店老板 卖→ok 框开+背包右侧 475px、返 回→回主对话+ok 框关+背包关（@Main 大小写修复已覆盖 sell 分支）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

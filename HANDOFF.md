@@ -238,6 +238,10 @@ jootm2/
     - **NPC 背景图不显示**：根因 `z-index:-1` 被 `#screen` canvas 遮挡 → 移除 z-index，靠 DOM 顺序（背景先插入）。
     - **选项内联**：服务端 `appendSay` 保留 `<label@value>` 标记（不再提取到 options）；客户端 `_renderNpcSay` 解析渲染为内联黄色下划线链接（label 去末尾 `/`），点击发 `npcSelect`。
     - **传送切换地图**：点「比奇城堡」→ `mapmove 0 333 268` → `changeMap` → 坐标 287,615 → 333,268（验证通过，需 5000 金币）。
+52. **商店传送员不传送 + 换行精简**：
+    - **商店传送员不传送**：根因是它脚本用 `map 地图id` 命令（随机落点，如 `map 0104`），而服务端 `NpcScriptEngine` 只支持 `mapmove`。修复：`runActions` 加 `case "map"`（复用 `doMapMove`，无坐标时随机落点）。验证：点「书店」→ `map 0104` → (5,7)。
+    - **换行精简**：`appendSay` 每行 trim 去空行（脚本 `\ \` 段落分隔紧凑显示）；客户端去掉 NPC 名字占行（原 `nameEl`）。
+    - 注：静寂之城传送 `mapmove 28` 因 28.map 缺失会失败（数据文件缺失，非代码问题）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

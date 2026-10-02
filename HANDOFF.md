@@ -247,6 +247,12 @@ jootm2/
     - **走远自动关闭**：`_showNpcDialog` 记录 `_npcDlgX/Y`（打开时玩家位置），render 里离开 >= 8 格即 `_closeNpcDialog`（原版 `MDlgX/Y` + `abs>=8`）。
     - **NPC 对话距离**：服务端 `npcTalk`/`npcSelect` 距离 3→15 格（原版 `ServerGetClickNpc` `abs<=15`）；客户端点中贴图即发（不再限相邻 1 格）。
     - **点击判定改贴图区域**：`_actorAtScreen` 按原版 `GetAttackFocusCharacter` 用贴图中间 40×70 判定（`centx=(CharWidth-40)/2`、`centy=(CharHeight-70)/2`，含 px/py 锚点 + self 走动画偏移），不再限点格子中心。验证：传送员贴图 44×64（py=-43），贴图中心与格子中心均命中。
+54. **按钮按下态切换 + 右键全局屏蔽 + 玩家贴图判定**：
+    - **按钮机制（原版 TDButton Downed 语义）**：窗口背景图已画所有按钮「正常态」（用前端解码器导出 fe_60/fe_384 证实；Python 直解 WIL 行序方向会搞反，勿用）。按钮 img 即「按下态」，平时隐藏、mousedown 显示、mouseup/mouseleave 恢复。结构 = 透明热区 div（接收事件）+ 内层 hidden img（注意 `visibility:hidden` 元素不接收鼠标事件，必须热区包裹）。
+    - 覆盖：LoginScene._btn、SelectCharScene._btn/mk（选角+建角）、PlayScene NPC 关闭按钮（Prguse[64] @399,1）。NoticeScene 确定按钮背景 380 无图案 → 保持显示 + 按下 `brightness(0.75)`。
+    - **右键菜单全局屏蔽**：main.mjs 入口 `document.addEventListener('contextmenu', preventDefault)`（PlayScene 局部移除），NPC 对话框等 DOM 上也不弹菜单。
+    - **玩家贴图判定**：`_onMouseDown` 补 `_actorAtScreen(mx,my,'player')`（原版点玩家=攻击，与怪物同）。
+    - 验证：按下 visible/松开 hidden、热区可点、contextmenu 全局拦截、NPC 贴图距离 4 格开对话。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

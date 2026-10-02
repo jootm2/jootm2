@@ -817,11 +817,15 @@ export class PlayScene extends Scene {
                 panel.insertBefore(bg, panel.firstChild);
             }
         });
-        // 标题「物品列表 / 价格」（原版 DMenuDlgDirectPaint 代码绘制，y=11）
+        // 标题「物品列表」(19,9) /「价格」(156,9)——原版 DMenuDlgDirectPaint 坐标，y 上移 2px
         const title = document.createElement('div');
-        title.style.cssText = 'position:absolute;left:19px;top:11px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;';
-        title.innerHTML = '物品列表<span style="position:absolute;left:118px;">价格</span>';
+        title.style.cssText = 'position:absolute;left:19px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;white-space:nowrap;';
+        title.textContent = '物品列表';
         panel.appendChild(title);
+        const priceTitle = document.createElement('div');
+        priceTitle.style.cssText = 'position:absolute;left:156px;top:9px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;white-space:nowrap;';
+        priceTitle.textContent = '价格';
+        panel.appendChild(priceTitle);
         // 列表（y=30 起，保持当前位置，不挤标题）
         this.shopListEl = document.createElement('div');
         this.shopListEl.style.cssText = 'position:absolute;left:19px;top:30px;width:270px;height:138px;'

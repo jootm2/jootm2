@@ -253,6 +253,11 @@ jootm2/
     - **右键菜单全局屏蔽**：main.mjs 入口 `document.addEventListener('contextmenu', preventDefault)`（PlayScene 局部移除），NPC 对话框等 DOM 上也不弹菜单。
     - **玩家贴图判定**：`_onMouseDown` 补 `_actorAtScreen(mx,my,'player')`（原版点玩家=攻击，与怪物同）。
     - 验证：按下 visible/松开 hidden、热区可点、contextmenu 全局拦截、NPC 贴图距离 4 格开对话。
+55. **掉落物贴图 + 超时消失**：
+    - **贴图**：`_renderGroundItems` 原用绿色方块占位 → 改用 `DnItems[looks]` 图标（原版掉落物贴图库，resources key `dnitems`），`_drawDropTex` 异步加载 + `_dropTex` Map 缓存，金币保留黄点。
+    - **超时消失**：`GroundItem` 加 `createdAt`；`GameWorld.tick` 新增 `tickGroundItems`——超 60 秒（`GROUND_ITEM_TTL_MS`，原版 MapItem.DisappearTime 约定）移除并广播 `itemRemove`。此前 groundItems 只增不减（pickup 外无清理），掉落物永存。
+    - 调度链路：`Main` scheduleAtFixedRate → `GameService.tick` → `world.tick` → `tickGroundItems`，与 FireWall 清理同构。
+    - 验证：DnItems 各 looks 加载正常（20×13~40×37）、假掉落物渲染真实图标；出生点城内无怪，60s 超时未做端到端（逻辑同构已审查）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

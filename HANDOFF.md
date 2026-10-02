@@ -282,6 +282,10 @@ jootm2/
     - 关闭按钮：新增 `DCloseState=Prguse[371]` (8,39)，点击关闭。
     - 翻页箭头：改为原版 `DPrevState=Prguse[373]`(7,128 上) / `DNextState=Prguse[372]`(7,187 下)——之前误用了 `DStPageUp=398`/`DStPageDown=396` 且位置错在右侧 (213,113)/(213,143)。
     - 验证：名字居中、关闭/上下箭头点击均生效。
+60. **F9/F10 键位对调 + 关闭按钮按下态**：
+    - 键位：原版 ClMain.pas `VK_F9=OpenItemBag`、`VK_F10=OpenMyStatus`（之前搞反）→ **F9=背包、F10=状态/装备属性**。
+    - 关闭按钮 Prguse[371] 是「按下态」图（正常态红X画在背景图 370 里），改热区模式：默认 hidden、mousedown 显示、mouseup/mouseleave 恢复（对齐原版 Downed 语义）。
+    - 验证：F9→背包、F10→状态、关闭按钮 img 默认 hidden。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

@@ -697,7 +697,10 @@ export class PlayScene extends Scene {
                     cell.appendChild(im);
                 }
             });
-            cell.addEventListener('click', () => this.conn.send('useItem', { makeIndex: it.makeIndex }));
+            cell.addEventListener('click', () => {
+                if (this.shopSellMode) { this._pickSellItem(it); return; }   // 卖出模式：放入 ok 框投放
+                this.conn.send('useItem', { makeIndex: it.makeIndex });
+            });
             this.bagGridEl.appendChild(cell);
         }
     }
@@ -727,6 +730,8 @@ export class PlayScene extends Scene {
 
     _showNpcDialog(msg) {
         this._closeNpcDialog();
+        // 非买卖对话（如点「返回」回主界面）时关闭买卖面板，避免残留
+        if (!msg.shop) this._closeShopPanel();
         // 记录打开时玩家位置（原版 MDlgX/MDlgY），走远自动关闭
         this._npcDlgX = this.self.x;
         this._npcDlgY = this.self.y;
@@ -812,18 +817,31 @@ export class PlayScene extends Scene {
                 panel.insertBefore(bg, panel.firstChild);
             }
         });
-        // 列表（标题 + 行）
+        // 标题 + 列表（标题 y=11，列表 y=40 起，避免与标题挤）
+        const title = document.createElement('div');
+        title.style.cssText = 'position:absolute;left:19px;top:11px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;';
+        title.textContent = '物品列表';
+        panel.appendChild(title);
         this.shopListEl = document.createElement('div');
-        this.shopListEl.style.cssText = 'position:absolute;left:19px;top:11px;width:270px;height:150px;'
+        this.shopListEl.style.cssText = 'position:absolute;left:19px;top:40px;width:270px;height:132px;'
             + 'font-size:12px;line-height:13px;text-shadow:1px 1px 0 #000;';
         panel.appendChild(this.shopListEl);
-        // 翻页箭头（上 388 / 下 387，原版 43,175 / 90,175）+ 买入 386 (215,171) + 关闭 64 (291,0)
+        // 热区按钮（背景 385 已画正常态：箭头/买入/关闭；img 为按下态，按下显示抬起隐藏）
         const mkBtn = (idx, x, y, w, h, cb) => {
             const b = document.createElement('div');
             b.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;cursor:pointer;`;
             b.addEventListener('click', cb);
             this._libUrl('prguse', idx).then((url) => {
-                if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; b.appendChild(im); }
+                if (url) {
+                    const im = document.createElement('img');
+                    im.src = url; im.draggable = false;
+                    im.style.cssText = 'visibility:hidden;display:block;';
+                    b.appendChild(im);
+                    b.addEventListener('mousedown', () => { im.style.visibility = 'visible'; });
+                    const restore = () => { im.style.visibility = 'hidden'; };
+                    b.addEventListener('mouseup', restore);
+                    b.addEventListener('mouseleave', restore);
+                }
             });
             panel.appendChild(b);
         };
@@ -900,50 +918,34 @@ export class PlayScene extends Scene {
             + 'display:flex;align-items:center;justify-content:center;overflow:hidden;';
         this.shopSpotEl = spot;
         panel.appendChild(spot);
-        // OK 按钮 393 (85,150) + 关闭 64 (115,0)
-        const ok = document.createElement('div');
-        ok.style.cssText = 'position:absolute;left:85px;top:150px;width:24px;height:13px;cursor:pointer;';
-        ok.addEventListener('click', () => this._sellOk(msg.npcId));
-        this._libUrl('prguse', 393).then((url) => {
-            if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; ok.appendChild(im); }
-        });
-        panel.appendChild(ok);
-        const close = document.createElement('div');
-        close.style.cssText = 'position:absolute;left:115px;top:0;width:16px;height:23px;cursor:pointer;';
-        close.addEventListener('click', () => this._closeShopPanel());
-        panel.appendChild(close);
+        // OK 按钮（原版 393 按下态，背景已画 OK）+ 关闭（背景已画红X）——热区模式
+        const mkBtn = (idx, x, y, w, h, cb) => {
+            const b = document.createElement('div');
+            b.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;cursor:pointer;`;
+            b.addEventListener('click', cb);
+            this._libUrl('prguse', idx).then((url) => {
+                if (url) {
+                    const im = document.createElement('img');
+                    im.src = url; im.draggable = false;
+                    im.style.cssText = 'visibility:hidden;display:block;';
+                    b.appendChild(im);
+                    b.addEventListener('mousedown', () => { im.style.visibility = 'visible'; });
+                    const restore = () => { im.style.visibility = 'hidden'; };
+                    b.addEventListener('mouseup', restore);
+                    b.addEventListener('mouseleave', restore);
+                }
+            });
+            panel.appendChild(b);
+        };
+        mkBtn(393, 85, 150, 24, 13, () => this._sellOk(msg.npcId));
+        mkBtn(64, 115, 0, 16, 23, () => this._closeShopPanel());
         gui.appendChild(panel);
 
-        // 背包物品列表（右侧，点击放入投放框）
-        this._showSellBagList(msg.npcId);
-    }
-
-    _showSellBagList(npcId) {
-        const gui = this.manager.winManager.container;
-        const list = document.createElement('div');
-        list.style.cssText = 'position:absolute;left:475px;top:0;width:320px;max-height:500px;'
-            + 'background:rgba(0,0,0,0.9);border:1px solid #8a6d3b;border-radius:6px;padding:8px;'
-            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;overflow-y:auto;';
-        this.shopBagListEl = list;
-        const bagItems = (this.self.items || []).filter(x => x.slot === undefined);
-        if (!bagItems.length) {
-            const empty = document.createElement('div');
-            empty.textContent = '（背包无可出售物品）';
-            empty.style.cssText = 'font-size:12px;color:#9a8b6a;padding:12px;';
-            list.appendChild(empty);
-        }
-        for (const it of bagItems) {
-            const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;'
-                + 'background:#171209;border:1px solid #4a3d22;border-radius:3px;font-size:12px;cursor:pointer;';
-            const nm = document.createElement('span');
-            nm.textContent = it.name;
-            nm.style.cssText = 'flex:1;';
-            row.appendChild(nm);
-            row.addEventListener('click', () => this._pickSellItem(it));
-            list.appendChild(row);
-        }
-        gui.appendChild(list);
+        // 卖出模式：打开原版背包（F10），背包物品点击放入投放框
+        this.shopSellMode = true;
+        if (!this.bagPanel) this._buildBag();
+        this.bagPanel.style.display = 'block';
+        this._refreshBag();
     }
 
     _pickSellItem(it) {
@@ -972,6 +974,8 @@ export class PlayScene extends Scene {
         if (this.shopPanel) { this.shopPanel.remove(); this.shopPanel = null; }
         if (this.shopBagListEl) { this.shopBagListEl.remove(); this.shopBagListEl = null; }
         this.shopGoldEl = null;
+        this.shopSellMode = false;
+        this.shopSellItem = null;
     }
 
     // 解析 NPC 说话文本：<label@value> 渲染为内联黄色下划线链接，其余为普通文本

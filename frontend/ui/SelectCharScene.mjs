@@ -82,16 +82,28 @@ export class SelectCharScene extends Scene {
     // ---- DOM 构建 ---------------------------------------------------------
 
     // Prguse 图按钮（绝对坐标，照 FState.pas）
+    // WIL 图按钮：正常态画在背景图里；透明热区接收点击，img（按下态）按下显示、抬起恢复
     async _btn(idx, left, top, onClick) {
         const url = await this._prgUrl(idx);
         if (!url) return null;
+        const hot = document.createElement('div');
+        hot.style.cssText = `position:absolute;left:${left}px;top:${top}px;cursor:pointer;`;
         const el = document.createElement('img');
         el.src = url;
         el.draggable = false;
-        el.style.cssText = `position:absolute;left:${left}px;top:${top}px;cursor:pointer;`;
-        el.addEventListener('click', onClick);
-        this.root.appendChild(el);
-        return el;
+        el.style.cssText = 'visibility:hidden;display:block;';
+        el.addEventListener('load', () => {
+            hot.style.width = el.naturalWidth + 'px';
+            hot.style.height = el.naturalHeight + 'px';
+        });
+        hot.appendChild(el);
+        hot.addEventListener('mousedown', () => { el.style.visibility = 'visible'; });
+        const restore = () => { el.style.visibility = 'hidden'; };
+        hot.addEventListener('mouseup', restore);
+        hot.addEventListener('mouseleave', restore);
+        hot.addEventListener('click', onClick);
+        this.root.appendChild(hot);
+        return hot;
     }
 
     _buildButtons() {
@@ -179,15 +191,26 @@ export class SelectCharScene extends Scene {
             win.insertBefore(bg, win.firstChild);
         });
 
-        // 职业/性别/发型/确定/关闭按钮（并行加载，坐标照 FState.pas）
+        // 职业/性别/发型/确定/关闭按钮（并行加载，坐标照 FState.pas；透明热区 + 按下态 img）
         const mk = (idx, l, t, onClick) => this._prgUrl(idx).then((url) => {
             if (!url) return;
+            const hot = document.createElement('div');
+            hot.style.cssText = `position:absolute;left:${l}px;top:${t}px;cursor:pointer;`;
             const el = document.createElement('img');
             el.src = url;
             el.draggable = false;
-            el.style.cssText = `position:absolute;left:${l}px;top:${t}px;cursor:pointer;`;
-            el.addEventListener('click', onClick);
-            win.appendChild(el);
+            el.style.cssText = 'visibility:hidden;display:block;';
+            el.addEventListener('load', () => {
+                hot.style.width = el.naturalWidth + 'px';
+                hot.style.height = el.naturalHeight + 'px';
+            });
+            hot.appendChild(el);
+            hot.addEventListener('mousedown', () => { el.style.visibility = 'visible'; });
+            const restore = () => { el.style.visibility = 'hidden'; };
+            hot.addEventListener('mouseup', restore);
+            hot.addEventListener('mouseleave', restore);
+            hot.addEventListener('click', onClick);
+            win.appendChild(hot);
         });
         // 职业（DccWarrior(48,157) DccWizzard(93,157) DccMonk(138,157)）
         // 性别（DccMale(93,231) DccFemale(138,231)）

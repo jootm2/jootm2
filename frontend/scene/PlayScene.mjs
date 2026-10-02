@@ -73,9 +73,6 @@ export class PlayScene extends Scene {
         this._canvas.addEventListener('mousedown', this._mdHandler);
         document.addEventListener('mouseup', this._muHandler);   // 全局松开（防止移出 canvas 后仍按住）
         document.addEventListener('mousemove', this._mmHandler);
-        // 拦截右键菜单（右键用于「跑动」）
-        this._ctxMenu = (e) => e.preventDefault();
-        this._canvas.addEventListener('contextmenu', this._ctxMenu);
         this._startMoveLoop();
     }
 
@@ -221,8 +218,15 @@ export class PlayScene extends Scene {
         }
         const npc = this._actorAtScreen(mx, my, 'npc');
         if (npc) {
-            // 原版点中 NPC 贴图即对话（客户端不限距离，服务端限 3 格）
+            // 原版点中 NPC 贴图即对话（客户端不限距离，服务端限 15 格）
             this.conn.send('npcTalk', { npcId: npc.id });
+            return;
+        }
+        // 其他玩家（原版：点击玩家 = 攻击，与怪物同）
+        const player = this._actorAtScreen(mx, my, 'player');
+        if (player && this._dist(this.self, player) <= 1) {
+            this.castTarget = player.id;   // 红框高亮
+            this.conn.send('attack', { targetId: player.id });
             return;
         }
         const { tx, ty } = this._gridFromMouse(e);
@@ -630,11 +634,10 @@ export class PlayScene extends Scene {
             dlg.appendChild(grid);
         }
 
-        // 关闭按钮 Prguse[64]（399,1）：文字 fallback，异步图加载后替换
+        // 关闭按钮 Prguse[64]（399,1）：正常态红X画在背景图 384 里；透明热区接收点击，
+        // img（按下态）按下才显示、抬起恢复（原版 DccCloseDirectPaint 的 Downed 语义）
         const close = document.createElement('div');
-        close.textContent = '×';
-        close.style.cssText = 'position:absolute;left:399px;top:1px;width:16px;height:23px;cursor:pointer;'
-            + 'color:#e8d9b0;text-align:center;line-height:23px;font-size:15px;text-shadow:1px 1px 0 #000;';
+        close.style.cssText = 'position:absolute;left:399px;top:1px;width:16px;height:23px;cursor:pointer;';
         close.addEventListener('click', () => this.conn.send('npcSelect', { npcId: msg.npcId, value: 'exit' }));
         dlg.appendChild(close);
         this._prgUrl(64).then((closeUrl) => {
@@ -642,10 +645,12 @@ export class PlayScene extends Scene {
                 const img = document.createElement('img');
                 img.src = closeUrl;
                 img.draggable = false;
-                img.style.cssText = 'position:absolute;left:399px;top:1px;cursor:pointer;';
-                img.addEventListener('click', () => this.conn.send('npcSelect', { npcId: msg.npcId, value: 'exit' }));
-                dlg.appendChild(img);
-                close.remove();
+                img.style.cssText = 'visibility:hidden;display:block;';
+                close.appendChild(img);
+                close.addEventListener('mousedown', () => { img.style.visibility = 'visible'; });
+                const restore = () => { img.style.visibility = 'hidden'; };
+                close.addEventListener('mouseup', restore);
+                close.addEventListener('mouseleave', restore);
             }
         });
     }
@@ -805,7 +810,6 @@ export class PlayScene extends Scene {
         if (this._mdHandler) this._canvas.removeEventListener('mousedown', this._mdHandler);
         if (this._muHandler) document.removeEventListener('mouseup', this._muHandler);
         if (this._mmHandler) document.removeEventListener('mousemove', this._mmHandler);
-        if (this._ctxMenu) this._canvas.removeEventListener('contextmenu', this._ctxMenu);
         this._holding = false;
         this.bagPanel = null;
         this.npcDlg = null;

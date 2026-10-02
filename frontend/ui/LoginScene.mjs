@@ -94,16 +94,28 @@ export class LoginScene extends Scene {
     }
 
     // WIL 图按钮（照原版 TDButton + SetImgIndex，坐标相对窗口）
+    // 原版机制：窗口背景图已画按钮「正常态」；透明热区接收点击，按下才显示 img（按下态）、抬起恢复
     async _btn(parent, idx, left, top, onClick) {
         const url = await this._url(idx);
         if (!url) return null;
+        const hot = document.createElement('div');
+        hot.style.cssText = `position:absolute;left:${left}px;top:${top}px;cursor:pointer;`;
         const el = document.createElement('img');
         el.src = url;
         el.draggable = false;
-        el.style.cssText = `position:absolute;left:${left}px;top:${top}px;cursor:pointer;`;
-        el.addEventListener('click', onClick);
-        parent.appendChild(el);
-        return el;
+        el.style.cssText = 'visibility:hidden;display:block;';
+        el.addEventListener('load', () => {
+            hot.style.width = el.naturalWidth + 'px';
+            hot.style.height = el.naturalHeight + 'px';
+        });
+        hot.appendChild(el);
+        hot.addEventListener('mousedown', () => { el.style.visibility = 'visible'; });
+        const restore = () => { el.style.visibility = 'hidden'; };
+        hot.addEventListener('mouseup', restore);
+        hot.addEventListener('mouseleave', restore);
+        hot.addEventListener('click', onClick);
+        parent.appendChild(hot);
+        return hot;
     }
 
     // 窗口容器：背景图 + 屏幕居中（照原版 (SCREENWIDTH-w)/2, (SCREENHEIGHT-h)/2）

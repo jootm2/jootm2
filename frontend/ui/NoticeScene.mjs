@@ -63,12 +63,16 @@ export class NoticeScene extends Scene {
             text.appendChild(row);
         }
         this.root.appendChild(text);
-        // 确定按钮 Prguse[361]（90,305 相对背景）
+        // 确定按钮 Prguse[361]（90,305 相对背景）——背景 380 无按钮图案，保持显示；按下变暗模拟按下态
         if (okUrl) {
             const ok = document.createElement('img');
             ok.src = okUrl;
             ok.draggable = false;
             ok.style.cssText = 'position:absolute;left:362px;top:425px;cursor:pointer;';
+            ok.addEventListener('mousedown', () => { ok.style.filter = 'brightness(0.75)'; });
+            const restore = () => { ok.style.filter = ''; };
+            ok.addEventListener('mouseup', restore);
+            ok.addEventListener('mouseleave', restore);
             ok.addEventListener('click', () => this.conn.send('noticeOk', { name: this.pendingName }));
             this.root.appendChild(ok);
         }

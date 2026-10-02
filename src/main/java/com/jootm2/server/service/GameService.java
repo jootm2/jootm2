@@ -566,7 +566,7 @@ public final class GameService {
             return;
         }
         Npc npc = world.npc(longVal(msg, "npcId", -1));
-        if (npc == null || p.distanceTo(npc) > 3) {
+        if (npc == null || p.distanceTo(npc) > 15) {   // 原版 ServerGetClickNpc：15 格内可对话
             return;
         }
         handleNpcResult(session, p, npc, npcEngine.execute(p, npc, "main"));
@@ -578,7 +578,7 @@ public final class GameService {
             return;
         }
         Npc npc = world.npc(longVal(msg, "npcId", -1));
-        if (npc == null || p.distanceTo(npc) > 3) {
+        if (npc == null || p.distanceTo(npc) > 15) {   // 原版 ServerGetClickNpc：15 格内可对话
             return;
         }
         String value = str(msg, "value");

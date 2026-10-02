@@ -210,20 +210,22 @@ export class PlayScene extends Scene {
         const dir = this._dirFromMouse(e);
         if (dir < 0) return;
         const run = e.button === 2;   // 左键走、右键跑
-        const { tx, ty } = this._gridFromMouse(e);
+        const { mx, my } = this._mouseXY(e);
 
-        // 相邻怪物 → 攻击；相邻 NPC → 对话；脚下物品 → 拾取
-        const monster = this._actorAt(tx, ty, 'monster');
+        // 贴图区域判定（原版 GetAttackFocusCharacter）：怪物相邻→攻击、NPC→对话
+        const monster = this._actorAtScreen(mx, my, 'monster');
         if (monster && monster.hp > 0 && this._dist(this.self, monster) <= 1) {
             this.castTarget = monster.id;   // 红框高亮
             this.conn.send('attack', { targetId: monster.id });
             return;
         }
-        const npc = this._actorAt(tx, ty, 'npc');
-        if (npc && this._dist(this.self, npc) <= 1) {
+        const npc = this._actorAtScreen(mx, my, 'npc');
+        if (npc) {
+            // 原版点中 NPC 贴图即对话（客户端不限距离，服务端限 3 格）
             this.conn.send('npcTalk', { npcId: npc.id });
             return;
         }
+        const { tx, ty } = this._gridFromMouse(e);
         const gi = this._groundAt(tx, ty);
         if (gi && gi.x === this.self.x && gi.y === this.self.y) {
             this.conn.send('pickup', { itemId: gi.id });
@@ -299,6 +301,42 @@ export class PlayScene extends Scene {
 
     _dist(a, b) {
         return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+    }
+
+    // 鼠标事件 → canvas 内坐标
+    _mouseXY(e) {
+        const rect = this._canvas.getBoundingClientRect();
+        return { mx: e.clientX - rect.left, my: e.clientY - rect.top };
+    }
+
+    // 贴图区域命中实体（原版 GetAttackFocusCharacter：贴图中间 40×70 判定）
+    _actorAtScreen(mx, my, type) {
+        for (const e of this.entities.values()) {
+            if (e.type !== type) continue;
+            const sp = this._sprite(e);
+            const layers = sp.getLayers(Date.now());
+            if (!layers || !layers.length) continue;
+            // 实体屏幕锚点（self 含走动画偏移 offsetX/offsetY）
+            const isSelf = e.id === this.self.id;
+            const ox = isSelf ? (this._viewX - e.x) * 48 : 0;
+            const oy = isSelf ? (this._viewY - e.y) * 32 : 0;
+            const anchorX = this.mapActor.screenX(e.x) + ox;
+            const anchorY = this.mapActor.screenY(e.y) + oy;
+            for (const layer of layers) {
+                if (!layer.canvas) continue;
+                const dx = anchorX + (layer.px || 0);
+                const dy = anchorY + (layer.py || 0);
+                const cw = layer.canvas.width;
+                const ch = layer.canvas.height;
+                const centx = cw > 40 ? (cw - 40) / 2 : 0;
+                const centy = ch > 70 ? (ch - 70) / 2 : 0;
+                if (mx >= dx + centx && mx <= dx + cw - centx
+                    && my >= dy + centy && my <= dy + ch - centy) {
+                    return e;
+                }
+            }
+        }
+        return null;
     }
 
     _actorAt(tx, ty, type) {
@@ -534,6 +572,9 @@ export class PlayScene extends Scene {
 
     _showNpcDialog(msg) {
         this._closeNpcDialog();
+        // 记录打开时玩家位置（原版 MDlgX/MDlgY），走远自动关闭
+        this._npcDlgX = this.self.x;
+        this._npcDlgY = this.self.y;
         const gui = this.manager.winManager.container;
         const dlg = document.createElement('div');
         dlg.style.cssText = 'position:absolute;left:0;top:0;width:416px;height:176px;pointer-events:auto;';
@@ -552,10 +593,10 @@ export class PlayScene extends Scene {
             }
         });
 
-        // NPC 说话文本（白描边，从 30,20 开始；原版 lx=30 ly=20）
+        // NPC 说话文本（白描边，从 30,20 开始；原版 lx=30 ly=20，字体 9号≈12px、行高 16px）
         const text = document.createElement('div');
-        text.style.cssText = 'position:absolute;left:30px;top:20px;width:330px;height:150px;'
-            + 'font-family:SimSun,serif;font-size:14px;color:#ffffff;line-height:1.45;'
+        text.style.cssText = 'position:absolute;left:30px;top:20px;width:340px;height:150px;'
+            + 'font-family:SimSun,serif;font-size:12px;color:#ffffff;line-height:16px;'
             + 'text-shadow:1px 1px 0 #000;white-space:pre-wrap;overflow:hidden;';
         // 说话文本：解析 <label@value> 为内联黄色链接（原版 DMerchantDlgDirectPaint 语义）
         this._renderNpcSay(text, msg.text || '', msg.npcId);
@@ -646,6 +687,7 @@ export class PlayScene extends Scene {
 
     _closeNpcDialog() {
         if (this.npcDlg) { this.npcDlg.remove(); this.npcDlg = null; }
+        this._npcDlgX = null;
     }
 
     update() {}
@@ -656,6 +698,14 @@ export class PlayScene extends Scene {
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();
+        // NPC 对话框走远自动关闭（原版：离开打开时的位置 >= 8 格即 CloseMDlg）
+        if (this.npcDlg && this._npcDlgX != null) {
+            if (Math.abs(this.self.x - this._npcDlgX) >= 8
+                || Math.abs(this.self.y - this._npcDlgY) >= 8) {
+                this._closeNpcDialog();
+                this._npcDlgX = null;
+            }
+        }
         // 匀速卷动：显示中心以「移动速度」匀速逼近玩家坐标（格/ms 固定），
         // 消除 lerp 指数逼近的「先快后慢」追停抖动；shift 整数化避免浮点绘制模糊。
         if (this._viewX == null) { this._viewX = this.self.x; this._viewY = this.self.y; this._lastFrame = now; }

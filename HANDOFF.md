@@ -242,6 +242,11 @@ jootm2/
     - **商店传送员不传送**：根因是它脚本用 `map 地图id` 命令（随机落点，如 `map 0104`），而服务端 `NpcScriptEngine` 只支持 `mapmove`。修复：`runActions` 加 `case "map"`（复用 `doMapMove`，无坐标时随机落点）。验证：点「书店」→ `map 0104` → (5,7)。
     - **换行精简**：`appendSay` 每行 trim 去空行（脚本 `\ \` 段落分隔紧凑显示）；客户端去掉 NPC 名字占行（原 `nameEl`）。
     - 注：静寂之城传送 `mapmove 28` 因 28.map 缺失会失败（数据文件缺失，非代码问题）。
+53. **NPC 交互对齐原版（字体/走远关闭/15格距离/贴图判定）**：
+    - **字体/换行**：NPC 文本 14px→12px、行高 16px（原版 `Font.Size=9`、`ly+16`），换行不再过多。
+    - **走远自动关闭**：`_showNpcDialog` 记录 `_npcDlgX/Y`（打开时玩家位置），render 里离开 >= 8 格即 `_closeNpcDialog`（原版 `MDlgX/Y` + `abs>=8`）。
+    - **NPC 对话距离**：服务端 `npcTalk`/`npcSelect` 距离 3→15 格（原版 `ServerGetClickNpc` `abs<=15`）；客户端点中贴图即发（不再限相邻 1 格）。
+    - **点击判定改贴图区域**：`_actorAtScreen` 按原版 `GetAttackFocusCharacter` 用贴图中间 40×70 判定（`centx=(CharWidth-40)/2`、`centy=(CharHeight-70)/2`，含 px/py 锚点 + self 走动画偏移），不再限点格子中心。验证：传送员贴图 44×64（py=-43），贴图中心与格子中心均命中。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

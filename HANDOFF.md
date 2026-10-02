@@ -316,6 +316,11 @@ jootm2/
 66. **购买列表标题布局 + 卖出返回确认**：
     - 标题「物品列表」y=11→9（上移 2px），「价格」独立定位到 x=156（原版 DMenuDlgDirectPaint 坐标），不再用内联 span（absolute 相对 panel 导致换行错位）。
     - 卖出「返回」确认正常：真实书店老板 卖→ok 框开+背包右侧 475px、返 回→回主对话+ok 框关+背包关（@Main 大小写修复已覆盖 sell 分支）。
+67. **卖出返回空白第二根因（@Quit 不识别）+ 空 section 兜底**：
+    - 扫描全部 merchant 脚本发现：`@Main` 69 处（已修）、`@exit` 52 处、**`@Quit` 16 处**（9Ega-T218.txt 等的「关闭/退出」）、`@main1` 2 处 + `@main_1` 1 处（指向不存在的 section）。
+    - npcSelect 只认 `@exit` → `@Quit` 走 execute("Quit") 找不到 section → 空白对话框。修复：关闭语义忽略大小写（exit/quit），buy/sell 同步忽略。
+    - 兜底：execute 返回空 sayText 且非 buy/sell/closed/moved 时自动回退 execute("main")，链接指向不存在 section（@main1/@main_1）不再空白。
+    - 验证：书店老板卖出返回正常；npcSelect @Quit 触发 npcClose；服务端返回 npcSay 序列 [主对话/ shop=sell / 主对话] 全部正常。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

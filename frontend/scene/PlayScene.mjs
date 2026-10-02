@@ -817,13 +817,9 @@ export class PlayScene extends Scene {
                 panel.insertBefore(bg, panel.firstChild);
             }
         });
-        // 标题 + 列表（标题 y=11，列表 y=40 起，避免与标题挤）
-        const title = document.createElement('div');
-        title.style.cssText = 'position:absolute;left:19px;top:11px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;';
-        title.textContent = '物品列表';
-        panel.appendChild(title);
+        // 列表（背景 385 已画「物品列表/价格/持久」标题，此处只放商品行，y=30 起）
         this.shopListEl = document.createElement('div');
-        this.shopListEl.style.cssText = 'position:absolute;left:19px;top:40px;width:270px;height:132px;'
+        this.shopListEl.style.cssText = 'position:absolute;left:19px;top:30px;width:270px;height:138px;'
             + 'font-size:12px;line-height:13px;text-shadow:1px 1px 0 #000;';
         panel.appendChild(this.shopListEl);
         // 热区按钮（背景 385 已画正常态：箭头/买入/关闭；img 为按下态，按下显示抬起隐藏）
@@ -856,10 +852,6 @@ export class PlayScene extends Scene {
     _renderBuyList() {
         if (!this.shopListEl) return;
         this.shopListEl.innerHTML = '';
-        const title = document.createElement('div');
-        title.style.cssText = 'color:#fff;';
-        title.textContent = '物品列表';
-        this.shopListEl.appendChild(title);
         const max = 10;
         const start = this.shopPage;
         const goods = this.shopGoods;
@@ -941,10 +933,12 @@ export class PlayScene extends Scene {
         mkBtn(64, 115, 0, 16, 23, () => this._closeShopPanel());
         gui.appendChild(panel);
 
-        // 卖出模式：打开原版背包（F10），背包物品点击放入投放框
+        // 卖出模式：打开原版背包（右侧 475,0，原版 DItemBag 卖出位置），背包物品点击放入投放框
         this.shopSellMode = true;
         if (!this.bagPanel) this._buildBag();
         this.bagPanel.style.display = 'block';
+        this.bagPanel.style.left = '475px';
+        this.bagPanel.style.top = '0px';
         this._refreshBag();
     }
 
@@ -976,6 +970,12 @@ export class PlayScene extends Scene {
         this.shopGoldEl = null;
         this.shopSellMode = false;
         this.shopSellItem = null;
+        // 恢复背包位置（卖出时移到右侧）
+        if (this.bagPanel) {
+            this.bagPanel.style.left = '0px';
+            this.bagPanel.style.top = '0px';
+            this.bagPanel.style.display = 'none';
+        }
     }
 
     // 解析 NPC 说话文本：<label@value> 渲染为内联黄色下划线链接，其余为普通文本

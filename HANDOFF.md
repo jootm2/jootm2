@@ -292,6 +292,11 @@ jootm2/
     - 买卖后金币实时刷新（`shopGoldEl`，bagUpdate 时更新）。
     - 服务端链路：NPC 脚本 `<买/@buy>`→npcSelect→`shopMode=buy`+`goods`（从脚本 `[goods]` section 加载）→客户端 `_showShopPanel`。`buyItem`/`sellItem` 已在服务端实现。
     - 验证：buy 面板商品+买入按钮、sell 面板 7 背包物品+出售按钮、金币刷新。
+62. **买卖界面对齐原版（DMenuDlg 列表 + DSellDlg ok 框）**：
+    - **购买**：`DMenuDlg`（Prguse[385] 308×205，位置 NPC 对话下方 0,176）物品列表——「物品列表/价格」标题、每行「名称 x=19 / 价格 x=137」（一页 10 项 `MAXMENU`）、上翻页 388(43,175)/下翻页 387(90,175)、买入按钮 386(215,171)、关闭 64(291,0)。点商品选中红字，点「买入」发 `buyItem`。
+    - **卖出**：`DSellDlg` ok 框（Prguse[392] 140×181，260,176）——标题「卖: 」、Spot 投放框 (27,67) 61×52（显示选中物品图标）、OK 按钮 393(85,150)、关闭 64(115,0)。背包物品列表在右侧 (475,0)，点击放入投放框，再点 OK 发 `sellItem`。
+    - 原版 `ShowShopMenuDlg`（购买：DMerchantDlg+DMenuDlg+DItemBag）、`ShowShopSellDlg`（卖出：DSellDlg+DItemBag）已对齐。
+    - 验证：buy 列表 12 项翻页（page 0→9）、sell ok 框布局+背包 6 物品。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

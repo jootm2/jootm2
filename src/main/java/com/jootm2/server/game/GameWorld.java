@@ -48,6 +48,8 @@ public final class GameWorld {
     public static final long REGEN_INTERVAL_MS = 2_000L;
     public static final long POISON_INTERVAL_MS = 1_000L;
     public static final long DOOR_OPEN_MS = 5_000L;
+    /** 地面掉落物存活时长（原版 MapItem.DisappearTime：约 60 秒后自动消失）。 */
+    public static final long GROUND_ITEM_TTL_MS = 60_000L;
 
     /** 远程怪物 Race（照 ObjAxeMon/ObjMon/ObjMon2：喷毒蜘蛛82/双斧骷髅87/暗黑战士93/闪电僵尸94/弓箭手104/弓箭守卫112/弓箭警察20）。 */
     private static final Set<Integer> RANGED_RACES = Set.of(82, 87, 93, 94, 104, 112, 20);
@@ -922,8 +924,21 @@ public final class GameWorld {
         }
         closeTimedOutDoors(now);
         tickFireWalls(now);
+        tickGroundItems(now);
         tickSiege(now);
         respawnDead(now);
+    }
+
+    /** 清理超时地面掉落物并广播移除（原版 MapItem 定时消失）。 */
+    private void tickGroundItems(long now) {
+        Iterator<GroundItem> it = groundItems.values().iterator();
+        while (it.hasNext()) {
+            GroundItem gi = it.next();
+            if (now - gi.createdAt >= GROUND_ITEM_TTL_MS) {
+                it.remove();
+                broadcastItemRemove(gi);
+            }
+        }
     }
 
     /** 关闭所有打开超时的门并广播。 */

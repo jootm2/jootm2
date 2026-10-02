@@ -780,13 +780,14 @@ export class PlayScene extends Scene {
             const sx = this.mapActor.screenX(g.x);
             const sy = this.mapActor.screenY(g.y);
             if (g.gold > 0) {
+                // 金币堆：黄色圆点（原版用金币袋图，暂用圆点）
                 ctx.fillStyle = '#fbbf24';
                 ctx.beginPath();
                 ctx.arc(sx + 24, sy + 16, 5, 0, Math.PI * 2);
                 ctx.fill();
-            } else {
-                ctx.fillStyle = '#4ade80';
-                ctx.fillRect(sx + 19, sy + 11, 10, 10);
+            } else if (g.looks > 0) {
+                // 物品：DnItems[looks] 图标（原版掉落物贴图）
+                this._drawDropTex(ctx, g.looks, sx, sy);
             }
             if (g.name) {
                 ctx.font = '11px SimSun,serif';
@@ -795,6 +796,30 @@ export class PlayScene extends Scene {
                 ctx.fillText(g.name, sx + 24, sy + 6);
             }
         }
+    }
+
+    // 绘制掉落物物品图标（DnItems 库，异步加载 + 缓存）
+    _drawDropTex(ctx, looks, sx, sy) {
+        if (!this._dropTex) this._dropTex = new Map();
+        if (!this._dropTexLoading) this._dropTexLoading = new Set();
+        let tex = this._dropTex.get(looks);
+        if (!tex) {
+            if (!this._dropTexLoading.has(looks)) {
+                this._dropTexLoading.add(looks);
+                const lib = getLib('dnitems');
+                if (lib) {
+                    lib.getTexture(looks).then((t) => {
+                        if (t) this._dropTex.set(looks, t);
+                        this._dropTexLoading.delete(looks);
+                    }).catch(() => this._dropTexLoading.delete(looks));
+                }
+            }
+            // 加载中占位
+            ctx.fillStyle = '#4ade80';
+            ctx.fillRect(sx + 19, sy + 11, 10, 10);
+            return;
+        }
+        ctx.drawImage(tex.canvas, sx + (48 - tex.width) / 2, sy + (32 - tex.height) / 2);
     }
 
     _renderHud() {

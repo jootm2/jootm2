@@ -16,6 +16,7 @@ public final class GroundItem {
     public final int gold;            // >0 when this is a gold pile
     public final int x;
     public final int y;
+    public final long createdAt;      // 掉落时间戳（超时自动消失）
     public GameMap map;
 
     private GroundItem(long id, ItemInstance item, int gold, int x, int y) {
@@ -24,6 +25,7 @@ public final class GroundItem {
         this.gold = gold;
         this.x = x;
         this.y = y;
+        this.createdAt = System.currentTimeMillis();
     }
 
     public static GroundItem ofItem(long id, ItemInstance item, int x, int y) {

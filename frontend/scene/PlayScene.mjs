@@ -817,7 +817,12 @@ export class PlayScene extends Scene {
                 panel.insertBefore(bg, panel.firstChild);
             }
         });
-        // 列表（背景 385 已画「物品列表/价格/持久」标题，此处只放商品行，y=30 起）
+        // 标题「物品列表 / 价格」（原版 DMenuDlgDirectPaint 代码绘制，y=11）
+        const title = document.createElement('div');
+        title.style.cssText = 'position:absolute;left:19px;top:11px;font-size:12px;color:#fff;text-shadow:1px 1px 0 #000;';
+        title.innerHTML = '物品列表<span style="position:absolute;left:118px;">价格</span>';
+        panel.appendChild(title);
+        // 列表（y=30 起，保持当前位置，不挤标题）
         this.shopListEl = document.createElement('div');
         this.shopListEl.style.cssText = 'position:absolute;left:19px;top:30px;width:270px;height:138px;'
             + 'font-size:12px;line-height:13px;text-shadow:1px 1px 0 #000;';
@@ -1016,6 +1021,7 @@ export class PlayScene extends Scene {
     _closeNpcDialog() {
         if (this.npcDlg) { this.npcDlg.remove(); this.npcDlg = null; }
         this._npcDlgX = null;
+        this._closeShopPanel();   // 关闭对话框时同步关闭买卖面板（买列表 / 卖 ok 框）
     }
 
     update() {}

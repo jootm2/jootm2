@@ -27,7 +27,17 @@ public final class NpcScript {
     private final Map<String, Section> sections = new LinkedHashMap<>();
 
     public Section section(String label) {
-        return sections.get(label);
+        Section s = sections.get(label);
+        if (s != null) {
+            return s;
+        }
+        // 脚本链接大小写可能不一致（如 <返 回/@Main> vs [@main]），忽略大小写再匹配
+        for (Map.Entry<String, Section> e : sections.entrySet()) {
+            if (e.getKey().equalsIgnoreCase(label)) {
+                return e.getValue();
+            }
+        }
+        return null;
     }
 
     public int sectionCount() {

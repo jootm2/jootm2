@@ -541,22 +541,28 @@ export class PlayScene extends Scene {
         gui.appendChild(dlg);
 
         // 背景 Prguse[384]（商人对话框 416×176，异步插入不阻塞文本）
+        // 注意：不能用 z-index:-1，会被 #screen canvas 遮挡；背景图先插入、内容后追加即可盖在其上
         this._prgUrl(384).then((bgUrl) => {
             if (bgUrl && this.npcDlg === dlg) {
                 const bg = document.createElement('img');
                 bg.src = bgUrl;
                 bg.draggable = false;
-                bg.style.cssText = 'position:absolute;left:0;top:0;z-index:-1;';
+                bg.style.cssText = 'position:absolute;left:0;top:0;';
                 dlg.insertBefore(bg, dlg.firstChild);
             }
         });
 
         // NPC 名字 + 说话文本（白描边，从 30,20 开始；原版 lx=30 ly=20）
         const text = document.createElement('div');
-        text.style.cssText = 'position:absolute;left:30px;top:20px;width:330px;height:118px;'
+        text.style.cssText = 'position:absolute;left:30px;top:20px;width:330px;height:150px;'
             + 'font-family:SimSun,serif;font-size:14px;color:#ffffff;line-height:1.45;'
-            + 'text-shadow:1px 1px 0 #000;white-space:pre-wrap;overflow:hidden;pointer-events:none;';
-        text.textContent = (msg.name ? msg.name + '：\n' : '') + (msg.text || '');
+            + 'text-shadow:1px 1px 0 #000;white-space:pre-wrap;overflow:hidden;';
+        const nameEl = document.createElement('div');
+        nameEl.textContent = (msg.name ? msg.name + '：' : '');
+        nameEl.style.cssText = 'color:#ffd76a;';
+        text.appendChild(nameEl);
+        // 说话文本：解析 <label@value> 为内联黄色链接（原版 DMerchantDlgDirectPaint 语义）
+        this._renderNpcSay(text, msg.text || '', msg.npcId);
         dlg.appendChild(text);
 
         // 商店列表（buy=商品 / sell=背包）
@@ -587,22 +593,6 @@ export class PlayScene extends Scene {
             dlg.appendChild(grid);
         }
 
-        // 选项（黄色下划线链接，点击触发；原版内联在文本里，这里放文本下方）
-        if (!msg.shop && (msg.options || []).length) {
-            const optWrap = document.createElement('div');
-            optWrap.style.cssText = 'position:absolute;left:30px;top:128px;width:330px;'
-                + 'display:flex;flex-wrap:wrap;gap:4px 16px;';
-            for (const op of msg.options) {
-                const a = document.createElement('a');
-                a.textContent = op.label;
-                a.style.cssText = 'font-family:SimSun,serif;font-size:14px;color:#ffd76a;text-decoration:underline;'
-                    + 'cursor:pointer;text-shadow:1px 1px 0 #000;';
-                a.addEventListener('click', () => this.conn.send('npcSelect', { npcId: msg.npcId, value: op.value }));
-                optWrap.appendChild(a);
-            }
-            dlg.appendChild(optWrap);
-        }
-
         // 关闭按钮 Prguse[64]（399,1）：文字 fallback，异步图加载后替换
         const close = document.createElement('div');
         close.textContent = '×';
@@ -621,6 +611,41 @@ export class PlayScene extends Scene {
                 close.remove();
             }
         });
+    }
+
+    // 解析 NPC 说话文本：<label@value> 渲染为内联黄色下划线链接，其余为普通文本
+    // （对齐原版 DMerchantDlgDirectPaint 的 <cmdstr@cmdparam> 语义）
+    _renderNpcSay(container, sayText, npcId) {
+        let i = 0;
+        const appendText = (s) => {
+            if (!s) return;
+            const span = document.createElement('span');
+            span.textContent = s;
+            container.appendChild(span);
+        };
+        while (i < sayText.length) {
+            const lt = sayText.indexOf('<', i);
+            if (lt < 0) { appendText(sayText.slice(i)); break; }
+            const gt = sayText.indexOf('>', lt);
+            if (gt < 0) { appendText(sayText.slice(i)); break; }
+            appendText(sayText.slice(i, lt));
+            const inner = sayText.slice(lt + 1, gt);
+            const at = inner.indexOf('@');
+            if (at >= 0) {
+                // 原脚本格式 <label/@value>，label 末尾的 '/' 是分隔符，去掉
+                const label = inner.slice(0, at).replace(/[\/ ]+$/, '');
+                const value = inner.slice(at);   // @xxx
+                const a = document.createElement('a');
+                a.textContent = label;
+                a.style.cssText = 'color:#ffd76a;text-decoration:underline;cursor:pointer;'
+                    + 'text-shadow:1px 1px 0 #000;pointer-events:auto;';
+                a.addEventListener('click', () => this.conn.send('npcSelect', { npcId, value }));
+                container.appendChild(a);
+            } else {
+                appendText(inner);
+            }
+            i = gt + 1;
+        }
     }
 
     _closeNpcDialog() {

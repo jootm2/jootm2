@@ -113,7 +113,8 @@ public final class NpcScriptEngine {
         String text = raw.replace("\\", "\n");
         text = text.replace("<$USERNAME>", p.name);
         text = text.replace("<$USERGOLD>", String.valueOf(p.gold));
-        // extract <label/@tag> links
+        // 保留 <label/@tag> 链接标记（客户端内联渲染为黄色下划线链接）；
+        // 其他 <...>（不含 @）去掉尖括号保留内容。
         StringBuilder clean = new StringBuilder();
         int i = 0;
         while (i < text.length()) {
@@ -131,14 +132,8 @@ public final class NpcScriptEngine {
             String inner = text.substring(lt + 1, gt);
             int at = inner.indexOf('@');
             if (at >= 0) {
-                String label = inner.substring(0, at);
-                while (label.endsWith("/") || label.endsWith(" ")) {
-                    label = label.substring(0, label.length() - 1);
-                }
-                String value = inner.substring(at);
-                if (!label.isEmpty()) {
-                    r.options.add(new Option(label, value));
-                }
+                // 链接标记：原样保留，客户端解析渲染
+                clean.append('<').append(inner).append('>');
             } else {
                 clean.append(inner);
             }

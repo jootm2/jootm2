@@ -303,6 +303,11 @@ jootm2/
     - **卖出用原版背包**：删右侧自定义列表（shopBagListEl），改 `shopSellMode` + 打开 bagPanel，卖出模式下点背包物品放入 ok 框投放（非卖出模式仍 useItem）。
     - **返回残留**：`_showNpcDialog` 无 shop 时 `_closeShopPanel`（点「返回」回主界面关闭买卖面板）。
     - 验证：按钮默认 hidden、列表 40px、背包点物品放 Spot、返回关面板。
+64. **买卖界面再修（删标题/列表上移/卖出背包右移/返回关背包）**：
+    - 购买列表删多出的「物品列表」标题行（背景 385 已画标题），列表 y=30 起（整体上移）。
+    - 卖出背包移到右侧 (475,0)（原版 DItemBag 卖出位置），不再叠 NPC 对话框下方。
+    - 「返回」：`_closeShopPanel` 同时关闭背包（卖出自动打开的背包，返回后不残留盖住对话——上一轮只关面板没关背包，背包在左上角盖住 NPC 对话导致「空白」）。
+    - 验证：卖出背包 475px、返回后面板+背包关闭、新对话正常。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

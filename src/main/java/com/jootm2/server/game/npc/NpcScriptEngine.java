@@ -267,6 +267,7 @@ public final class NpcScriptEngine {
                 p.questParams[questIndex(c.param)] -= 1;
                 return null;
             case "mapmove":
+            case "map":   // 商店传送员等用 map 地图id（随机落点），mapmove 带坐标
                 doMapMove(p, c, r);
                 return "BREAK";
             case "goto":

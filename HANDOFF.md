@@ -308,6 +308,11 @@ jootm2/
     - 卖出背包移到右侧 (475,0)（原版 DItemBag 卖出位置），不再叠 NPC 对话框下方。
     - 「返回」：`_closeShopPanel` 同时关闭背包（卖出自动打开的背包，返回后不残留盖住对话——上一轮只关面板没关背包，背包在左上角盖住 NPC 对话导致「空白」）。
     - 验证：卖出背包 475px、返回后面板+背包关闭、新对话正常。
+65. **NPC「返回」空白根因 + 列表标题 + 关对话框关买卖面板**：
+    - **根因（关键）**：脚本链接大小写不一致——书店 5B 脚本 `<返 回/@Main>`（大写）vs `[@main]`（小写），`execute("Main")` 找不到 section 返回空文本 = 空白对话框。修复 `NpcScript.section` 忽略大小写匹配（遍历 equalsIgnoreCase）。
+    - 购买列表加回「物品列表/价格」标题（代码绘制 y=11，背景图 385 无标题），列表 y=30 保持不挤。
+    - 关闭 NPC 对话框（红X）同步关闭买卖面板：`_closeNpcDialog` 里 `_closeShopPanel`。
+    - 真实验证：临时把书店老板移到出生点，买→购买菜单开、返回→回主对话+面板关；测完恢复坐标。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

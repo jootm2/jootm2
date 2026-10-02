@@ -277,6 +277,11 @@ jootm2/
     - 顶部角色名 `stateNameEl`：`名字（职业）Lv.X`，两页共享；属性页去掉重复名字行（只留经验/金币）。
     - 左上角 HUD `_renderHud` 去掉 `(x,y)` 坐标调试信息（用户反馈「调试信息错乱」）。
     - 验证：顶部名字正确、箭头位置 (213,113)/(213,143)、点下箭头切属性页、HUD 无坐标。
+59. **状态窗口按钮/名字对齐原版**：
+    - 名字：只显示纯名字（去职业/等级），位置 `Left+122` 水平居中、`Top+23`（原版 FState.pas 2702）。
+    - 关闭按钮：新增 `DCloseState=Prguse[371]` (8,39)，点击关闭。
+    - 翻页箭头：改为原版 `DPrevState=Prguse[373]`(7,128 上) / `DNextState=Prguse[372]`(7,187 下)——之前误用了 `DStPageUp=398`/`DStPageDown=396` 且位置错在右侧 (213,113)/(213,143)。
+    - 验证：名字居中、关闭/上下箭头点击均生效。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

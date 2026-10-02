@@ -265,6 +265,13 @@ jootm2/
     - **删底部技能栏**：移除 `skillBar`/`_refreshSkillBar`；F1-F8 施法 `_castFromSlot` 改为按 `self.skills` 顺序取第 fkey-1 个。
     - 键位：F9 状态、F10/B 背包（`_onKeyDown`）。`_prgUrl` 抽象为通用 `_libUrl(lib,idx)`（prguse/stateitem/items 通用）。
     - 验证：self 属性 dc=2-2、状态窗 13 槽+属性齐全、背包 6 物品+1 技能（基本剑术）、skillBar 已删。
+57. **F9/F10 界面错乱修复（对齐原版坐标、去叠加文字）**：
+    - 装备槽 13 个改用原版 FState.pas `DSWxxx` 精确坐标（`EQUIP_SLOTS` 数组：衣服96,122/武器47,80/项链168,87/头盔115,93…），图标 stateitem[looks]，不再 2 列 grid 堆叠。
+    - 属性数值改纯数字（如 `0-0`），对齐原版 StatePage 1 坐标 (112,99) 每 20px（`ATTR_ROWS`），标签由背景图 370 自带，不叠加「攻击/魔法」等文字。
+    - 状态窗口分两页（装备页/属性页，底部「装备/属性」翻页按钮，`statePage` 状态），避免装备与属性文字重叠（原版也是 StatePage 0/1 分页）。
+    - 背包物品改 8 列网格（原版 `DItemGrid` 20,13 286×162），金币 (10,190)、关闭 (309,203)。
+    - 删除 F10 里的技能列表（原版背包无技能列表，技能施放用 F1-F8）。
+    - 验证：13 装备槽精确坐标、属性纯数值 AC/MAC/DC/MC/SC/HP/MP、背包 8 列 6 物品。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

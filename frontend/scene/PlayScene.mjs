@@ -171,8 +171,8 @@ export class PlayScene extends Scene {
     _onKeyDown(e) {
         if (e.target === this.chatInput) return;
         if (e.code === 'Space') { e.preventDefault(); this._attackNearest(); }
-        if (e.code === 'F9') { e.preventDefault(); this._toggleStateWin(); }
-        if (e.code === 'F10' || e.code === 'KeyB') { e.preventDefault(); this._toggleBag(); }
+        if (e.code === 'F9') { e.preventDefault(); this._toggleBag(); }          // 原版 VK_F9 = 背包
+        if (e.code === 'F10') { e.preventDefault(); this._toggleStateWin(); }    // 原版 VK_F10 = 状态/装备属性
         if (e.code >= 'F1' && e.code <= 'F8') {
             e.preventDefault();
             this._castFromSlot(Number(e.code.substring(1)));
@@ -524,14 +524,24 @@ export class PlayScene extends Scene {
         this.stateNameEl.style.cssText = 'position:absolute;left:0;top:23px;width:232px;text-align:center;'
             + 'font-size:12px;color:#f0e6c8;text-shadow:1px 1px 0 #000;';
         win.appendChild(this.stateNameEl);
-        // 关闭按钮（原版 DCloseState=371，位置 8,39）
+        // 关闭按钮（原版 DCloseState=371，位置 8,39）：正常态红X画在背景图里，
+        // img 为按下态，按下才显示、抬起恢复（原版 Downed 语义）
         const close = document.createElement('div');
         close.style.cssText = 'position:absolute;left:8px;top:39px;width:16px;height:23px;cursor:pointer;';
         close.addEventListener('click', () => { win.style.display = 'none'; });
-        this._libUrl('prguse', 371).then((url) => {
-            if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; close.appendChild(im); }
-        });
         win.appendChild(close);
+        this._libUrl('prguse', 371).then((url) => {
+            if (url && this.stateWin === win) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'visibility:hidden;display:block;';
+                close.appendChild(im);
+                close.addEventListener('mousedown', () => { im.style.visibility = 'visible'; });
+                const restore = () => { im.style.visibility = 'hidden'; };
+                close.addEventListener('mouseup', restore);
+                close.addEventListener('mouseleave', restore);
+            }
+        });
         // 翻页箭头（原版 DPrevState=373 上 / DNextState=372 下，位置 7,128 / 7,187）
         const mkArrow = (idx, top, page) => {
             const b = document.createElement('div');

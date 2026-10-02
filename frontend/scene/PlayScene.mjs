@@ -784,91 +784,194 @@ export class PlayScene extends Scene {
         });
     }
 
-    // 买卖面板（原版 DSellDlg：buy=NPC 商品列表 / sell=背包出售列表 + 投放）
+    // 买卖界面（原版：buy=DMenuDlg 物品列表+翻页+买入；sell=DSellDlg ok 框投放）
     _showShopPanel(msg) {
         this._closeShopPanel();
+        if (msg.shop === 'buy') {
+            this._showBuyMenu(msg);
+        } else {
+            this._showSellDlg(msg);
+        }
+    }
+
+    // 购买：物品列表（原版 DMenuDlg，在 NPC 对话下方）+ 上下翻页 + 买入按钮
+    _showBuyMenu(msg) {
+        this.shopGoods = msg.goods || [];
+        this.shopPage = 0;      // 列表起始行
+        this.shopSel = -1;      // 选中商品全局索引
         const gui = this.manager.winManager.container;
         const panel = document.createElement('div');
-        panel.style.cssText = 'position:absolute;right:4px;top:4px;width:300px;max-height:520px;'
-            + 'background:rgba(0,0,0,0.92);border:1px solid #8a6d3b;border-radius:6px;padding:10px;'
-            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;display:flex;flex-direction:column;';
+        panel.style.cssText = 'position:absolute;left:0;top:176px;width:308px;height:205px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
         this.shopPanel = panel;
-
-        // 标题 + 金币 + 关闭
-        const head = document.createElement('div');
-        head.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;';
-        const title = document.createElement('span');
-        title.textContent = msg.shop === 'buy' ? '购 买' : '出 售';
-        title.style.cssText = 'font-size:16px;color:#ffd76a;';
-        const gold = document.createElement('span');
-        gold.textContent = `金币 ${this.self.gold || 0}`;
-        gold.style.cssText = 'font-size:12px;color:#fbbf24;';
-        this.shopGoldEl = gold;
-        const close = document.createElement('span');
-        close.textContent = '×';
-        close.style.cssText = 'margin-left:auto;font-size:18px;color:#e8d9b0;cursor:pointer;';
-        close.addEventListener('click', () => this._closeShopPanel());
-        head.appendChild(title);
-        head.appendChild(gold);
-        head.appendChild(close);
-        panel.appendChild(head);
-
-        // 列表区
-        const list = document.createElement('div');
-        list.style.cssText = 'overflow-y:auto;display:flex;flex-direction:column;gap:4px;';
-        panel.appendChild(list);
-
-        if (msg.shop === 'buy') {
-            for (const g of msg.goods || []) {
-                const row = document.createElement('div');
-                row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;'
-                    + 'background:#171209;border:1px solid #4a3d22;border-radius:3px;';
-                const nm = document.createElement('span');
-                nm.textContent = g.name;
-                nm.style.cssText = 'flex:1;font-size:12px;';
-                const price = document.createElement('span');
-                price.textContent = `${g.price} 金币`;
-                price.style.cssText = 'font-size:11px;color:#fbbf24;';
-                const btn = document.createElement('button');
-                btn.textContent = '买入';
-                btn.style.cssText = 'background:#6b4f1f;color:#ffd76a;border:1px solid #8a6d3b;'
-                    + 'border-radius:3px;padding:2px 10px;font-size:12px;cursor:pointer;';
-                btn.addEventListener('click', () => this.conn.send('buyItem', { npcId: msg.npcId, index: g.index, count: 1 }));
-                row.appendChild(nm);
-                row.appendChild(price);
-                row.appendChild(btn);
-                list.appendChild(row);
+        this._libUrl('prguse', 385).then((url) => {
+            if (url && this.shopPanel === panel) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;';
+                panel.insertBefore(bg, panel.firstChild);
             }
-        } else {
-            const bagItems = (this.self.items || []).filter(x => x.slot === undefined);
-            if (!bagItems.length) {
-                const empty = document.createElement('div');
-                empty.textContent = '（背包无可出售物品）';
-                empty.style.cssText = 'font-size:12px;color:#9a8b6a;text-align:center;padding:12px;';
-                list.appendChild(empty);
-            }
-            for (const it of bagItems) {
-                const row = document.createElement('div');
-                row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;'
-                    + 'background:#171209;border:1px solid #4a3d22;border-radius:3px;';
-                const nm = document.createElement('span');
-                nm.textContent = it.name;
-                nm.style.cssText = 'flex:1;font-size:12px;';
-                const btn = document.createElement('button');
-                btn.textContent = '出售';
-                btn.style.cssText = 'background:#6b4f1f;color:#ffd76a;border:1px solid #8a6d3b;'
-                    + 'border-radius:3px;padding:2px 10px;font-size:12px;cursor:pointer;';
-                btn.addEventListener('click', () => this.conn.send('sellItem', { npcId: msg.npcId, makeIndex: it.makeIndex }));
-                row.appendChild(nm);
-                row.appendChild(btn);
-                list.appendChild(row);
-            }
-        }
+        });
+        // 列表（标题 + 行）
+        this.shopListEl = document.createElement('div');
+        this.shopListEl.style.cssText = 'position:absolute;left:19px;top:11px;width:270px;height:150px;'
+            + 'font-size:12px;line-height:13px;text-shadow:1px 1px 0 #000;';
+        panel.appendChild(this.shopListEl);
+        // 翻页箭头（上 388 / 下 387，原版 43,175 / 90,175）+ 买入 386 (215,171) + 关闭 64 (291,0)
+        const mkBtn = (idx, x, y, w, h, cb) => {
+            const b = document.createElement('div');
+            b.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;cursor:pointer;`;
+            b.addEventListener('click', cb);
+            this._libUrl('prguse', idx).then((url) => {
+                if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; b.appendChild(im); }
+            });
+            panel.appendChild(b);
+        };
+        mkBtn(388, 43, 175, 24, 24, () => this._shopPageTurn(-9));
+        mkBtn(387, 90, 175, 24, 24, () => this._shopPageTurn(9));
+        mkBtn(386, 215, 171, 44, 16, () => this._buySelected(msg.npcId));
+        mkBtn(64, 291, 0, 16, 23, () => this._closeShopPanel());
         gui.appendChild(panel);
+        this._renderBuyList();
+    }
+
+    _renderBuyList() {
+        if (!this.shopListEl) return;
+        this.shopListEl.innerHTML = '';
+        const title = document.createElement('div');
+        title.style.cssText = 'color:#fff;';
+        title.textContent = '物品列表';
+        this.shopListEl.appendChild(title);
+        const max = 10;
+        const start = this.shopPage;
+        const goods = this.shopGoods;
+        for (let i = 0; i < max; i++) {
+            const idx = start + i;
+            if (idx >= goods.length) break;
+            const g = goods[idx];
+            const row = document.createElement('div');
+            row.style.cssText = `position:relative;height:13px;cursor:pointer;color:${idx === this.shopSel ? '#ff4444' : '#fff'};`;
+            row.innerHTML = `<span style="position:absolute;left:0;">${idx === this.shopSel ? '▶' : ''}${g.name}</span>`
+                + `<span style="position:absolute;left:137px;color:#fff;">${g.price}金币</span>`;
+            row.addEventListener('click', () => { this.shopSel = idx; this._renderBuyList(); });
+            this.shopListEl.appendChild(row);
+        }
+    }
+
+    _shopPageTurn(delta) {
+        const max = 10;
+        const np = this.shopPage + delta;
+        if (np < 0) return;
+        if (np >= this.shopGoods.length) return;
+        this.shopPage = np;
+        this._renderBuyList();
+    }
+
+    _buySelected(npcId) {
+        if (this.shopSel < 0 || this.shopSel >= this.shopGoods.length) return;
+        const g = this.shopGoods[this.shopSel];
+        this.conn.send('buyItem', { npcId, index: g.index, count: 1 });
+    }
+
+    // 卖出：ok 框（原版 DSellDlg 投放框）+ 背包物品列表
+    _showSellDlg(msg) {
+        this.shopSellItem = null;   // 选中要卖的物品
+        const gui = this.manager.winManager.container;
+        const panel = document.createElement('div');
+        panel.style.cssText = 'position:absolute;left:260px;top:176px;width:140px;height:181px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
+        this.shopPanel = panel;
+        this._libUrl('prguse', 392).then((url) => {
+            if (url && this.shopPanel === panel) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;';
+                panel.insertBefore(bg, panel.firstChild);
+            }
+        });
+        // 标题「卖: 价格」
+        this.shopPriceEl = document.createElement('div');
+        this.shopPriceEl.style.cssText = 'position:absolute;left:8px;top:6px;font-size:12px;text-shadow:1px 1px 0 #000;';
+        this.shopPriceEl.textContent = '卖: ';
+        panel.appendChild(this.shopPriceEl);
+        // 投放框 Spot (27,67) 61x52
+        const spot = document.createElement('div');
+        spot.style.cssText = 'position:absolute;left:27px;top:67px;width:61px;height:52px;'
+            + 'display:flex;align-items:center;justify-content:center;overflow:hidden;';
+        this.shopSpotEl = spot;
+        panel.appendChild(spot);
+        // OK 按钮 393 (85,150) + 关闭 64 (115,0)
+        const ok = document.createElement('div');
+        ok.style.cssText = 'position:absolute;left:85px;top:150px;width:24px;height:13px;cursor:pointer;';
+        ok.addEventListener('click', () => this._sellOk(msg.npcId));
+        this._libUrl('prguse', 393).then((url) => {
+            if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; ok.appendChild(im); }
+        });
+        panel.appendChild(ok);
+        const close = document.createElement('div');
+        close.style.cssText = 'position:absolute;left:115px;top:0;width:16px;height:23px;cursor:pointer;';
+        close.addEventListener('click', () => this._closeShopPanel());
+        panel.appendChild(close);
+        gui.appendChild(panel);
+
+        // 背包物品列表（右侧，点击放入投放框）
+        this._showSellBagList(msg.npcId);
+    }
+
+    _showSellBagList(npcId) {
+        const gui = this.manager.winManager.container;
+        const list = document.createElement('div');
+        list.style.cssText = 'position:absolute;left:475px;top:0;width:320px;max-height:500px;'
+            + 'background:rgba(0,0,0,0.9);border:1px solid #8a6d3b;border-radius:6px;padding:8px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;overflow-y:auto;';
+        this.shopBagListEl = list;
+        const bagItems = (this.self.items || []).filter(x => x.slot === undefined);
+        if (!bagItems.length) {
+            const empty = document.createElement('div');
+            empty.textContent = '（背包无可出售物品）';
+            empty.style.cssText = 'font-size:12px;color:#9a8b6a;padding:12px;';
+            list.appendChild(empty);
+        }
+        for (const it of bagItems) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;'
+                + 'background:#171209;border:1px solid #4a3d22;border-radius:3px;font-size:12px;cursor:pointer;';
+            const nm = document.createElement('span');
+            nm.textContent = it.name;
+            nm.style.cssText = 'flex:1;';
+            row.appendChild(nm);
+            row.addEventListener('click', () => this._pickSellItem(it));
+            list.appendChild(row);
+        }
+        gui.appendChild(list);
+    }
+
+    _pickSellItem(it) {
+        this.shopSellItem = it;
+        // 投放框显示物品图标
+        this.shopSpotEl.innerHTML = '';
+        if (it.looks > 0) {
+            this._libUrl('items', it.looks).then((url) => {
+                if (url) {
+                    const im = document.createElement('img');
+                    im.src = url; im.draggable = false;
+                    im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+                    this.shopSpotEl.appendChild(im);
+                }
+            });
+        }
+        this.shopPriceEl.textContent = '卖: ' + it.name;
+    }
+
+    _sellOk(npcId) {
+        if (!this.shopSellItem) return;
+        this.conn.send('sellItem', { npcId, makeIndex: this.shopSellItem.makeIndex });
     }
 
     _closeShopPanel() {
         if (this.shopPanel) { this.shopPanel.remove(); this.shopPanel = null; }
+        if (this.shopBagListEl) { this.shopBagListEl.remove(); this.shopBagListEl = null; }
+        this.shopGoldEl = null;
     }
 
     // 解析 NPC 说话文本：<label@value> 渲染为内联黄色下划线链接，其余为普通文本
@@ -1056,6 +1159,10 @@ export class PlayScene extends Scene {
         this.stateWin = null;
         this.npcDlg = null;
         this.shopPanel = null;
+        this.shopBagListEl = null;
+        this.shopListEl = null;
+        this.shopSpotEl = null;
+        this.shopGoldEl = null;
         const gui = this.manager.winManager.container;
         gui.innerHTML = '';
     }

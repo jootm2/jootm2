@@ -598,10 +598,11 @@ export class PlayScene extends Scene {
         });
 
         // NPC 说话文本（白描边，从 30,20 开始；原版 lx=30 ly=20，字体 9号≈12px、行高 16px）
+        // 不设 overflow:hidden：原版 canvas 逐行绘制不裁剪，长文本（如公约多页）末行「下一页」会溢出对话框仍可见可点
         const text = document.createElement('div');
-        text.style.cssText = 'position:absolute;left:30px;top:20px;width:340px;height:150px;'
+        text.style.cssText = 'position:absolute;left:30px;top:20px;width:340px;'
             + 'font-family:SimSun,serif;font-size:12px;color:#ffffff;line-height:16px;'
-            + 'text-shadow:1px 1px 0 #000;white-space:pre-wrap;overflow:hidden;';
+            + 'text-shadow:1px 1px 0 #000;white-space:pre-wrap;';
         // 说话文本：解析 <label@value> 为内联黄色链接（原版 DMerchantDlgDirectPaint 语义）
         this._renderNpcSay(text, msg.text || '', msg.npcId);
         dlg.appendChild(text);

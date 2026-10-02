@@ -258,6 +258,13 @@ jootm2/
     - **超时消失**：`GroundItem` 加 `createdAt`；`GameWorld.tick` 新增 `tickGroundItems`——超 60 秒（`GROUND_ITEM_TTL_MS`，原版 MapItem.DisappearTime 约定）移除并广播 `itemRemove`。此前 groundItems 只增不减（pickup 外无清理），掉落物永存。
     - 调度链路：`Main` scheduleAtFixedRate → `GameService.tick` → `world.tick` → `tickGroundItems`，与 FireWall 清理同构。
     - 验证：DnItems 各 looks 加载正常（20×13~40×37）、假掉落物渲染真实图标；出生点城内无怪，60s 超时未做端到端（逻辑同构已审查）。
+56. **F9 状态窗口 + F10 背包（删底部技能栏）**：
+    - **服务端**：`Player.toPlayerJson` 导出战斗属性 `ac/mac/dc/mc/sc`（`combat.xxxMin-xxxMax`，原版 DStateWin 显示）。
+    - **F9 状态窗口**（`_buildStateWin`/`_refreshStateWin`，Prguse[370] 232×325 右上）：角色名/职业/等级/经验/HP/MP/金币 + 属性（AC/MAC/DC/MC/SC）+ 13 装备槽（stateitem[looks] 图标）。
+    - **F10 背包**（`_buildBag`/`_refreshBag` 重写，Prguse[3] 336×270 左上）：金币 + 已学技能列表（点击施法）+ 背包物品格子（Items[looks] 图标）。
+    - **删底部技能栏**：移除 `skillBar`/`_refreshSkillBar`；F1-F8 施法 `_castFromSlot` 改为按 `self.skills` 顺序取第 fkey-1 个。
+    - 键位：F9 状态、F10/B 背包（`_onKeyDown`）。`_prgUrl` 抽象为通用 `_libUrl(lib,idx)`（prguse/stateitem/items 通用）。
+    - 验证：self 属性 dc=2-2、状态窗 13 槽+属性齐全、背包 6 物品+1 技能（基本剑术）、skillBar 已删。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

@@ -313,6 +313,12 @@ public final class Player extends Actor {
         o.addProperty("appr", appr);
         o.addProperty("dress", dressLooks());
         o.addProperty("weapon", weaponShape());
+        // 战斗属性（F9 状态窗口显示，原版 DStateWin 的 AC/MAC/DC/MC/SC）
+        o.addProperty("ac", combat.acMin + "-" + combat.acMax);
+        o.addProperty("mac", combat.macMin + "-" + combat.macMax);
+        o.addProperty("dc", combat.dcMin + "-" + combat.dcMax);
+        o.addProperty("mc", combat.mcMin + "-" + combat.mcMax);
+        o.addProperty("sc", combat.scMin + "-" + combat.scMax);
         o.add("skills", skillsJson(world));
         o.add("items", itemsJson(world));
         return o;

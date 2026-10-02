@@ -107,50 +107,17 @@ export class PlayScene extends Scene {
         chatBox.appendChild(this.chatInput);
         gui.appendChild(chatBox);
 
-        // 技能栏（F1-F8）
-        this.skillBar = document.createElement('div');
-        this.skillBar.style.cssText = 'position:absolute;left:50%;bottom:8px;transform:translateX(-50%);'
-            + 'display:flex;gap:4px;pointer-events:auto;';
-        for (let i = 1; i <= 8; i++) {
-            const slot = document.createElement('div');
-            slot.dataset.fkey = i;
-            slot.dataset.magicId = '';
-            slot.style.cssText = 'width:56px;height:42px;background:rgba(0,0,0,0.65);border:1px solid #5a4a2a;'
-                + 'border-radius:3px;font-size:10px;color:#c9b98a;text-align:center;cursor:pointer;'
-                + 'display:flex;flex-direction:column;justify-content:center;overflow:hidden;';
-            slot.innerHTML = `<div style="color:#9a8b6a;font-size:9px;">F${i}</div><div class="skname" style="font-size:11px;color:#e8d9b0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>`;
-            slot.addEventListener('click', () => this._castFromSlot(i));
-            this.skillBar.appendChild(slot);
-        }
-        gui.appendChild(this.skillBar);
-        this._refreshSkillBar();
+        // 状态窗口（F9）/ 背包窗口（F10）—— 原版 DStateWin / DItemBag
+        this._buildStateWin();
+        this._buildBag();
     }
 
-    // 刷新技能栏（self.skills → F1-F8 槽）
-    _refreshSkillBar() {
-        if (!this.skillBar || !this.self) return;
-        const skills = this.self.skills || {};
-        const entries = Object.entries(skills);
-        for (let i = 0; i < 8; i++) {
-            const slot = this.skillBar.children[i];
-            const entry = entries[i];
-            if (entry) {
-                slot.dataset.magicId = entry[0];
-                slot.querySelector('.skname').textContent = entry[1].name || entry[0];
-                slot.style.borderColor = '#c9a34a';
-            } else {
-                slot.dataset.magicId = '';
-                slot.querySelector('.skname').textContent = '';
-                slot.style.borderColor = '#5a4a2a';
-            }
-        }
-    }
-
+    // F1-F8 施法：按已学技能顺序取第 fkey-1 个（原版快捷键，技能列表见 F10 背包）
     _castFromSlot(fkey) {
-        const slot = this.skillBar && this.skillBar.children[fkey - 1];
-        const magicId = slot ? Number(slot.dataset.magicId) : 0;
-        if (!magicId) return;
-        this._castMagic(magicId);
+        const skills = this.self && this.self.skills ? this.self.skills : {};
+        const entry = Object.entries(skills)[fkey - 1];
+        if (!entry) return;
+        this._castMagic(Number(entry[0]));
     }
 
     _castMagic(magicId) {
@@ -181,7 +148,8 @@ export class PlayScene extends Scene {
     _onKeyDown(e) {
         if (e.target === this.chatInput) return;
         if (e.code === 'Space') { e.preventDefault(); this._attackNearest(); }
-        if (e.code === 'KeyB') this._toggleBag();
+        if (e.code === 'F9') { e.preventDefault(); this._toggleStateWin(); }
+        if (e.code === 'F10' || e.code === 'KeyB') { e.preventDefault(); this._toggleBag(); }
         if (e.code >= 'F1' && e.code <= 'F8') {
             e.preventDefault();
             this._castFromSlot(Number(e.code.substring(1)));
@@ -443,6 +411,7 @@ export class PlayScene extends Scene {
                     if (msg.weapon !== undefined) this.self.weapon = msg.weapon;
                 }
                 this._refreshBag();
+                this._refreshStateWin();
                 break;
             case 'npcSay':
                 this._showNpcDialog(msg);
@@ -480,6 +449,111 @@ export class PlayScene extends Scene {
     }
 
     // ---- 背包面板（B 键）----
+    // ---- 状态窗口（F9，原版 DStateWin）----
+
+    _toggleStateWin() {
+        if (!this.stateWin) this._buildStateWin();
+        const open = this.stateWin.style.display === 'block';
+        this.stateWin.style.display = open ? 'none' : 'block';
+        if (!open) this._refreshStateWin();
+    }
+
+    _buildStateWin() {
+        if (this.stateWin) return;
+        const gui = this.manager.winManager.container;
+        const win = document.createElement('div');
+        win.style.cssText = 'position:absolute;right:0;top:0;width:232px;height:325px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
+        win.style.display = 'none';
+        // 背景 Prguse[370]
+        this._libUrl('prguse', 370).then((url) => {
+            if (url && this.stateWin === win) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;';
+                win.insertBefore(bg, win.firstChild);
+            }
+        });
+        // 角色信息（左上）
+        this.stateInfoEl = document.createElement('div');
+        this.stateInfoEl.style.cssText = 'position:absolute;left:16px;top:22px;width:200px;'
+            + 'font-size:12px;line-height:17px;text-shadow:1px 1px 0 #000;';
+        win.appendChild(this.stateInfoEl);
+        // 属性数值（中下）
+        this.stateAttrEl = document.createElement('div');
+        this.stateAttrEl.style.cssText = 'position:absolute;left:120px;top:66px;width:96px;'
+            + 'font-size:12px;line-height:17px;text-shadow:1px 1px 0 #000;text-align:left;';
+        win.appendChild(this.stateAttrEl);
+        // 装备栏（左下）
+        this.stateEquipEl = document.createElement('div');
+        this.stateEquipEl.style.cssText = 'position:absolute;left:12px;top:60px;width:104px;'
+            + 'display:grid;grid-template-columns:repeat(2,1fr);gap:3px;';
+        win.appendChild(this.stateEquipEl);
+        this.stateWin = win;
+        gui.appendChild(win);
+    }
+
+    _refreshStateWin() {
+        if (!this.stateWin || !this.self) return;
+        const p = this.self;
+        const JOB = ['战士', '法师', '道士'];
+        this.stateInfoEl.innerHTML = '';
+        const rows = [
+            `${p.name}（${JOB[p.job] || '?'}）`,
+            `等级 ${p.level}  经验 ${p.exp}`,
+            `HP ${p.hp}/${p.maxHp}`,
+            `MP ${p.mp}/${p.maxMp}`,
+            `金币 ${p.gold || 0}`,
+        ];
+        for (const r of rows) {
+            const div = document.createElement('div');
+            div.textContent = r;
+            this.stateInfoEl.appendChild(div);
+        }
+        // 属性
+        this.stateAttrEl.innerHTML = '';
+        const attrs = [
+            ['攻击', p.dc], ['魔法', p.mc], ['道术', p.sc],
+            ['防御', p.ac], ['魔御', p.mac],
+        ];
+        for (const [label, val] of attrs) {
+            const div = document.createElement('div');
+            div.textContent = `${label} ${val || '0-0'}`;
+            this.stateAttrEl.appendChild(div);
+        }
+        // 装备栏
+        this.stateEquipEl.innerHTML = '';
+        const items = p.items || [];
+        for (let slot = 0; slot < 13; slot++) {
+            const it = items.find(x => x.slot === slot);
+            const cell = document.createElement('div');
+            cell.style.cssText = 'width:48px;height:48px;background:rgba(0,0,0,0.45);'
+                + 'border:1px solid #4a3d22;display:flex;flex-direction:column;align-items:center;'
+                + 'justify-content:center;overflow:hidden;';
+            const nm = document.createElement('div');
+            nm.textContent = SLOT_NAMES[slot] || slot;
+            nm.style.cssText = 'font-size:9px;color:#9a8b6a;';
+            cell.appendChild(nm);
+            if (it) {
+                const wrap = document.createElement('div');
+                wrap.style.cssText = 'width:32px;height:32px;display:flex;align-items:center;justify-content:center;';
+                cell.appendChild(wrap);
+                this._libUrl('stateitem', it.looks).then((url) => {
+                    if (url) {
+                        const im = document.createElement('img');
+                        im.src = url; im.draggable = false;
+                        im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+                        wrap.appendChild(im);
+                    }
+                });
+                cell.title = it.name;
+            }
+            this.stateEquipEl.appendChild(cell);
+        }
+    }
+
+    // ---- 背包（F10，原版 DItemBag）----
+
     _toggleBag() {
         if (!this.bagPanel) this._buildBag();
         const open = this.bagPanel.style.display === 'block';
@@ -491,31 +565,41 @@ export class PlayScene extends Scene {
         if (this.bagPanel) return;
         const gui = this.manager.winManager.container;
         const panel = document.createElement('div');
-        panel.style.cssText = 'position:absolute;right:8px;top:8px;width:280px;max-height:500px;overflow-y:auto;'
-            + 'background:rgba(0,0,0,0.9);border:1px solid #8a6d3b;border-radius:6px;padding:12px;'
+        panel.style.cssText = 'position:absolute;left:0;top:0;width:336px;height:270px;'
             + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
         panel.style.display = 'none';
-
-        const head = document.createElement('div');
-        head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;';
-        const title = document.createElement('span');
-        title.textContent = '背 包';
-        title.style.cssText = 'font-size:16px;color:#ffd76a;';
-        this.goldEl = document.createElement('span');
-        this.goldEl.style.cssText = 'font-size:13px;color:#fbbf24;';
-        head.appendChild(title);
-        head.appendChild(this.goldEl);
-        panel.appendChild(head);
-
-        this.equipEl = document.createElement('div');
-        this.equipEl.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px;'
-            + 'padding-bottom:10px;border-bottom:1px solid #5a4a2a;';
-        panel.appendChild(this.equipEl);
-
+        // 背景 Prguse[3]
+        this._libUrl('prguse', 3).then((url) => {
+            if (url && this.bagPanel === panel) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;';
+                panel.insertBefore(bg, panel.firstChild);
+            }
+        });
+        // 关闭按钮（红X）
+        const close = document.createElement('div');
+        close.style.cssText = 'position:absolute;right:12px;top:8px;width:16px;height:23px;cursor:pointer;';
+        close.addEventListener('click', () => { panel.style.display = 'none'; });
+        panel.appendChild(close);
+        // 金币
+        this.goldEl = document.createElement('div');
+        this.goldEl.style.cssText = 'position:absolute;left:120px;top:224px;font-size:13px;color:#fbbf24;text-shadow:1px 1px 0 #000;';
+        panel.appendChild(this.goldEl);
+        // 技能列表（原底部技能栏移入 F10）
+        const skLabel = document.createElement('div');
+        skLabel.textContent = '技能（F1-F8 施放）';
+        skLabel.style.cssText = 'position:absolute;left:16px;top:96px;font-size:11px;color:#9a8b6a;';
+        panel.appendChild(skLabel);
+        this.skillListEl = document.createElement('div');
+        this.skillListEl.style.cssText = 'position:absolute;left:16px;top:114px;width:304px;height:60px;'
+            + 'display:flex;flex-wrap:wrap;gap:4px;overflow-y:auto;';
+        panel.appendChild(this.skillListEl);
+        // 背包物品区
         this.bagGridEl = document.createElement('div');
-        this.bagGridEl.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:4px;';
+        this.bagGridEl.style.cssText = 'position:absolute;left:16px;top:180px;width:304px;height:44px;'
+            + 'display:flex;flex-wrap:wrap;gap:4px;overflow-y:auto;';
         panel.appendChild(this.bagGridEl);
-
         this.bagPanel = panel;
         gui.appendChild(panel);
     }
@@ -525,53 +609,75 @@ export class PlayScene extends Scene {
         this.goldEl.textContent = '金币 ' + (this.self.gold || 0);
         const items = this.self.items || [];
 
-        // 装备区
-        this.equipEl.innerHTML = '';
-        for (let slot = 0; slot < 13; slot++) {
-            const it = items.find(x => x.slot === slot);
-            const cell = document.createElement('div');
-            cell.style.cssText = 'background:#171209;border:1px solid #4a3d22;border-radius:3px;padding:4px;'
-                + 'font-size:11px;text-align:center;min-height:32px;';
-            cell.innerHTML = `<div style="color:#9a8b6a;font-size:10px;">${SLOT_NAMES[slot] || slot}</div>`
-                + (it ? `<div style="color:#e8d9b0;margin-top:2px;">${it.name}</div>` : '');
-            this.equipEl.appendChild(cell);
+        // 技能列表
+        this.skillListEl.innerHTML = '';
+        const skills = this.self.skills || {};
+        const entries = Object.entries(skills);
+        if (!entries.length) {
+            const empty = document.createElement('div');
+            empty.textContent = '（无技能）';
+            empty.style.cssText = 'font-size:11px;color:#9a8b6a;';
+            this.skillListEl.appendChild(empty);
         }
+        entries.forEach(([magicId, sk], i) => {
+            const cell = document.createElement('div');
+            cell.style.cssText = 'padding:3px 8px;background:rgba(0,0,0,0.5);border:1px solid #4a3d22;'
+                + 'border-radius:3px;font-size:11px;color:#e8d9b0;cursor:pointer;';
+            cell.title = `F${i + 1} 施放`;
+            cell.textContent = `F${i + 1} ${sk.name || magicId}`;
+            cell.addEventListener('click', () => this._castMagic(Number(magicId)));
+            this.skillListEl.appendChild(cell);
+        });
 
         // 背包物品
         this.bagGridEl.innerHTML = '';
         const bagItems = items.filter(x => x.slot === undefined);
         for (const it of bagItems) {
             const cell = document.createElement('div');
-            cell.style.cssText = 'background:#171209;border:1px solid #4a3d22;border-radius:3px;padding:5px;'
-                + 'font-size:11px;text-align:center;cursor:pointer;min-height:34px;';
+            cell.style.cssText = 'width:34px;height:34px;background:rgba(0,0,0,0.5);'
+                + 'border:1px solid #4a3d22;display:flex;align-items:center;justify-content:center;'
+                + 'overflow:hidden;cursor:pointer;';
             cell.title = it.name + '（点击使用）';
-            cell.textContent = it.name;
+            this._libUrl('items', it.looks).then((url) => {
+                if (url) {
+                    const im = document.createElement('img');
+                    im.src = url; im.draggable = false;
+                    im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+                    cell.appendChild(im);
+                }
+            });
             cell.addEventListener('click', () => this.conn.send('useItem', { makeIndex: it.makeIndex }));
             this.bagGridEl.appendChild(cell);
         }
         if (!bagItems.length) {
             const empty = document.createElement('div');
             empty.textContent = '（空）';
-            empty.style.cssText = 'grid-column:1/-1;text-align:center;color:#9a8b6a;padding:12px;';
+            empty.style.cssText = 'font-size:11px;color:#9a8b6a;';
             this.bagGridEl.appendChild(empty);
         }
     }
 
     // ---- NPC 对话框（原版 DMerchantDlg 样式）----
 
-    // Prguse 图 → img URL（缓存）
-    async _prgUrl(idx) {
-        if (this._prgCache == null) this._prgCache = new Map();
-        if (this._prgCache.has(idx)) return this._prgCache.get(idx);
-        const lib = getLib('prguse');
+    // 任意 WIL 库图 → img URL（缓存）
+    async _libUrl(libKey, idx) {
+        if (this._texCache == null) this._texCache = new Map();
+        const key = libKey + ':' + idx;
+        if (this._texCache.has(key)) return this._texCache.get(key);
+        const lib = getLib(libKey);
         if (!lib) return null;
         const tex = await lib.getTexture(idx);
         if (!tex) return null;
         const url = tex.canvas.toDataURL
             ? tex.canvas.toDataURL('image/png')
             : URL.createObjectURL(await tex.canvas.convertToBlob());
-        this._prgCache.set(idx, url);
+        this._texCache.set(key, url);
         return url;
+    }
+
+    // Prguse 图 → img URL（缓存）
+    _prgUrl(idx) {
+        return this._libUrl('prguse', idx);
     }
 
     _showNpcDialog(msg) {
@@ -838,6 +944,7 @@ export class PlayScene extends Scene {
         if (this._mmHandler) document.removeEventListener('mousemove', this._mmHandler);
         this._holding = false;
         this.bagPanel = null;
+        this.stateWin = null;
         this.npcDlg = null;
         const gui = this.manager.winManager.container;
         gui.innerHTML = '';

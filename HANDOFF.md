@@ -231,6 +231,8 @@ jootm2/
 46. **怪物/NPC 移动加走动画过渡（消除瞬移）**：走动画偏移 `offsetX/Y` 之前只给 self，怪物/NPC move 到达直接跳格（瞬移）。修复：`onMessage move` 记录移动起点 `_fromX/_fromY/_moveAt`；render 对非 self 实体按时间插值从旧格滑到新格（`MONSTER_MOVE_DUR=720ms`，对齐 walk 动画 6 帧×120ms）；「停止超时回 stand」扩展到所有实体。验证：构造移动实体 offsetX 从 -48 平滑到 0。注：出生点 (289,618) 在村庄围墙内（四方向直线都被墙挡），自动寻怪需 BFS 绕行或手动走出村庄。
 47. **玩家移动增量更新视野（修复怪物入画不显示但被攻击）**：怪物只在 spawn/respawn 广播 `entityAdd`，玩家移动导致怪物从视野外进入（`SIGHT_RANGE=12`→攻击 `AGGRO_RANGE=8`）时无广播 → 客户端看不到怪物但服务端 AI 照常攻击。修复：`Player` 加 `seen` 集合；`mapSnapshot` 初始化 seen；`GameWorld.updateSight` 玩家移动后增量广播新进入 `entityAdd` / 离开 `entityRemove`；`GameService.move` 移动后调用。验证：移动玩家时新进入视野的怪物收到 entityAdd、3 怪物均正常渲染。
 48. **攻击时自动转身面对目标**：服务端 `attack` 原本不更新玩家 dir → 攻击时人物保持原朝向。修复：`attack` 时 `p.dir = directionFrom(自己,目标)` + `broadcastMove` 广播转向（位置不变仅 dir 变，对齐旧版 `AttackTarget` 的 `tdir=GetNextDirection`）；客户端 `move` 处理区分「移动/纯转向」——位置不变时只更新 dir、不触发走动画。验证：纯转向 move 只更新 dir、位置不变、不触发动画。
+49. **选角后 notice 公告界面**：选角进游戏前原版有「健康游戏公告」（`SM_SENDNOTICE`/`CM_LOGINNOTICEOK`）。修复：`GameWorld` 启动加载 `Mir200/Notice/Notice.txt`（GBK）；`GameService.enterGame` 拆成校验+发 notice，新增 `noticeOk` 完成进游戏；`SelectCharScene` 收到 notice 显示对话框（背景 `Prguse[380]`、确定 `Prguse[361]`），确认发 noticeOk。验证：选角→公告→确认→进 PlayScene。
+50. **NPC 对话框改原版样式（DMerchantDlg）**：原自生成 DOM 按钮。修复：背景 `Prguse[384]`（416×176 商人对话框）、文本 (30,20) 白描边、选项黄色下划线链接（`clYellow`）、关闭按钮 `Prguse[64]`(399,1)。背景/关闭图用 `.then` 异步插入，文本选项同步显示（避免首次加载 Prguse 阻塞）。验证：传送员对话正常（背景图+关闭图+10 选项链接+文本）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

@@ -233,6 +233,11 @@ jootm2/
 48. **攻击时自动转身面对目标**：服务端 `attack` 原本不更新玩家 dir → 攻击时人物保持原朝向。修复：`attack` 时 `p.dir = directionFrom(自己,目标)` + `broadcastMove` 广播转向（位置不变仅 dir 变，对齐旧版 `AttackTarget` 的 `tdir=GetNextDirection`）；客户端 `move` 处理区分「移动/纯转向」——位置不变时只更新 dir、不触发走动画。验证：纯转向 move 只更新 dir、位置不变、不触发动画。
 49. **选角后 notice 公告界面**：选角进游戏前原版有「健康游戏公告」（`SM_SENDNOTICE`/`CM_LOGINNOTICEOK`）。修复：`GameWorld` 启动加载 `Mir200/Notice/Notice.txt`（GBK）；`GameService.enterGame` 拆成校验+发 notice，新增 `noticeOk` 完成进游戏；`SelectCharScene` 收到 notice 显示对话框（背景 `Prguse[380]`、确定 `Prguse[361]`），确认发 noticeOk。验证：选角→公告→确认→进 PlayScene。
 50. **NPC 对话框改原版样式（DMerchantDlg）**：原自生成 DOM 按钮。修复：背景 `Prguse[384]`（416×176 商人对话框）、文本 (30,20) 白描边、选项黄色下划线链接（`clYellow`）、关闭按钮 `Prguse[64]`(399,1)。背景/关闭图用 `.then` 异步插入，文本选项同步显示（避免首次加载 Prguse 阻塞）。验证：传送员对话正常（背景图+关闭图+10 选项链接+文本）。
+51. **notice 黑屏 + NPC 背景图 + 选项内联 + 传送**：
+    - **notice 黑屏**：改独立 `NoticeScene`（黑屏 `render` + 公告对话框 `Prguse[380]/[361]`），确认发 noticeOk 后切 PlayScene（对齐原版 `stLoginNotice` 黑屏场景）。
+    - **NPC 背景图不显示**：根因 `z-index:-1` 被 `#screen` canvas 遮挡 → 移除 z-index，靠 DOM 顺序（背景先插入）。
+    - **选项内联**：服务端 `appendSay` 保留 `<label@value>` 标记（不再提取到 options）；客户端 `_renderNpcSay` 解析渲染为内联黄色下划线链接（label 去末尾 `/`），点击发 `npcSelect`。
+    - **传送切换地图**：点「比奇城堡」→ `mapmove 0 333 268` → `changeMap` → 坐标 287,615 → 333,268（验证通过，需 5000 金币）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

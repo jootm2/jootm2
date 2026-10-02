@@ -519,23 +519,31 @@ export class PlayScene extends Scene {
         this.stateAttrEl.style.cssText = 'position:absolute;left:112px;top:99px;width:96px;'
             + 'font-size:12px;line-height:20px;text-shadow:1px 1px 0 #000;';
         this.stateAttrWrap.appendChild(this.stateAttrEl);
-        // 角色名（顶部，两页共享）
+        // 角色名（原版：Left+122 水平居中，Top+23，纯名字）
         this.stateNameEl = document.createElement('div');
-        this.stateNameEl.style.cssText = 'position:absolute;left:12px;top:8px;width:208px;'
+        this.stateNameEl.style.cssText = 'position:absolute;left:0;top:23px;width:232px;text-align:center;'
             + 'font-size:12px;color:#f0e6c8;text-shadow:1px 1px 0 #000;';
         win.appendChild(this.stateNameEl);
-        // 翻页箭头（原版 DStPageUp=398 上 / DStPageDown=396 下，位置 213,113 / 213,143）
+        // 关闭按钮（原版 DCloseState=371，位置 8,39）
+        const close = document.createElement('div');
+        close.style.cssText = 'position:absolute;left:8px;top:39px;width:16px;height:23px;cursor:pointer;';
+        close.addEventListener('click', () => { win.style.display = 'none'; });
+        this._libUrl('prguse', 371).then((url) => {
+            if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; close.appendChild(im); }
+        });
+        win.appendChild(close);
+        // 翻页箭头（原版 DPrevState=373 上 / DNextState=372 下，位置 7,128 / 7,187）
         const mkArrow = (idx, top, page) => {
             const b = document.createElement('div');
-            b.style.cssText = `position:absolute;left:213px;top:${top}px;width:12px;height:21px;cursor:pointer;`;
+            b.style.cssText = `position:absolute;left:7px;top:${top}px;width:24px;height:23px;cursor:pointer;`;
             b.addEventListener('click', () => { this.statePage = page; this._refreshStateWin(); });
             this._libUrl('prguse', idx).then((url) => {
                 if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; b.appendChild(im); }
             });
             win.appendChild(b);
         };
-        mkArrow(398, 113, 0);   // 上箭头 → 装备页
-        mkArrow(396, 143, 1);   // 下箭头 → 属性页
+        mkArrow(373, 128, 0);   // 上箭头 → 装备页
+        mkArrow(372, 187, 1);   // 下箭头 → 属性页
         this.stateWin = win;
         this.statePage = 0;
         gui.appendChild(win);
@@ -544,9 +552,8 @@ export class PlayScene extends Scene {
     _refreshStateWin() {
         if (!this.stateWin || !this.self) return;
         const p = this.self;
-        const JOB = ['战士', '法师', '道士'];
-        // 顶部角色名（两页共享）
-        this.stateNameEl.textContent = `${p.name}（${JOB[p.job] || '?'}）Lv.${p.level}`;
+        // 角色名（原版只显示名字）
+        this.stateNameEl.textContent = p.name;
         // 分页显示
         this.stateEquipWrap.style.display = this.statePage === 0 ? 'block' : 'none';
         this.stateAttrWrap.style.display = this.statePage === 1 ? 'block' : 'none';

@@ -140,11 +140,24 @@ public final class NpcScriptEngine {
             i = gt + 1;
         }
         String out = clean.toString();
-        if (!out.isBlank()) {
+        // 每行 trim，去掉空行（脚本里 '\ \' 是段落分隔，这里紧凑显示，避免换行过多）
+        StringBuilder sb = new StringBuilder();
+        for (String line : out.split("\n", -1)) {
+            String t = line.trim();
+            if (t.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append("\n");
+            }
+            sb.append(t);
+        }
+        String cleaned = sb.toString();
+        if (!cleaned.isEmpty()) {
             if (!r.sayText.isEmpty()) {
                 r.sayText += "\n";
             }
-            r.sayText += out.trim();
+            r.sayText += cleaned;
         }
     }
 

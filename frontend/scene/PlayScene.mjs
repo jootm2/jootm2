@@ -552,15 +552,11 @@ export class PlayScene extends Scene {
             }
         });
 
-        // NPC 名字 + 说话文本（白描边，从 30,20 开始；原版 lx=30 ly=20）
+        // NPC 说话文本（白描边，从 30,20 开始；原版 lx=30 ly=20）
         const text = document.createElement('div');
         text.style.cssText = 'position:absolute;left:30px;top:20px;width:330px;height:150px;'
             + 'font-family:SimSun,serif;font-size:14px;color:#ffffff;line-height:1.45;'
             + 'text-shadow:1px 1px 0 #000;white-space:pre-wrap;overflow:hidden;';
-        const nameEl = document.createElement('div');
-        nameEl.textContent = (msg.name ? msg.name + '：' : '');
-        nameEl.style.cssText = 'color:#ffd76a;';
-        text.appendChild(nameEl);
         // 说话文本：解析 <label@value> 为内联黄色链接（原版 DMerchantDlgDirectPaint 语义）
         this._renderNpcSay(text, msg.text || '', msg.npcId);
         dlg.appendChild(text);

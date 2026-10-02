@@ -297,6 +297,12 @@ jootm2/
     - **卖出**：`DSellDlg` ok 框（Prguse[392] 140×181，260,176）——标题「卖: 」、Spot 投放框 (27,67) 61×52（显示选中物品图标）、OK 按钮 393(85,150)、关闭 64(115,0)。背包物品列表在右侧 (475,0)，点击放入投放框，再点 OK 发 `sellItem`。
     - 原版 `ShowShopMenuDlg`（购买：DMerchantDlg+DMenuDlg+DItemBag）、`ShowShopSellDlg`（卖出：DSellDlg+DItemBag）已对齐。
     - 验证：buy 列表 12 项翻页（page 0→9）、sell ok 框布局+背包 6 物品。
+63. **买卖界面细节修复（按钮重影/列表下移/原版背包/返回关面板）**：
+    - **按钮重影**：背景 385/392 已画正常态按钮（箭头/买入/OK/红X），img（388/387/386/393/64）是按下态 → 全部改热区模式（默认 hidden、mousedown 显示、抬起恢复）。
+    - **购买列表下移**：标题 y=11、列表 y=40（原 32 与标题挤）。
+    - **卖出用原版背包**：删右侧自定义列表（shopBagListEl），改 `shopSellMode` + 打开 bagPanel，卖出模式下点背包物品放入 ok 框投放（非卖出模式仍 useItem）。
+    - **返回残留**：`_showNpcDialog` 无 shop 时 `_closeShopPanel`（点「返回」回主界面关闭买卖面板）。
+    - 验证：按钮默认 hidden、列表 40px、背包点物品放 Spot、返回关面板。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

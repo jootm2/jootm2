@@ -519,18 +519,23 @@ export class PlayScene extends Scene {
         this.stateAttrEl.style.cssText = 'position:absolute;left:112px;top:99px;width:96px;'
             + 'font-size:12px;line-height:20px;text-shadow:1px 1px 0 #000;';
         this.stateAttrWrap.appendChild(this.stateAttrEl);
-        // 翻页按钮（底部）
-        const mkTab = (label, page, x) => {
+        // 角色名（顶部，两页共享）
+        this.stateNameEl = document.createElement('div');
+        this.stateNameEl.style.cssText = 'position:absolute;left:12px;top:8px;width:208px;'
+            + 'font-size:12px;color:#f0e6c8;text-shadow:1px 1px 0 #000;';
+        win.appendChild(this.stateNameEl);
+        // 翻页箭头（原版 DStPageUp=398 上 / DStPageDown=396 下，位置 213,113 / 213,143）
+        const mkArrow = (idx, top, page) => {
             const b = document.createElement('div');
-            b.textContent = label;
-            b.style.cssText = `position:absolute;left:${x}px;top:300px;width:40px;height:20px;`
-                + 'text-align:center;font-size:11px;color:#c9b98a;cursor:pointer;line-height:20px;'
-                + 'background:rgba(0,0,0,0.45);border-radius:2px;';
+            b.style.cssText = `position:absolute;left:213px;top:${top}px;width:12px;height:21px;cursor:pointer;`;
             b.addEventListener('click', () => { this.statePage = page; this._refreshStateWin(); });
+            this._libUrl('prguse', idx).then((url) => {
+                if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; b.appendChild(im); }
+            });
             win.appendChild(b);
         };
-        mkTab('装备', 0, 150);
-        mkTab('属性', 1, 192);
+        mkArrow(398, 113, 0);   // 上箭头 → 装备页
+        mkArrow(396, 143, 1);   // 下箭头 → 属性页
         this.stateWin = win;
         this.statePage = 0;
         gui.appendChild(win);
@@ -539,6 +544,9 @@ export class PlayScene extends Scene {
     _refreshStateWin() {
         if (!this.stateWin || !this.self) return;
         const p = this.self;
+        const JOB = ['战士', '法师', '道士'];
+        // 顶部角色名（两页共享）
+        this.stateNameEl.textContent = `${p.name}（${JOB[p.job] || '?'}）Lv.${p.level}`;
         // 分页显示
         this.stateEquipWrap.style.display = this.statePage === 0 ? 'block' : 'none';
         this.stateAttrWrap.style.display = this.statePage === 1 ? 'block' : 'none';
@@ -586,11 +594,9 @@ export class PlayScene extends Scene {
     // 属性页：角色信息 + 属性数值（纯数字，标签由背景图提供）
     _refreshAttrPage() {
         const p = this.self;
-        const JOB = ['战士', '法师', '道士'];
         this.stateInfoEl.innerHTML = '';
         const rows = [
-            `${p.name}（${JOB[p.job] || '?'}）`,
-            `等级 ${p.level}  经验 ${p.exp}`,
+            `经验 ${p.exp}`,
             `金币 ${p.gold || 0}`,
         ];
         for (const r of rows) {
@@ -952,7 +958,7 @@ export class PlayScene extends Scene {
     _renderHud() {
         if (!this.hudEl || !this.self) return;
         const p = this.self;
-        this.hudEl.textContent = `${p.name}  Lv.${p.level}  HP ${p.hp}/${p.maxHp}  MP ${p.mp}/${p.maxMp}  金币 ${p.gold || 0}  (${p.x},${p.y})`;
+        this.hudEl.textContent = `${p.name}  Lv.${p.level}  HP ${p.hp}/${p.maxHp}  MP ${p.mp}/${p.maxMp}`;
     }
 
     onExit() {

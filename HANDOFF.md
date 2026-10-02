@@ -286,6 +286,12 @@ jootm2/
     - 键位：原版 ClMain.pas `VK_F9=OpenItemBag`、`VK_F10=OpenMyStatus`（之前搞反）→ **F9=背包、F10=状态/装备属性**。
     - 关闭按钮 Prguse[371] 是「按下态」图（正常态红X画在背景图 370 里），改热区模式：默认 hidden、mousedown 显示、mouseup/mouseleave 恢复（对齐原版 Downed 语义）。
     - 验证：F9→背包、F10→状态、关闭按钮 img 默认 hidden。
+61. **NPC 买卖面板（buy/sell）**：
+    - 客户端 `_showShopPanel`：独立买卖面板（替代挤在 NPC 对话里的 44px 小列表）。buy=商品列表（名称+价格+「买入」按钮，点击 `buyItem`）、sell=背包物品（名称+「出售」按钮，点击 `sellItem`）。
+    - `_showNpcDialog` 收到 `shop=buy/sell` 时打开买卖面板。
+    - 买卖后金币实时刷新（`shopGoldEl`，bagUpdate 时更新）。
+    - 服务端链路：NPC 脚本 `<买/@buy>`→npcSelect→`shopMode=buy`+`goods`（从脚本 `[goods]` section 加载）→客户端 `_showShopPanel`。`buyItem`/`sellItem` 已在服务端实现。
+    - 验证：buy 面板商品+买入按钮、sell 面板 7 背包物品+出售按钮、金币刷新。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

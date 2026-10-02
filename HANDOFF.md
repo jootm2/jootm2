@@ -272,6 +272,11 @@ jootm2/
     - 背包物品改 8 列网格（原版 `DItemGrid` 20,13 286×162），金币 (10,190)、关闭 (309,203)。
     - 删除 F10 里的技能列表（原版背包无技能列表，技能施放用 F1-F8）。
     - 验证：13 装备槽精确坐标、属性纯数值 AC/MAC/DC/MC/SC/HP/MP、背包 8 列 6 物品。
+58. **状态窗口翻页箭头 + 名字 + HUD 精简**：
+    - 翻页按钮改原版 `DStPageUp(Prguse 398, 12×21)`/`DStPageDown(396)` 箭头图，位置 (213,113)/(213,143)（原版 FState.pas），替代右下角文字 tab。
+    - 顶部角色名 `stateNameEl`：`名字（职业）Lv.X`，两页共享；属性页去掉重复名字行（只留经验/金币）。
+    - 左上角 HUD `_renderHud` 去掉 `(x,y)` 坐标调试信息（用户反馈「调试信息错乱」）。
+    - 验证：顶部名字正确、箭头位置 (213,113)/(213,143)、点下箭头切属性页、HUD 无坐标。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

@@ -435,6 +435,7 @@ export class PlayScene extends Scene {
                 }
                 this._refreshBag();
                 this._refreshStateWin();
+                if (this.shopGoldEl) this.shopGoldEl.textContent = '金币 ' + (this.self.gold || 0);
                 break;
             case 'npcSay':
                 this._showNpcDialog(msg);
@@ -757,32 +758,9 @@ export class PlayScene extends Scene {
         this._renderNpcSay(text, msg.text || '', msg.npcId);
         dlg.appendChild(text);
 
-        // 商店列表（buy=商品 / sell=背包）
-        if (msg.shop === 'buy' && msg.goods) {
-            const grid = document.createElement('div');
-            grid.style.cssText = 'position:absolute;left:30px;top:128px;width:330px;height:44px;'
-                + 'display:flex;flex-wrap:wrap;gap:2px 8px;overflow:hidden;font-size:12px;';
-            for (const g of msg.goods) {
-                const item = document.createElement('a');
-                item.textContent = `${g.name}(${g.price})`;
-                item.style.cssText = 'color:#ffd76a;text-decoration:underline;cursor:pointer;text-shadow:1px 1px 0 #000;';
-                item.addEventListener('click', () => this.conn.send('buyItem', { npcId: msg.npcId, index: g.index, count: 1 }));
-                grid.appendChild(item);
-            }
-            dlg.appendChild(grid);
-        } else if (msg.shop === 'sell') {
-            const grid = document.createElement('div');
-            grid.style.cssText = 'position:absolute;left:30px;top:128px;width:330px;height:44px;'
-                + 'display:flex;flex-wrap:wrap;gap:2px 8px;overflow:hidden;font-size:12px;';
-            const bagItems = (this.self.items || []).filter(x => x.slot === undefined);
-            for (const it of bagItems) {
-                const item = document.createElement('a');
-                item.textContent = it.name;
-                item.style.cssText = 'color:#ffd76a;text-decoration:underline;cursor:pointer;text-shadow:1px 1px 0 #000;';
-                item.addEventListener('click', () => this.conn.send('sellItem', { npcId: msg.npcId, makeIndex: it.makeIndex }));
-                grid.appendChild(item);
-            }
-            dlg.appendChild(grid);
+        // 买卖面板（原版 DSellDlg 独立窗口，替代挤在对话里的列表）
+        if (msg.shop === 'buy' || msg.shop === 'sell') {
+            this._showShopPanel(msg);
         }
 
         // 关闭按钮 Prguse[64]（399,1）：正常态红X画在背景图 384 里；透明热区接收点击，
@@ -804,6 +782,93 @@ export class PlayScene extends Scene {
                 close.addEventListener('mouseleave', restore);
             }
         });
+    }
+
+    // 买卖面板（原版 DSellDlg：buy=NPC 商品列表 / sell=背包出售列表 + 投放）
+    _showShopPanel(msg) {
+        this._closeShopPanel();
+        const gui = this.manager.winManager.container;
+        const panel = document.createElement('div');
+        panel.style.cssText = 'position:absolute;right:4px;top:4px;width:300px;max-height:520px;'
+            + 'background:rgba(0,0,0,0.92);border:1px solid #8a6d3b;border-radius:6px;padding:10px;'
+            + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;display:flex;flex-direction:column;';
+        this.shopPanel = panel;
+
+        // 标题 + 金币 + 关闭
+        const head = document.createElement('div');
+        head.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;';
+        const title = document.createElement('span');
+        title.textContent = msg.shop === 'buy' ? '购 买' : '出 售';
+        title.style.cssText = 'font-size:16px;color:#ffd76a;';
+        const gold = document.createElement('span');
+        gold.textContent = `金币 ${this.self.gold || 0}`;
+        gold.style.cssText = 'font-size:12px;color:#fbbf24;';
+        this.shopGoldEl = gold;
+        const close = document.createElement('span');
+        close.textContent = '×';
+        close.style.cssText = 'margin-left:auto;font-size:18px;color:#e8d9b0;cursor:pointer;';
+        close.addEventListener('click', () => this._closeShopPanel());
+        head.appendChild(title);
+        head.appendChild(gold);
+        head.appendChild(close);
+        panel.appendChild(head);
+
+        // 列表区
+        const list = document.createElement('div');
+        list.style.cssText = 'overflow-y:auto;display:flex;flex-direction:column;gap:4px;';
+        panel.appendChild(list);
+
+        if (msg.shop === 'buy') {
+            for (const g of msg.goods || []) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;'
+                    + 'background:#171209;border:1px solid #4a3d22;border-radius:3px;';
+                const nm = document.createElement('span');
+                nm.textContent = g.name;
+                nm.style.cssText = 'flex:1;font-size:12px;';
+                const price = document.createElement('span');
+                price.textContent = `${g.price} 金币`;
+                price.style.cssText = 'font-size:11px;color:#fbbf24;';
+                const btn = document.createElement('button');
+                btn.textContent = '买入';
+                btn.style.cssText = 'background:#6b4f1f;color:#ffd76a;border:1px solid #8a6d3b;'
+                    + 'border-radius:3px;padding:2px 10px;font-size:12px;cursor:pointer;';
+                btn.addEventListener('click', () => this.conn.send('buyItem', { npcId: msg.npcId, index: g.index, count: 1 }));
+                row.appendChild(nm);
+                row.appendChild(price);
+                row.appendChild(btn);
+                list.appendChild(row);
+            }
+        } else {
+            const bagItems = (this.self.items || []).filter(x => x.slot === undefined);
+            if (!bagItems.length) {
+                const empty = document.createElement('div');
+                empty.textContent = '（背包无可出售物品）';
+                empty.style.cssText = 'font-size:12px;color:#9a8b6a;text-align:center;padding:12px;';
+                list.appendChild(empty);
+            }
+            for (const it of bagItems) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 6px;'
+                    + 'background:#171209;border:1px solid #4a3d22;border-radius:3px;';
+                const nm = document.createElement('span');
+                nm.textContent = it.name;
+                nm.style.cssText = 'flex:1;font-size:12px;';
+                const btn = document.createElement('button');
+                btn.textContent = '出售';
+                btn.style.cssText = 'background:#6b4f1f;color:#ffd76a;border:1px solid #8a6d3b;'
+                    + 'border-radius:3px;padding:2px 10px;font-size:12px;cursor:pointer;';
+                btn.addEventListener('click', () => this.conn.send('sellItem', { npcId: msg.npcId, makeIndex: it.makeIndex }));
+                row.appendChild(nm);
+                row.appendChild(btn);
+                list.appendChild(row);
+            }
+        }
+        gui.appendChild(panel);
+    }
+
+    _closeShopPanel() {
+        if (this.shopPanel) { this.shopPanel.remove(); this.shopPanel = null; }
     }
 
     // 解析 NPC 说话文本：<label@value> 渲染为内联黄色下划线链接，其余为普通文本
@@ -990,6 +1055,7 @@ export class PlayScene extends Scene {
         this.bagPanel = null;
         this.stateWin = null;
         this.npcDlg = null;
+        this.shopPanel = null;
         const gui = this.manager.winManager.container;
         gui.innerHTML = '';
     }

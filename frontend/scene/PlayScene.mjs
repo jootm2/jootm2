@@ -683,8 +683,8 @@ export class PlayScene extends Scene {
         // 背包物品格子（原版 DItemGrid 20,13 286x162，8 列）
         this.bagGridEl = document.createElement('div');
         this.bagGridEl.style.cssText = 'position:absolute;left:20px;top:13px;width:286px;height:162px;'
-            + 'display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(4,40px);'
-            + 'grid-auto-rows:40px;row-gap:0;column-gap:0;';
+            + 'display:grid;grid-template-columns:repeat(8,35px);grid-template-rows:repeat(4,40px);'
+            + 'grid-auto-rows:40px;grid-auto-columns:35px;row-gap:0;column-gap:0;';
         panel.appendChild(this.bagGridEl);
         this.bagPanel = panel;
         gui.appendChild(panel);
@@ -701,15 +701,16 @@ export class PlayScene extends Scene {
         const bagItems = items.filter(x => x.slot === undefined);
         for (const it of bagItems) {
             const cell = document.createElement('div');
-            // 格子尺寸由 grid（8 列 1fr / 4 行 40px）决定；图标绝对定位居中，max 限制不撑大格子
-            cell.style.cssText = 'position:relative;overflow:hidden;cursor:pointer;';
+            // 格子显式固定尺寸（35×40，与 grid 轨道一致）；grid place-items 居中不依赖 transform，
+            // img 用固定 max（不依赖百分比），任何一环失效都不会偏移
+            cell.style.cssText = 'display:grid;place-items:center;overflow:hidden;cursor:pointer;'
+                + 'width:35px;height:40px;';
             cell.title = it.name + '（双击使用，单击拿起）';
             this._libUrl('items', it.looks).then((url) => {
                 if (url) {
                     const im = document.createElement('img');
                     im.src = url; im.draggable = false;
-                    im.style.cssText = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);'
-                        + 'max-width:100%;max-height:100%;';
+                    im.style.cssText = 'max-width:33px;max-height:38px;';
                     cell.appendChild(im);
                 }
             });

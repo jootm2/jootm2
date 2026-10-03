@@ -354,6 +354,11 @@ jootm2/
     - 之前错误：位置 (10,190)、黄色 #fbbf24、「金币 123」格式。修正为 (64,185)、白色 12px、`_formatGold` 千分位（1234567→1,234,567）。
     - 背景图确认正确：Prguse[3] 尺寸 336×270，与原版 `SetImgIndex(WProgUse, 3)` 一致。
     - 验证截图：金币 1,234,567 白色显示于 (64,185)，布局与原版一致。
+74. **背包/状态窗口可拖动 + 点击前置**：
+    - 对照原版 `TDWindow`（DWinCtl.pas 821-853）：`MouseDown` 时 `DParent.ChangeChildOrder(self)` 置顶 + 记 `SpotX/Y`；`MouseMove`（`MouseCaptureControl=self`）拖动 `Left/Top` 并限制在 `WINLEFT/WINRIGHT/WINTOP/BOTTOMEDGE`。
+    - `_makeWindowDraggable(win)`：mousedown 捕获阶段 `_bringToFront`（`_zTop` 递增 z-index 置顶）；按住移动超 4px 阈值判定拖动（否则是点击，不影响格子选中/双击/按钮），边界限制屏幕内；拖动后 `_suppressClick` 抑制 click。
+    - 状态窗口改 left 定位（原 right:0 → left:568=800-232），便于拖动。
+    - onExit 清理 `_dragCleaners`。验证：背包拖 (0,0)→(100,100)、状态窗口 (568,0)→(538,0)、点击交替置顶 z-index 正确递增。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

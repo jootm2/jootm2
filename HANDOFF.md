@@ -344,6 +344,11 @@ jootm2/
     - 之前「朝固定方向持续跑」（`_dirFromMouse` + `_runStep` 递归）与原版不符，用户多次反馈。改为目标点：`mousedown` 设 `_targetX/Y` 且仅首次立即 `_stepToTarget` 走一步，重复右键只重设目标不额外走；`render` 主循环按 `WALK_INTERVAL`(540)/`RUN_INTERVAL`(360) 朝目标发 move、到达即停；`mousemove`（按住）更新目标点；`mouseup` 清目标停止。
     - 移除 `_runStep`/`_runCycleTimer`/`_startMoveLoop`/`_mouseDir` 死代码。
     - 验证：首次右键 move=1、重复 3 次右键 move 仍=1、1.5s 主循环走 4 格到达目标(618→622)、松手 target=-1 停止。
+72. **移动最终改回「方向」模型（按住持续朝方向跑）**：
+    - 目标点模型副作用：按住右键不动时，人物跑到鼠标指向的格子就停，需移动鼠标更新目标点才继续（用户反馈不对）。
+    - 改回方向模型：`mousedown` 用 `_dirFromMouse` 算鼠标相对人物方向存入 `_mouseDir`，`mousedown` 重置 `_lastMoveAt=0`；`render` 主循环每 `WALK_INTERVAL`(540)/`RUN_INTERVAL`(360) 朝 `_mouseDir` 发 move，按住持续不停；`mousemove`（按住）实时转向；`mouseup` 清 `_holding` 停止。
+    - 用主循环间隔节流（无 setTimeout 递归），快速点击不累计队列。
+    - 验证：按住右键 2 秒持续走 6 格(mc=6)不靠移动鼠标；快速点 3 次正好 3 步、松手停。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

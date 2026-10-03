@@ -385,6 +385,7 @@ public final class GameService {
                     JsonObject so = e.getAsJsonObject();
                     s.level = so.has("level") ? so.get("level").getAsInt() : 0;
                     s.curTrain = so.has("train") ? so.get("train").getAsInt() : 0;
+                    s.key = so.has("key") ? so.get("key").getAsInt() : 0;   // 快捷键持久化恢复
                 } else if (e != null && e.isJsonPrimitive()) {
                     s.level = e.getAsInt();   // 兼容旧格式 {magicId:level}
                 }
@@ -854,6 +855,7 @@ public final class GameService {
             }
         }
         s.key = key;
+        persist(p);   // 快捷键立即持久化（原版 DBUseMagic.Key 随角色保存，防断线丢失）
         // 推送技能更新给客户端
         JsonObject extras = new JsonObject();
         extras.add("skills", p.skillsJson(world));
@@ -2072,6 +2074,7 @@ public final class GameService {
             JsonObject s = new JsonObject();
             s.addProperty("level", e.getValue().level);
             s.addProperty("train", e.getValue().curTrain);
+            s.addProperty("key", e.getValue().key);   // 快捷键（0=无,1..8=F1..F8），原版 DBUseMagic.Key 持久化
             sj.add(String.valueOf(e.getKey()), s);
         }
         r.skills = sj.toString();

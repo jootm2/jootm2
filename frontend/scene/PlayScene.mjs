@@ -182,11 +182,9 @@ export class PlayScene extends Scene {
     _onKeyDown(e) {
         if (e.target === this.chatInput) return;
         if (e.code === 'Space') { e.preventDefault(); this._attackNearest(); }
-        // F 键是原版快捷键，但 macOS 默认把 F9/F10/F11 当作系统功能键（Mission Control 等）
-        // 浏览器收不到 keydown，故补充字母键替代（B=背包 C=状态 K=技能），两套并存
-        if (e.code === 'F9' || e.code === 'KeyB') { e.preventDefault(); this._toggleBag(); }
-        if (e.code === 'F10' || e.code === 'KeyC') { e.preventDefault(); this._toggleStateWin(); }
-        if (e.code === 'F11' || e.code === 'KeyK') { e.preventDefault(); this._openSkillSetup(); }
+        if (e.code === 'F9') { e.preventDefault(); this._toggleBag(); }          // 原版 VK_F9 = 背包
+        if (e.code === 'F10') { e.preventDefault(); this._toggleStateWin(); }    // 原版 VK_F10 = 状态/装备属性
+        if (e.code === 'F12') { e.preventDefault(); this._openSkillSetup(); }    // 原版 VK_F11=技能设置，macOS F11 被系统拦截(显示桌面)改用 F12
         if (e.code >= 'F1' && e.code <= 'F8') {
             e.preventDefault();
             this._castFromSlot(Number(e.code.substring(1)));

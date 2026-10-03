@@ -64,6 +64,8 @@ export class PlayScene extends Scene {
         this._lastMoveAt = 0;        // 上次移动时间戳
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
+        this._zTop = 100;            // 窗口 z-index 计数器（点击前置递增）
+        this._dragCleaners = [];     // 窗口拖动监听清理函数
         this._canvas = document.getElementById('screen');
         this.chatLines = [];
         this._chatInput = null;
@@ -456,6 +458,48 @@ export class PlayScene extends Scene {
     // ---- 背包面板（B 键）----
     // ---- 状态窗口（F9，原版 DStateWin）----
 
+    // 窗口可拖动 + 点击前置（原版 TDWindow：MouseDown ChangeChildOrder 置顶，MouseMove 拖动）
+    _makeWindowDraggable(win) {
+        // 点击任意位置 → 前置（捕获阶段，子元素点击也触发）
+        win.addEventListener('mousedown', () => this._bringToFront(win), true);
+        // 整个窗口按住拖动；超过 4px 阈值才算拖动（否则视为点击，不影响格子/按钮）
+        let drag = null;
+        win.addEventListener('mousedown', (e) => {
+            drag = { sx: e.clientX, sy: e.clientY, l: win.offsetLeft, t: win.offsetTop, moved: false };
+        });
+        const mm = (e) => {
+            if (!drag) return;
+            const dx = e.clientX - drag.sx;
+            const dy = e.clientY - drag.sy;
+            if (!drag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+            drag.moved = true;
+            win.style.left = Math.max(0, Math.min(SCREEN_WIDTH - win.offsetWidth, drag.l + dx)) + 'px';
+            win.style.top = Math.max(0, Math.min(SCREEN_HEIGHT - win.offsetHeight, drag.t + dy)) + 'px';
+        };
+        const mu = () => {
+            const wasMoved = drag && drag.moved;
+            drag = null;
+            if (wasMoved) win._suppressClick = Date.now();   // 拖动后抑制 click
+        };
+        document.addEventListener('mousemove', mm);
+        document.addEventListener('mouseup', mu);
+        // 拖动后抑制 click（避免拖动触发格子选中/按钮点击）
+        win.addEventListener('click', (e) => {
+            if (win._suppressClick && Date.now() - win._suppressClick < 300) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
+        }, true);
+        this._dragCleaners.push(() => {
+            document.removeEventListener('mousemove', mm);
+            document.removeEventListener('mouseup', mu);
+        });
+    }
+
+    _bringToFront(win) {
+        win.style.zIndex = ++this._zTop;
+    }
+
     _toggleStateWin() {
         if (!this.stateWin) this._buildStateWin();
         const open = this.stateWin.style.display === 'block';
@@ -467,14 +511,16 @@ export class PlayScene extends Scene {
         if (this.stateWin) return;
         const gui = this.manager.winManager.container;
         const win = document.createElement('div');
-        win.style.cssText = 'position:absolute;right:0;top:0;width:232px;height:325px;'
+        // 用 left 定位（原版右对齐 ≈ 800-232=568），便于拖动
+        win.style.cssText = 'position:absolute;left:568px;top:0;width:232px;height:325px;'
             + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
         win.style.display = 'none';
-        // 背景 Prguse[370]
+        // 背景 Prguse[370]（标记 win-drag 用于拖动）
         this._libUrl('prguse', 370).then((url) => {
             if (url && this.stateWin === win) {
                 const bg = document.createElement('img');
                 bg.src = url; bg.draggable = false;
+                bg.className = 'win-drag';
                 bg.style.cssText = 'position:absolute;left:0;top:0;';
                 win.insertBefore(bg, win.firstChild);
             }
@@ -538,6 +584,7 @@ export class PlayScene extends Scene {
         mkArrow(372, 187, 1);   // 下箭头 → 属性页
         this.stateWin = win;
         this.statePage = 0;
+        this._makeWindowDraggable(win);
         gui.appendChild(win);
     }
 
@@ -630,11 +677,12 @@ export class PlayScene extends Scene {
         panel.style.cssText = 'position:absolute;left:0;top:0;width:336px;height:270px;'
             + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
         panel.style.display = 'none';
-        // 背景 Prguse[3]
+        // 背景 Prguse[3]（标记 win-drag 用于拖动）
         this._libUrl('prguse', 3).then((url) => {
             if (url && this.bagPanel === panel) {
                 const bg = document.createElement('img');
                 bg.src = url; bg.draggable = false;
+                bg.className = 'win-drag';
                 bg.style.cssText = 'position:absolute;left:0;top:0;';
                 panel.insertBefore(bg, panel.firstChild);
             }
@@ -656,6 +704,7 @@ export class PlayScene extends Scene {
             + 'grid-auto-rows:32px;grid-auto-columns:36px;row-gap:0;column-gap:0;';
         panel.appendChild(this.bagGridEl);
         this.bagPanel = panel;
+        this._makeWindowDraggable(panel);
         gui.appendChild(panel);
     }
 
@@ -1205,6 +1254,9 @@ export class PlayScene extends Scene {
         if (this._mdHandler) this._canvas.removeEventListener('mousedown', this._mdHandler);
         if (this._muHandler) document.removeEventListener('mouseup', this._muHandler);
         if (this._mmHandler) document.removeEventListener('mousemove', this._mmHandler);
+        // 清理窗口拖动监听
+        for (const fn of this._dragCleaners) fn();
+        this._dragCleaners = [];
         this._holding = false;
         this.bagPanel = null;
         this.stateWin = null;

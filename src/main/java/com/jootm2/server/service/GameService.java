@@ -855,7 +855,8 @@ public final class GameService {
             }
         }
         s.key = key;
-        persist(p);   // 快捷键立即持久化（原版 DBUseMagic.Key 随角色保存，防断线丢失）
+        // 仅改内存，不立即落库（对齐原版 ServerGetMagicKeyChange：Key 随角色的
+        // 定时保存 saveAllPlayers() / 登出 persist(p) 一起持久化）
         // 推送技能更新给客户端
         JsonObject extras = new JsonObject();
         extras.add("skills", p.skillsJson(world));

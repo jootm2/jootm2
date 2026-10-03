@@ -352,8 +352,15 @@ export function getMonOffset(appr) {
     }
 }
 
-/** GetNpcOffset：appr → NPC 帧偏移。 */
+// 本资源版本 npc 图库缺失贴图的占位 appr（4x1 占位图，height=1），回退到默认外观
+const NPC_PLACEHOLDER_APPR = new Set([
+    24, 25, 26, 28, 33, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+    51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
+]);
+
+/** GetNpcOffset：appr → NPC 帧偏移；占位图 appr 回退到默认外观（appr=0）。 */
 export function getNpcOffset(appr) {
+    if (NPC_PLACEHOLDER_APPR.has(appr)) appr = 0;
     if (appr >= 0 && appr <= 22) return MERCHANTFRAME * appr;
     if (appr === 23) return 1380;
     return 1470 + MERCHANTFRAME * (appr - 24);

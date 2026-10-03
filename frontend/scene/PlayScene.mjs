@@ -646,12 +646,16 @@ export class PlayScene extends Scene {
         }
         for (const [magicId, sk] of entries) {
             const row = document.createElement('div');
-            const keyLabel = sk.key ? ('F' + sk.key) : '未设置';
+            const passive = (sk.effectType === 0);   // 被动技能（基本剑术/精神力战法/攻杀等）
+            const keyLabel = passive ? '被动' : (sk.key ? ('F' + sk.key) : '未设置');
             row.textContent = `${sk.name}  Lv.${sk.level}  [${keyLabel}]`;
-            row.style.cssText = 'cursor:pointer;padding:3px 4px;margin-bottom:2px;';
-            row.addEventListener('mouseenter', () => { row.style.background = 'rgba(255,255,255,0.15)'; });
-            row.addEventListener('mouseleave', () => { row.style.background = ''; });
-            row.addEventListener('click', () => this._setupSkillKey(Number(magicId), sk));
+            row.style.cssText = 'padding:3px 4px;margin-bottom:2px;'
+                + (passive ? 'color:#888;' : 'cursor:pointer;');
+            if (!passive) {
+                row.addEventListener('mouseenter', () => { row.style.background = 'rgba(255,255,255,0.15)'; });
+                row.addEventListener('mouseleave', () => { row.style.background = ''; });
+                row.addEventListener('click', () => this._setupSkillKey(Number(magicId), sk));
+            }
             this.stateSkillListEl.appendChild(row);
         }
     }

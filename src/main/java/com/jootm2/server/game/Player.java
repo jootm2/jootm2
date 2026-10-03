@@ -324,7 +324,7 @@ public final class Player extends Actor {
         return o;
     }
 
-    /** 已学技能：{magicId: {name, level, key}}，供客户端技能栏显示与快捷键施法。 */
+    /** 已学技能：{magicId: {name, level, key, effectType}}，供客户端技能栏显示与快捷键施法。 */
     public JsonObject skillsJson(GameWorld world) {
         JsonObject o = new JsonObject();
         for (Map.Entry<Integer, Skill> e : skills.entrySet()) {
@@ -333,6 +333,7 @@ public final class Player extends Actor {
             s.addProperty("name", mt != null ? mt.name : String.valueOf(e.getKey()));
             s.addProperty("level", e.getValue().level);
             s.addProperty("key", e.getValue().key);
+            s.addProperty("effectType", mt != null ? mt.effectType : 0);   // 0=被动
             o.add(String.valueOf(e.getKey()), s);
         }
         return o;

@@ -840,6 +840,12 @@ public final class GameService {
         if (s == null) {
             return;
         }
+        MagicTemplate mt = world.magicTemplates.get(magicId);
+        if (mt != null && mt.effectType == 0 && key != 0) {
+            // 被动技能（基本剑术/精神力战法/攻杀/刺杀等）不可设置快捷键
+            world.sendSystem(p, "被动技能无法设置快捷键。");
+            return;
+        }
         if (key != 0) {
             for (Skill other : p.skills.values()) {
                 if (other != s && other.key == key) {

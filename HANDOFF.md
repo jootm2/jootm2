@@ -339,6 +339,11 @@ jootm2/
     - 切到走（左键）时清除 `_runTimer`；跑动中 mousemove 仍可转向。
     - 背包格子对齐原版 `TDGrid`（DWinCtl.pas 703-706）：`ColCount=8 RowCount=5 ColWidth=36 RowHeight=32`，即 8×5=40 格、格子 36×32。原误设 8×4、35×40 竖长方形（选中黄框比例 0.875「太高」）。现比例 1.13 接近正方形。
     - 验证：跑动中额外 3 次右键 move 仍=1、松手不增长；格子 36×32、行距 32px。
+71. **移动改原版「目标点」模型（彻底对齐右键跑）**：
+    - 对照 `ClMain.pas`：`_DXDrawMouseDown` 设 `ChrAction`/`TargetX`/`TargetY`，主循环 `ProcessActionMessages` 每步按当前坐标 `GetNextDirection` 重算朝目标方向（跑用 `GetNextRunXY` 2 格）；`DXDraw1MouseUp` 设 `TargetX := -1` 停止。
+    - 之前「朝固定方向持续跑」（`_dirFromMouse` + `_runStep` 递归）与原版不符，用户多次反馈。改为目标点：`mousedown` 设 `_targetX/Y` 且仅首次立即 `_stepToTarget` 走一步，重复右键只重设目标不额外走；`render` 主循环按 `WALK_INTERVAL`(540)/`RUN_INTERVAL`(360) 朝目标发 move、到达即停；`mousemove`（按住）更新目标点；`mouseup` 清目标停止。
+    - 移除 `_runStep`/`_runCycleTimer`/`_startMoveLoop`/`_mouseDir` 死代码。
+    - 验证：首次右键 move=1、重复 3 次右键 move 仍=1、1.5s 主循环走 4 格到达目标(618→622)、松手 target=-1 停止。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

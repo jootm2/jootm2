@@ -81,6 +81,9 @@ public final class Player extends Actor {
     /** 隐身术截止时间戳（ms），0 = 未隐身。 */
     public long hideUntil = 0;
 
+    /** 普通攻击间隔冷却截止时间戳（ms），未到则忽略 attack 消息。 */
+    public long nextAttackAt = 0;
+
     /** 增益 buff：幽灵盾(14)/神圣战甲术(15) 加防御/魔御，截止时间戳。 */
     public long acBuffUntil = 0;
     public int acBuffBonus = 0;

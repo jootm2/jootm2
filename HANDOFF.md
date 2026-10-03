@@ -363,6 +363,11 @@ jootm2/
     - `_makeWindowDraggable` 通用方法扩展到 NPC 对话框（`_showNpcDialog` 的 dlg）、买列表（`_showBuyMenu` 的 panel）、卖 ok 框（`_showSellDlg` 的 panel）。
     - `mm` 加 `win.isConnected` 检查：临时窗口（NPC 对话框/买卖面板）关闭移除后忽略拖动，避免对已移除窗口操作。
     - 验证：NPC 对话框拖动 (0,0)→(80,80) 生效。
+76. **背包物品描述改到下方显示**：
+    - 对照 `DItemBagDirectPaint`：`GetMouseItemInfo` 后 `TextOut(Left+70, Top+215)` 起显示 3 行（名字黄色 + 持久/重量 + 攻击/防御 + 需要等级），不是 HTML tooltip。
+    - 服务端 `Player.instanceJson` 补物品模板属性：`stdMode/shape/weight/dc/dcMax/mc/mcMax/sc/scMax/ac/acMax/mac/macMax/need/needLevel`。
+    - 前端 `_buildBag` 加 `bagDescEl`(70,215)；cell `mouseenter/mouseleave` 显示/隐藏描述，移除 `cell.title`；`_itemDesc` 按 `stdMode` 分类：药(0)→`+HP/MP`、消耗品/书(1-4)→重量、装备(5/6/10/11/15/19-26/30/52/54)→重量持久+攻防+等级、其他(如肉 40)→重量。
+    - 验证：金创药 +20HP 重量1、魔法药 +30MP 重量1、肉 重量3、命运之书 重量1。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

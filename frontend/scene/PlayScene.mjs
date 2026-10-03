@@ -241,16 +241,19 @@ export class PlayScene extends Scene {
 
         const dir = this._dirFromMouse(e);
         if (dir < 0) return;
-        // 空地移动：记录方向；按住则持续（走/跑每步结束判断鼠标状态，松手即停）
-        this._holding = true;
-        this._mouseDir = dir;
-        this._mouseRun = run;
-        // 清除之前的移动定时器，避免连续点击把动作排队累计
-        if (this._runTimer) { clearTimeout(this._runTimer); this._runTimer = null; }
-        if (this._runCycleTimer) { clearTimeout(this._runCycleTimer); this._runCycleTimer = null; }
         if (run) {
+            // 已在跑动中：忽略本次右键（不累计、不重置）；跑动结束时由 _runStep 判断鼠标状态
+            if (this._holding && this._mouseRun) return;
+            this._holding = true;
+            this._mouseDir = dir;
+            this._mouseRun = true;
             this._runStep();
         } else {
+            // 切到走：清除跑动定时器
+            if (this._runTimer) { clearTimeout(this._runTimer); this._runTimer = null; }
+            this._holding = true;
+            this._mouseDir = dir;
+            this._mouseRun = false;
             this.conn.send('move', { dir, run: false });
             this._lastMoveAt = Date.now();
         }
@@ -684,11 +687,11 @@ export class PlayScene extends Scene {
         this.goldEl = document.createElement('div');
         this.goldEl.style.cssText = 'position:absolute;left:10px;top:190px;font-size:13px;color:#fbbf24;text-shadow:1px 1px 0 #000;';
         panel.appendChild(this.goldEl);
-        // 背包物品格子（原版 DItemGrid 20,13 286x162，8 列）
+        // 背包物品格子（原版 DItemGrid 20,13 286x162；TDGrid ColCount=8 RowCount=5 ColWidth=36 RowHeight=32）
         this.bagGridEl = document.createElement('div');
         this.bagGridEl.style.cssText = 'position:absolute;left:20px;top:13px;width:286px;height:162px;'
-            + 'display:grid;grid-template-columns:repeat(8,35px);grid-template-rows:repeat(4,40px);'
-            + 'grid-auto-rows:40px;grid-auto-columns:35px;row-gap:0;column-gap:0;';
+            + 'display:grid;grid-template-columns:repeat(8,36px);grid-template-rows:repeat(5,32px);'
+            + 'grid-auto-rows:32px;grid-auto-columns:36px;row-gap:0;column-gap:0;';
         panel.appendChild(this.bagGridEl);
         this.bagPanel = panel;
         gui.appendChild(panel);
@@ -705,16 +708,15 @@ export class PlayScene extends Scene {
         const bagItems = items.filter(x => x.slot === undefined);
         for (const it of bagItems) {
             const cell = document.createElement('div');
-            // 格子显式固定尺寸（35×40，与 grid 轨道一致）；grid place-items 居中不依赖 transform，
-            // img 用固定 max（不依赖百分比），任何一环失效都不会偏移
+            // 格子显式固定尺寸（36×32，对齐原版 TDGrid ColWidth=36/RowHeight=32）；grid place-items 居中
             cell.style.cssText = 'display:grid;place-items:center;overflow:hidden;cursor:pointer;'
-                + 'width:35px;height:40px;';
+                + 'width:36px;height:32px;';
             cell.title = it.name + '（双击使用，单击拿起）';
             this._libUrl('items', it.looks).then((url) => {
                 if (url) {
                     const im = document.createElement('img');
                     im.src = url; im.draggable = false;
-                    im.style.cssText = 'max-width:33px;max-height:38px;';
+                    im.style.cssText = 'max-width:34px;max-height:30px;';
                     cell.appendChild(im);
                 }
             });

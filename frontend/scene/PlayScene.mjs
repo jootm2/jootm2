@@ -53,6 +53,11 @@ const ATTR_ROWS = [
 // 需要施法目标的魔法（伤害/施毒/火墙/诱惑）
 const TARGET_MAGICS = new Set([1, 5, 6, 11, 20, 22, 35]);
 
+// 被动技能（无法主动施放）：基本剑术/精神力战法/攻杀/刺杀。
+// 注意半月弯刀(25)/烈火剑法(26)/野蛮冲撞(27) 虽 EffectType=0 但为主动可施放，
+// 故不能用 effectType===0 判被动，需白名单。
+const PASSIVE_MAGICS = new Set([3, 4, 7, 12]);
+
 export class PlayScene extends Scene {
     constructor(manager, snapshot) {
         super(manager);
@@ -739,12 +744,13 @@ export class PlayScene extends Scene {
         if (this.magicPage < 0) this.magicPage = 0;
         const page = entries.slice(this.magicPage * 5, this.magicPage * 5 + 5);
         for (const [magicId, sk] of page) {
+            const mid = Number(magicId);
+            const passive = PASSIVE_MAGICS.has(mid);   // 被动技能白名单（基本剑术/精神力战法/攻杀/刺杀）
             const row = document.createElement('div');
-            const passive = (sk.effectType === 0);   // 被动技能（基本剑术/精神力战法/攻杀等）
             row.style.cssText = 'position:relative;height:37px;overflow:hidden;'
                 + (passive ? 'color:#888;' : 'cursor:pointer;');
-            // 技能图标（原版 MagIcon[Effect*2]，31x33 相对行左上角）
-            if (sk.effect != null && sk.effect > 0) {
+            // 技能图标（原版 MagIcon[Effect*2]，Effect=0 的被动技能也用 magicon[0]）
+            if (sk.effect != null && sk.effect >= 0) {
                 this._libUrl('magicon', sk.effect * 2).then((url) => {
                     if (url) {
                         const im = document.createElement('img');
@@ -754,57 +760,111 @@ export class PlayScene extends Scene {
                     }
                 });
             }
-            // 名字 + 等级 + 快捷键（图标右侧）
-            const txt = document.createElement('div');
-            const keyLabel = passive ? '' : (sk.key ? ('  F' + sk.key) : '  未设置');
-            txt.textContent = `${sk.name} ${sk.level}${keyLabel}`;
-            txt.style.cssText = 'position:absolute;left:40px;top:10px;white-space:nowrap;';
-            row.appendChild(txt);
+            // 名字（原版 TextOut bbx+48）
+            const nameEl = document.createElement('div');
+            nameEl.textContent = sk.name;
+            nameEl.style.cssText = 'position:absolute;left:40px;top:1px;white-space:nowrap;';
+            row.appendChild(nameEl);
+            // 等级（原版 TextOut bbx+48+16, bby+8+15）
+            const lvEl = document.createElement('div');
+            lvEl.textContent = String(sk.level);
+            lvEl.style.cssText = 'position:absolute;left:56px;top:17px;font-size:11px;';
+            row.appendChild(lvEl);
             if (!passive) {
+                // 快捷键图标（原版 keyimg Prguse[650..657] @bbx+145）或「未设置」
+                if (sk.key) {
+                    this._libUrl('prguse', 650 + (sk.key - 1)).then((url) => {
+                        if (url) {
+                            const im = document.createElement('img');
+                            im.src = url; im.draggable = false;
+                            im.style.cssText = 'position:absolute;left:137px;top:8px;';
+                            row.appendChild(im);
+                        }
+                    });
+                } else {
+                    const unset = document.createElement('div');
+                    unset.textContent = '未设置';
+                    unset.style.cssText = 'position:absolute;left:137px;top:12px;font-size:11px;color:#a8a090;';
+                    row.appendChild(unset);
+                }
                 row.addEventListener('mouseenter', () => { row.style.background = 'rgba(255,255,255,0.15)'; });
                 row.addEventListener('mouseleave', () => { row.style.background = ''; });
                 // 单击施法（macOS 下 F1-F8 施法键可能被系统拦截，故提供鼠标施法入口）；双击设置快捷键
-                row.addEventListener('click', () => this._castMagic(Number(magicId)));
-                row.addEventListener('dblclick', () => this._setupSkillKey(Number(magicId), sk));
+                row.addEventListener('click', () => this._castMagic(mid));
+                row.addEventListener('dblclick', () => this._setupSkillKey(mid, sk));
                 row.title = '单击施法，双击设置快捷键';
             }
             this.stateSkillListEl.appendChild(row);
         }
     }
 
-    // 点击技能：弹出快捷键选择（F1-F8 + 取消）
+    // 点击技能：弹出快捷键设置对话框（原版 DKeySelDlg：背景 Prguse[229] + MagIcon 图标 + F1-F8 键图标）
     _setupSkillKey(magicId, sk) {
         const gui = this.manager.winManager.container;
-        // 移除旧的选择框
         if (this.keySetupEl) { this.keySetupEl.remove(); this.keySetupEl = null; }
+        const W = 376, H = 179;
         const box = document.createElement('div');
-        box.style.cssText = 'position:absolute;left:300px;top:120px;width:150px;height:150px;'
-            + 'background:rgba(0,0,0,0.85);border:1px solid #666;z-index:9999;'
-            + 'font-family:SimSun,serif;color:#fff;font-size:12px;pointer-events:auto;';
+        box.style.cssText = `position:absolute;left:${Math.floor((SCREEN_WIDTH - W) / 2)}px;`
+            + `top:${Math.floor((SCREEN_HEIGHT - H) / 2)}px;width:${W}px;height:${H}px;`
+            + 'z-index:9999;font-family:SimSun,serif;color:#e8d9b0;font-size:12px;pointer-events:auto;';
         this.keySetupEl = box;
+        // 背景 Prguse[229]（这个资源版本用 229 替代原版 620）
+        this._libUrl('prguse', 229).then((url) => {
+            if (url && this.keySetupEl === box) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:0;top:0;';
+                box.insertBefore(bg, box.firstChild);
+            }
+        });
+        // 技能图标 MagIcon[Effect*2]（原版 DKsIcon @51,31）
+        this._libUrl('magicon', sk.effect * 2).then((url) => {
+            if (url && this.keySetupEl === box) {
+                const im = document.createElement('img');
+                im.src = url; im.draggable = false;
+                im.style.cssText = 'position:absolute;left:51px;top:31px;width:31px;height:33px;';
+                box.appendChild(im);
+            }
+        });
+        // 文字「XXX 快捷键盘被设置为」（原版 TextOut Left+95, Top+38）
         const title = document.createElement('div');
-        title.textContent = `${sk.name} 设置快捷键`;
-        title.style.cssText = 'padding:6px;text-align:center;color:#ffe400;';
+        title.textContent = `${sk.name} 快捷键盘被设置为`;
+        title.style.cssText = 'position:absolute;left:95px;top:38px;white-space:nowrap;';
         box.appendChild(title);
-        const grid = document.createElement('div');
-        grid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px 8px;';
+        // F1-F8 键图标（原版 DKsF1..F8：Prguse[232/234/236/238/240/242/244/246] @ 25/57/89/121/160/192/224/256, 78）
         for (let k = 1; k <= 8; k++) {
+            const idx = 232 + (k - 1) * 2;
+            const left = 25 + (k - 1) * 32;
             const btn = document.createElement('div');
-            btn.textContent = 'F' + k;
-            btn.style.cssText = 'text-align:center;padding:4px 0;cursor:pointer;border:1px solid #555;background:#333;';
-            btn.addEventListener('mouseenter', () => { btn.style.background = '#555'; });
-            btn.addEventListener('mouseleave', () => { btn.style.background = '#333'; });
+            btn.style.cssText = `position:absolute;left:${left}px;top:78px;width:32px;height:30px;cursor:pointer;`;
+            this._libUrl('prguse', idx).then((url) => {
+                if (url && this.keySetupEl === box) {
+                    const im = document.createElement('img');
+                    im.src = url; im.draggable = false;
+                    btn.appendChild(im);
+                }
+            });
             btn.addEventListener('click', () => {
                 this.conn.send('magicKeyChange', { magicId, key: k });
                 this.keySetupEl.remove();
                 this.keySetupEl = null;
             });
-            grid.appendChild(btn);
+            box.appendChild(btn);
         }
-        box.appendChild(grid);
+        // 清除快捷键（原版 DKsNone=624，此资源无图，用文字）
+        const clear = document.createElement('div');
+        clear.textContent = '清除';
+        clear.style.cssText = 'position:absolute;right:120px;bottom:24px;cursor:pointer;color:#ccc;';
+        clear.addEventListener('click', () => {
+            this.conn.send('magicKeyChange', { magicId, key: 0 });
+            this.keySetupEl.remove();
+            this.keySetupEl = null;
+        });
+        box.appendChild(clear);
+        // 取消（原版 DKsOk=621 确定关闭，用文字按钮）
         const cancel = document.createElement('div');
         cancel.textContent = '取消';
-        cancel.style.cssText = 'text-align:center;padding:4px;cursor:pointer;color:#ccc;';
+        cancel.style.cssText = 'position:absolute;right:40px;bottom:24px;cursor:pointer;color:#ccc;';
         cancel.addEventListener('click', () => { this.keySetupEl.remove(); this.keySetupEl = null; });
         box.appendChild(cancel);
         gui.appendChild(box);

@@ -817,33 +817,41 @@ export class PlayScene extends Scene {
                 box.insertBefore(bg, box.firstChild);
             }
         });
-        // 技能图标 MagIcon[Effect*2]（顶部左侧）
+        // 技能图标 MagIcon[Effect*2]（对齐背景图标槽 16-48,16-64）
         this._libUrl('magicon', sk.effect * 2).then((url) => {
             if (url && this.keySetupEl === box) {
                 const im = document.createElement('img');
                 im.src = url; im.draggable = false;
-                im.style.cssText = 'position:absolute;left:28px;top:18px;width:31px;height:33px;';
+                im.style.cssText = 'position:absolute;left:16px;top:20px;width:31px;height:33px;';
                 box.appendChild(im);
             }
         });
         // 技能名（图标右侧）
         const name = document.createElement('div');
         name.textContent = sk.name;
-        name.style.cssText = 'position:absolute;left:68px;top:26px;white-space:nowrap;';
+        name.style.cssText = 'position:absolute;left:55px;top:28px;white-space:nowrap;';
         box.appendChild(name);
-        // F1-F8 键图标（Prguse[232/234/236/238/240/242/244/246]，背景提示文字下方一排）
+        // F1-F8 键（原版 DKsF1..F8：正常态透明、当前键高亮 idx+1、按下显示 idx）
+        // 居中一排，背景提示文字（y≈80-112）下方
         for (let k = 1; k <= 8; k++) {
             const idx = 232 + (k - 1) * 2;
-            const left = 25 + (k - 1) * 32;
+            const left = 60 + (k - 1) * 32;
             const btn = document.createElement('div');
-            btn.style.cssText = `position:absolute;left:${left}px;top:115px;width:32px;height:30px;cursor:pointer;`;
-            this._libUrl('prguse', idx).then((url) => {
-                if (url && this.keySetupEl === box) {
-                    const im = document.createElement('img');
-                    im.src = url; im.draggable = false;
-                    btn.appendChild(im);
-                }
-            });
+            btn.style.cssText = `position:absolute;left:${left}px;top:118px;width:32px;height:30px;cursor:pointer;`;
+            const isCurrent = (sk.key === k);
+            const im = document.createElement('img');
+            im.draggable = false;
+            im.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;';
+            btn.appendChild(im);
+            const show = (imgIdx) => {
+                this._libUrl('prguse', imgIdx).then((url) => {
+                    if (url && this.keySetupEl === box) { im.src = url; im.style.visibility = 'visible'; }
+                });
+            };
+            if (isCurrent) show(idx + 1);   // 当前快捷键高亮
+            btn.addEventListener('mousedown', () => show(idx));
+            btn.addEventListener('mouseup', () => { im.style.visibility = isCurrent ? 'visible' : 'hidden'; });
+            btn.addEventListener('mouseleave', () => { im.style.visibility = isCurrent ? 'visible' : 'hidden'; });
             btn.addEventListener('click', () => {
                 this.conn.send('magicKeyChange', { magicId, key: k });
                 this.keySetupEl.remove();

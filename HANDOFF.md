@@ -349,6 +349,11 @@ jootm2/
     - 改回方向模型：`mousedown` 用 `_dirFromMouse` 算鼠标相对人物方向存入 `_mouseDir`，`mousedown` 重置 `_lastMoveAt=0`；`render` 主循环每 `WALK_INTERVAL`(540)/`RUN_INTERVAL`(360) 朝 `_mouseDir` 发 move，按住持续不停；`mousemove`（按住）实时转向；`mouseup` 清 `_holding` 停止。
     - 用主循环间隔节流（无 setTimeout 递归），快速点击不累计队列。
     - 验证：按住右键 2 秒持续走 6 格(mc=6)不靠移动鼠标；快速点 3 次正好 3 步、松手停。
+73. **背包金币显示对齐原版**：
+    - 对照 `DItemBagDirectPaint`：金币 `TextOut(Left+64, Top+185, GetGoldStr(Gold))`，白色 `clWhite`；`GetGoldStr`（ClFunc.pas 96）为千分位逗号、无「金币」前缀。
+    - 之前错误：位置 (10,190)、黄色 #fbbf24、「金币 123」格式。修正为 (64,185)、白色 12px、`_formatGold` 千分位（1234567→1,234,567）。
+    - 背景图确认正确：Prguse[3] 尺寸 336×270，与原版 `SetImgIndex(WProgUse, 3)` 一致。
+    - 验证截图：金币 1,234,567 白色显示于 (64,185)，布局与原版一致。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

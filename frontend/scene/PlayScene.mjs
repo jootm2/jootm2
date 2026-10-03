@@ -748,14 +748,20 @@ export class PlayScene extends Scene {
             const passive = PASSIVE_MAGICS.has(mid);   // 被动技能白名单（基本剑术/精神力战法/攻杀/刺杀）
             const row = document.createElement('div');
             row.style.cssText = 'position:relative;height:37px;overflow:hidden;'
-                + (passive ? 'color:#888;' : 'cursor:pointer;');
+                + (passive ? 'color:#888;' : '');
             // 技能图标（原版 MagIcon[Effect*2]，Effect=0 的被动技能也用 magicon[0]）
+            // 单击图标弹快捷键设置对话框（原版 DStMag1Click，仅图标可点，整行不可点）
             if (sk.effect != null && sk.effect >= 0) {
                 this._libUrl('magicon', sk.effect * 2).then((url) => {
                     if (url) {
                         const im = document.createElement('img');
                         im.src = url; im.draggable = false;
-                        im.style.cssText = 'position:absolute;left:0;top:0;width:31px;height:33px;';
+                        im.style.cssText = 'position:absolute;left:0;top:0;width:31px;height:33px;'
+                            + (passive ? '' : 'cursor:pointer;');
+                        if (!passive) {
+                            im.title = '点击设置快捷键';
+                            im.addEventListener('click', () => this._setupSkillKey(mid, sk));
+                        }
                         row.appendChild(im);
                     }
                 });
@@ -787,11 +793,6 @@ export class PlayScene extends Scene {
                     unset.style.cssText = 'position:absolute;left:70px;top:12px;font-size:11px;color:#a8a090;';
                     row.appendChild(unset);
                 }
-                row.addEventListener('mouseenter', () => { row.style.background = 'rgba(255,255,255,0.15)'; });
-                row.addEventListener('mouseleave', () => { row.style.background = ''; });
-                // 原版 DStMag1Click：单击技能弹出快捷键设置对话框
-                row.addEventListener('click', () => this._setupSkillKey(mid, sk));
-                row.title = '点击设置快捷键';
             }
             this.stateSkillListEl.appendChild(row);
         }

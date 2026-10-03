@@ -359,6 +359,10 @@ jootm2/
     - `_makeWindowDraggable(win)`：mousedown 捕获阶段 `_bringToFront`（`_zTop` 递增 z-index 置顶）；按住移动超 4px 阈值判定拖动（否则是点击，不影响格子选中/双击/按钮），边界限制屏幕内；拖动后 `_suppressClick` 抑制 click。
     - 状态窗口改 left 定位（原 right:0 → left:568=800-232），便于拖动。
     - onExit 清理 `_dragCleaners`。验证：背包拖 (0,0)→(100,100)、状态窗口 (568,0)→(538,0)、点击交替置顶 z-index 正确递增。
+75. **拖动+前置通用化到所有窗口**：
+    - `_makeWindowDraggable` 通用方法扩展到 NPC 对话框（`_showNpcDialog` 的 dlg）、买列表（`_showBuyMenu` 的 panel）、卖 ok 框（`_showSellDlg` 的 panel）。
+    - `mm` 加 `win.isConnected` 检查：临时窗口（NPC 对话框/买卖面板）关闭移除后忽略拖动，避免对已移除窗口操作。
+    - 验证：NPC 对话框拖动 (0,0)→(80,80) 生效。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

@@ -355,6 +355,25 @@ public final class Player extends Actor {
 
     private JsonObject instanceJson(GameWorld world, ItemInstance it) {
         ItemTemplate t = world.itemTemplates.get(it.index);
-        return it.toJson(t == null ? "?" : t.name, t == null ? 0 : t.looks);
+        JsonObject o = it.toJson(t == null ? "?" : t.name, t == null ? 0 : t.looks);
+        if (t != null) {
+            // 物品描述所需属性（原版 GetMouseItemInfo 用的字段）
+            o.addProperty("stdMode", t.stdMode);
+            o.addProperty("shape", t.shape);
+            o.addProperty("weight", t.weight);
+            o.addProperty("dc", t.dcMin);
+            o.addProperty("dcMax", t.dcMax);
+            o.addProperty("mc", t.mcMin);
+            o.addProperty("mcMax", t.mcMax);
+            o.addProperty("sc", t.scMin);
+            o.addProperty("scMax", t.scMax);
+            o.addProperty("ac", t.acMin);
+            o.addProperty("acMax", t.acMax);
+            o.addProperty("mac", t.macMin);
+            o.addProperty("macMax", t.macMax);
+            o.addProperty("need", t.need);
+            o.addProperty("needLevel", t.needLevel);
+        }
+        return o;
     }
 }

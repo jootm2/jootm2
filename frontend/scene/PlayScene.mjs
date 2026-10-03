@@ -683,6 +683,11 @@ export class PlayScene extends Scene {
         this.goldEl = document.createElement('div');
         this.goldEl.style.cssText = 'position:absolute;left:64px;top:185px;font-size:12px;color:#ffffff;text-shadow:1px 1px 0 #000;';
         panel.appendChild(this.goldEl);
+        // 物品描述区（原版 DItemBagDirectPaint：鼠标悬停物品在 Left+70,Top+215 起显示 3 行描述）
+        this.bagDescEl = document.createElement('div');
+        this.bagDescEl.style.cssText = 'position:absolute;left:70px;top:215px;width:250px;'
+            + 'font-size:12px;line-height:14px;color:#ffffff;text-shadow:1px 1px 0 #000;pointer-events:none;';
+        panel.appendChild(this.bagDescEl);
         // 背包物品格子（原版 DItemGrid 20,13 286x162；TDGrid ColCount=8 RowCount=5 ColWidth=36 RowHeight=32）
         this.bagGridEl = document.createElement('div');
         this.bagGridEl.style.cssText = 'position:absolute;left:20px;top:13px;width:286px;height:162px;'
@@ -709,7 +714,8 @@ export class PlayScene extends Scene {
             // 格子显式固定尺寸（36×32，对齐原版 TDGrid ColWidth=36/RowHeight=32）；grid place-items 居中
             cell.style.cssText = 'display:grid;place-items:center;overflow:hidden;cursor:pointer;'
                 + 'width:36px;height:32px;';
-            cell.title = it.name + '（双击使用，单击拿起）';
+            cell.addEventListener('mouseenter', () => this._showItemDesc(it));
+            cell.addEventListener('mouseleave', () => this._hideItemDesc());
             this._libUrl('items', it.looks).then((url) => {
                 if (url) {
                     const im = document.createElement('img');
@@ -729,6 +735,57 @@ export class PlayScene extends Scene {
     // 金币千分位格式化（原版 GetGoldStr：每 3 位逗号）
     _formatGold(n) {
         return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    // 物品描述（对齐原版 GetMouseItemInfo 按 StdMode 分类）
+    _itemDesc(it) {
+        const std = it.stdMode || 0;
+        let line1 = '', line2 = '', line3 = '';
+        if (std === 0) {
+            // 药品：+HP +MP 重量
+            if (it.ac > 0) line1 += '+' + it.ac + 'HP ';
+            if (it.mac > 0) line1 += '+' + it.mac + 'MP ';
+            if (it.weight) line1 += '重量' + it.weight;
+        } else if (std <= 4) {
+            // 消耗品/技能书：重量（+ 书需要等级）
+            if (it.weight) line1 += '重量' + it.weight;
+            if (std === 4 && it.needLevel) line3 += '需要等级 ' + it.needLevel;
+        } else if ([5, 6, 10, 11, 15, 19, 20, 21, 22, 23, 24, 26, 30, 52, 54].includes(std)) {
+            // 装备：重量 + 持久 + 攻击/魔法/道术/防御/魔御 + 需要等级
+            if (it.weight) line1 += '重量' + it.weight;
+            if (it.durabilityMax > 0) {
+                line1 += (line1 ? '  ' : '') + '持久 ' + Math.round(it.durability / 1000) + '/' + Math.round(it.durabilityMax / 1000);
+            }
+            if (it.dcMax) line2 += '攻击 ' + (it.dc || 0) + '-' + it.dcMax + ' ';
+            if (it.mcMax) line2 += '魔法 ' + (it.mc || 0) + '-' + it.mcMax + ' ';
+            if (it.scMax) line2 += '道术 ' + (it.sc || 0) + '-' + it.scMax + ' ';
+            if (it.acMax) line2 += '防御 ' + (it.ac || 0) + '-' + it.acMax + ' ';
+            if (it.macMax) line2 += '魔御 ' + (it.mac || 0) + '-' + it.macMax + ' ';
+            if (it.needLevel) line3 += '需要等级 ' + it.needLevel;
+        } else {
+            // 其他（食物 std=40 等）：只显示重量
+            if (it.weight) line1 += '重量' + it.weight;
+        }
+        return { name: it.name, line1, line2, line3 };
+    }
+
+    _showItemDesc(it) {
+        if (!this.bagDescEl) return;
+        const d = this._itemDesc(it);
+        this.bagDescEl.innerHTML = '';
+        const line1 = document.createElement('div');
+        const nameSpan = document.createElement('span');
+        nameSpan.style.color = '#ffff00';
+        nameSpan.textContent = d.name + ' ';
+        line1.appendChild(nameSpan);
+        line1.appendChild(document.createTextNode(d.line1));
+        this.bagDescEl.appendChild(line1);
+        if (d.line2) { const l2 = document.createElement('div'); l2.textContent = d.line2; this.bagDescEl.appendChild(l2); }
+        if (d.line3) { const l3 = document.createElement('div'); l3.textContent = d.line3; this.bagDescEl.appendChild(l3); }
+    }
+
+    _hideItemDesc() {
+        if (this.bagDescEl) this.bagDescEl.innerHTML = '';
     }
 
     // 背包物品单击：拿起 → 再点同一格取消 / 点另一格换位（移动）

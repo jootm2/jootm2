@@ -329,6 +329,11 @@ jootm2/
     - **卖出后投放框自动清空**：`bagUpdate` 里检测 `shopSellItem.makeIndex` 已不在 `msg.items` → `_clearSellSpot`。
     - 服务端新增 `drop`/`moveItem` 消息（GameService switch + dropItem/moveItem 方法）；`moveItem` 交换两个 makeIndex 在 bag 的位置。
     - 换图/销毁清空 `pickedItem`。验证：单击选中高亮、单击取消、双击消耗金创药、换位顺序正确、扔地上地面物品+1、卖出金币+1 且投放框清空。
+69. **右键交互限定 + 移动松手即停（不累计队列）**：
+    - 怪物攻击/NPC 对话/玩家攻击/拾取只在 `e.button===0`（左键）触发；右键只用于「跑」，点 NPC/怪不再误触对话。
+    - 跑动重构：原「`_runStep` 发 2 格（原子）+ `_runCycleTimer` 递归」导致连续点击时多个 setTimeout 链叠加、且第 2 格不检查 `_holding`，松手后仍滑行。
+    - 改为 `_runStep` 每 `RUN_INTERVAL` 跑 1 格，每步开头判断 `_holding && _mouseRun`，松手即停；`mousedown` 清除旧 `_runTimer`（快速点击覆盖而非排队）；`mouseup` 也 `clearTimeout(_runTimer)`。
+    - 验证：右键点传送员只发 move 不对话；连续 3 次右键（80ms 间隔）总 move=3、松手后不再增长（原 6+ 次滑行）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

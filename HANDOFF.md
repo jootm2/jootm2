@@ -368,6 +368,12 @@ jootm2/
     - 服务端 `Player.instanceJson` 补物品模板属性：`stdMode/shape/weight/dc/dcMax/mc/mcMax/sc/scMax/ac/acMax/mac/macMax/need/needLevel`。
     - 前端 `_buildBag` 加 `bagDescEl`(70,215)；cell `mouseenter/mouseleave` 显示/隐藏描述，移除 `cell.title`；`_itemDesc` 按 `stdMode` 分类：药(0)→`+HP/MP`、消耗品/书(1-4)→重量、装备(5/6/10/11/15/19-26/30/52/54)→重量持久+攻防+等级、其他(如肉 40)→重量。
     - 验证：金创药 +20HP 重量1、魔法药 +30MP 重量1、肉 重量3、命运之书 重量1。
+77. **F11 技能设置页（技能列表 + 快捷键 F1-F8）**：
+    - 对照原版 `ClMain.pas` VK_F11 → `StatePage:=3` → `OpenMyStatus`；`FState.pas` StatePage=3 魔法页渲染 `MagicList`（名字/等级/快捷键图标），点击 `SetMagicKeyDlg` 设置，`CM_MAGICKEYCHANGE` 上报。
+    - 服务端：`Skill` 加 `key`(0=无,1-8=F1-F8)；`Player.skillsJson` 返回 key；`magicKeyChange` 设置快捷键（同键互斥顶替）后 `sendStats` 塞 `skills` 推送。
+    - 前端：F11 → `_openSkillSetup`(statePage=2)；`_buildStateWin` 加 `stateSkillWrap/stateSkillListEl`；`_refreshSkillPage` 渲染技能行（名/Lv/key）；点行弹 F1-F8 选择框，选后发 `magicKeyChange`；翻页箭头改 `(statePage±1+3)%3` 循环 3 页。
+    - `_castFromSlot` 改按 `sk.key===fkey` 查找技能施法（原按插入顺序）。
+    - 验证：F11 打开技能页、点技能弹框、选 F1 后 skills.key=1 并刷新显示 [F1]。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

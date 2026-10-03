@@ -19,6 +19,7 @@ import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.QueryStringDecoder;
 
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -109,6 +110,42 @@ public final class HttpServerHandler extends SimpleChannelInboundHandler<FullHtt
             return;
         }
 
+        String name = file.getFileName().toString();
+        String ct = contentType(name);
+        // 前端代码/资源索引不缓存（改动能即时生效）；图片库/地图/音频走长缓存
+        String cache = cacheControl(name);
+        String rangeHeader = req.headers().get(HttpHeaderNames.RANGE);
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            // Range 请求只读需要的字节区间（WIL 库可到 10MB+，整文件 readAllBytes 会拖慢并占满内存）
+            try {
+                long fileSize = Files.size(file);
+                long[] range = parseRange(rangeHeader, fileSize);
+                if (range != null) {
+                    int start = (int) range[0];
+                    int end = (int) range[1];
+                    int len = end - start + 1;
+                    byte[] chunk = new byte[len];
+                    try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+                        raf.seek(start);
+                        raf.readFully(chunk);
+                    }
+                    ByteBuf buf = Unpooled.wrappedBuffer(chunk);
+                    FullHttpResponse resp = new DefaultFullHttpResponse(
+                            HttpVersion.HTTP_1_1, HttpResponseStatus.PARTIAL_CONTENT, buf);
+                    resp.headers().set(HttpHeaderNames.CONTENT_TYPE, ct);
+                    resp.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes");
+                    resp.headers().set(HttpHeaderNames.CONTENT_RANGE,
+                            "bytes " + start + "-" + end + "/" + fileSize);
+                    resp.headers().set(HttpHeaderNames.CACHE_CONTROL, cache);
+                    respond(ctx, req, resp);
+                    return;
+                }
+            } catch (IOException e) {
+                sendError(ctx, req, HttpResponseStatus.INTERNAL_SERVER_ERROR);
+                return;
+            }
+        }
+
         byte[] bytes;
         try {
             bytes = Files.readAllBytes(file);
@@ -116,30 +153,6 @@ public final class HttpServerHandler extends SimpleChannelInboundHandler<FullHtt
             sendError(ctx, req, HttpResponseStatus.INTERNAL_SERVER_ERROR);
             return;
         }
-
-        String name = file.getFileName().toString();
-        String ct = contentType(name);
-        // 前端代码/资源索引不缓存（改动能即时生效）；图片库/地图/音频走长缓存
-        String cache = cacheControl(name);
-        String rangeHeader = req.headers().get(HttpHeaderNames.RANGE);
-        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-            long[] range = parseRange(rangeHeader, bytes.length);
-            if (range != null) {
-                int start = (int) range[0];
-                int end = (int) range[1];
-                ByteBuf buf = Unpooled.wrappedBuffer(bytes, start, end - start + 1);
-                FullHttpResponse resp = new DefaultFullHttpResponse(
-                        HttpVersion.HTTP_1_1, HttpResponseStatus.PARTIAL_CONTENT, buf);
-                resp.headers().set(HttpHeaderNames.CONTENT_TYPE, ct);
-                resp.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes");
-                resp.headers().set(HttpHeaderNames.CONTENT_RANGE,
-                        "bytes " + start + "-" + end + "/" + bytes.length);
-                resp.headers().set(HttpHeaderNames.CACHE_CONTROL, cache);
-                respond(ctx, req, resp);
-                return;
-            }
-        }
-
         ByteBuf buf = Unpooled.wrappedBuffer(bytes);
         FullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, buf);
         resp.headers().set(HttpHeaderNames.CONTENT_TYPE, ct);

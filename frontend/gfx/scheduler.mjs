@@ -3,7 +3,7 @@
 // 去重：若某请求的字节范围已被「进行中」的请求完全覆盖，则复用其数据（不占并发额度），
 //       空出的额度可以让给后续请求。
 
-const MAX_CONCURRENT = 5;
+const MAX_CONCURRENT = 20;   // 进游戏后地图瓦片瞬间触发 200+ 请求，5 并发消化太慢导致 UI 图标排队数十秒
 
 class RangeScheduler {
     constructor() {

@@ -350,6 +350,7 @@ public final class Player extends Actor {
             s.addProperty("level", e.getValue().level);
             s.addProperty("key", e.getValue().key);
             s.addProperty("effectType", mt != null ? mt.effectType : 0);   // 0=被动
+            s.addProperty("effect", mt != null ? mt.effect : 0);           // 技能图标 id（MagIcon[Effect*2]）
             o.add(String.valueOf(e.getKey()), s);
         }
         return o;

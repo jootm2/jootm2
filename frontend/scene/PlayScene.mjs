@@ -66,6 +66,7 @@ export class PlayScene extends Scene {
         this._mouseDir = -1;         // 当前移动方向（鼠标相对人物，0-7）
         this._lastMoveAt = 0;        // 上次移动时间戳
         this._lastHitTime = 0;       // 上次攻击时间戳（CanNextHit 攻速控制）
+        this.magicPage = 0;          // 技能页内部分页页码（每页 5 个技能）
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
         this._zTop = 100;            // 窗口 z-index 计数器（点击前置递增）
@@ -552,13 +553,19 @@ export class PlayScene extends Scene {
         if (!open) this._refreshStateWin();
     }
 
-    // F11：打开技能设置页（原版 VK_F11 → StatePage:=3 → OpenMyStatus）
+    // F12：打开/关闭技能设置页（原版 VK_F11 → StatePage:=3 → OpenMyStatus 是 toggle 窗口）
     _openSkillSetup() {
         if (!this.stateWin) this._buildStateWin();
+        const open = this.stateWin.style.display === 'block';
         this.statePage = 2;
-        this.stateWin.style.display = 'block';
-        this._refreshStateWin();
-        this._bringToFront(this.stateWin);
+        if (open) {
+            this.stateWin.style.display = 'none';
+        } else {
+            this.magicPage = 0;   // 打开技能页时回到第一页（原版 OpenMyStatus → PageChanged StatePage=3 → MagicPage:=0）
+            this.stateWin.style.display = 'block';
+            this._refreshStateWin();
+            this._bringToFront(this.stateWin);
+        }
     }
 
     _buildStateWin() {
@@ -597,7 +604,7 @@ export class PlayScene extends Scene {
         this.stateAttrEl.style.cssText = 'position:absolute;left:112px;top:99px;width:96px;'
             + 'font-size:12px;line-height:20px;text-shadow:1px 1px 0 #000;';
         this.stateAttrWrap.appendChild(this.stateAttrEl);
-        // 技能页（F12，原版 StatePage=3 魔法页：Prguse[383] 背景 + 技能列表）
+        // 技能页（F12，原版 StatePage=3 魔法页：Prguse[383] 背景 + 5 个技能行 + 内部分页）
         this.stateSkillWrap = document.createElement('div');
         this.stateSkillWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
         win.appendChild(this.stateSkillWrap);
@@ -611,10 +618,26 @@ export class PlayScene extends Scene {
                 this.stateSkillWrap.insertBefore(bg, this.stateSkillListEl);
             }
         });
+        // 技能列表：5 行（图标 31x33 @原版 DStMag1-5 位置 46,59/96/134/171/208 + 名字/等级/快捷键）
         this.stateSkillListEl = document.createElement('div');
-        this.stateSkillListEl.style.cssText = 'position:absolute;left:86px;top:60px;width:100px;height:185px;'
-            + 'font-size:12px;line-height:37px;color:#e8d9b0;text-shadow:1px 1px 0 #000;';
+        this.stateSkillListEl.style.cssText = 'position:absolute;left:46px;top:59px;width:170px;height:185px;'
+            + 'font-size:12px;color:#e8d9b0;text-shadow:1px 1px 0 #000;';
         this.stateSkillWrap.appendChild(this.stateSkillListEl);
+        // 内部分页按钮（原版 DStPageUp=398 上 213,113 / DStPageDown=396 下 213,143），仅技能页显示
+        const mkMagPage = (idx, top, delta) => {
+            const b = document.createElement('div');
+            b.style.cssText = `position:absolute;left:213px;top:${top}px;width:12px;height:21px;cursor:pointer;`;
+            b.addEventListener('click', () => {
+                this.magicPage += delta;
+                this._refreshSkillPage();
+            });
+            this._libUrl('prguse', idx).then((url) => {
+                if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; b.appendChild(im); }
+            });
+            this.stateSkillWrap.appendChild(b);
+        };
+        mkMagPage(398, 113, -1);   // 上翻
+        mkMagPage(396, 143, 1);    // 下翻
         // 角色名（原版：Left+122 水平居中，Top+23，纯名字）
         this.stateNameEl = document.createElement('div');
         this.stateNameEl.style.cssText = 'position:absolute;left:0;top:23px;width:232px;text-align:center;'
@@ -677,7 +700,7 @@ export class PlayScene extends Scene {
         }
     }
 
-    // 技能页（F11）：已学技能列表 + 快捷键（点击行设置 F1-F8）
+    // 技能页（F12）：已学技能列表（每页 5 个：图标 + 名字 + 等级 + 快捷键）
     _refreshSkillPage() {
         if (!this.stateSkillListEl) return;
         this.stateSkillListEl.innerHTML = '';
@@ -687,16 +710,37 @@ export class PlayScene extends Scene {
             const empty = document.createElement('div');
             empty.textContent = '尚未学习任何技能';
             empty.style.color = '#888';
+            empty.style.lineHeight = '37px';
             this.stateSkillListEl.appendChild(empty);
             return;
         }
-        for (const [magicId, sk] of entries) {
+        // 内部分页：每页 5 个，页码钳制
+        const pageCount = Math.max(1, Math.ceil(entries.length / 5));
+        if (this.magicPage >= pageCount) this.magicPage = pageCount - 1;
+        if (this.magicPage < 0) this.magicPage = 0;
+        const page = entries.slice(this.magicPage * 5, this.magicPage * 5 + 5);
+        for (const [magicId, sk] of page) {
             const row = document.createElement('div');
             const passive = (sk.effectType === 0);   // 被动技能（基本剑术/精神力战法/攻杀等）
-            const keyLabel = passive ? '被动' : (sk.key ? ('F' + sk.key) : '未设置');
-            row.textContent = `${sk.name}  ${sk.level}  [${keyLabel}]`;
-            row.style.cssText = 'height:37px;line-height:37px;white-space:nowrap;overflow:hidden;'
+            row.style.cssText = 'position:relative;height:37px;overflow:hidden;'
                 + (passive ? 'color:#888;' : 'cursor:pointer;');
+            // 技能图标（原版 MagIcon[Effect*2]，31x33 相对行左上角）
+            if (sk.effect != null && sk.effect > 0) {
+                this._libUrl('magicon', sk.effect * 2).then((url) => {
+                    if (url) {
+                        const im = document.createElement('img');
+                        im.src = url; im.draggable = false;
+                        im.style.cssText = 'position:absolute;left:0;top:0;width:31px;height:33px;';
+                        row.appendChild(im);
+                    }
+                });
+            }
+            // 名字 + 等级 + 快捷键（图标右侧）
+            const txt = document.createElement('div');
+            const keyLabel = passive ? '' : (sk.key ? ('  F' + sk.key) : '  未设置');
+            txt.textContent = `${sk.name} ${sk.level}${keyLabel}`;
+            txt.style.cssText = 'position:absolute;left:40px;top:10px;white-space:nowrap;';
+            row.appendChild(txt);
             if (!passive) {
                 row.addEventListener('mouseenter', () => { row.style.background = 'rgba(255,255,255,0.15)'; });
                 row.addEventListener('mouseleave', () => { row.style.background = ''; });

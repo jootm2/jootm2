@@ -46,11 +46,6 @@ public final class GameService {
 
     public static final int MAX_CHARS_PER_ACCOUNT = 2;
 
-    /** 普通攻击服务端兜底间隔（ms）。正常攻速由客户端 CanNextHit（约 1030ms）+ 攻击动作
-     * 完成驱动（对齐原版，服务端本无玩家攻击限速）；此处仅留一个宽松下限，防脚本绕过客户端
-     * 瞬间刷攻击消息，不干扰正常攻击节奏。 */
-    public static final long ATTACK_INTERVAL = 500;
-
     private final ServerConfig config;
     private final Database database;
     private final AccountDao accountDao;
@@ -1012,10 +1007,6 @@ public final class GameService {
         if (p == null) {
             return;
         }
-        long now = System.currentTimeMillis();
-        if (now < p.nextAttackAt) {
-            return;   // 攻击间隔未到（原版有攻速间隔，防快速点击连打）
-        }
         long targetId = -1L;
         try {
             if (msg.has("targetId")) {
@@ -1035,7 +1026,6 @@ public final class GameService {
         p.dir = directionFrom(p.x, p.y, m.x, m.y);
         world.broadcastMove(p);   // 广播转向（位置不变，仅 dir 变化）
         m.lastHiterId = p.id;   // 记录仇恨（守卫据此反击）
-        p.nextAttackAt = now + ATTACK_INTERVAL;   // 进入攻击冷却
 
         // 被动技能命中加成（原版 RecalcAbilitys：基本剑术+3/级、精神力战法+8/3/级、攻杀+1/级）
         int hitBonus = 0;

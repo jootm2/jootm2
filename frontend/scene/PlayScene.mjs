@@ -798,7 +798,10 @@ export class PlayScene extends Scene {
         }
     }
 
-    // 点击技能：弹出快捷键设置对话框（原版 DKeySelDlg：背景 Prguse[229] + MagIcon 图标 + F1-F8 键图标）
+    // 点击技能：弹出快捷键设置对话框（原版 DKeySelDlg：背景 620，此资源用 Prguse[229] 替代）
+    // 布局/逻辑对齐原版 FState.pas（1487-1551 布局、4685-4810 SetMagicKeyDlg/DKsF1Click/DKsOkClick）：
+    //   - 点 F1-F8/None 只「选择」（高亮，不关闭）；点「确定」才应用并关闭
+    //   - None = 清除（key=0）；确定 = 应用；取消 = 关闭不应用
     _setupSkillKey(magicId, sk) {
         const gui = this.manager.winManager.container;
         if (this.keySetupEl) { this.keySetupEl.remove(); this.keySetupEl = null; }
@@ -806,9 +809,13 @@ export class PlayScene extends Scene {
         const box = document.createElement('div');
         box.style.cssText = `position:absolute;left:${Math.floor((SCREEN_WIDTH - W) / 2)}px;`
             + `top:${Math.floor((SCREEN_HEIGHT - H) / 2)}px;width:${W}px;height:${H}px;`
-            + 'z-index:9999;font-family:SimSun,serif;color:#e8d9b0;font-size:12px;pointer-events:auto;';
+            + 'z-index:9999;font-family:SimSun,serif;color:#c0c0c0;font-size:12px;pointer-events:auto;';
         this.keySetupEl = box;
-        // 背景 Prguse[229]（这个资源版本用 229 替代原版 620）
+
+        // 当前选择（原版 MagKeyCurKey）：打开时 = 当前快捷键，点 F 键/None 改选择，点确定才发消息
+        let selKey = sk.key || 0;
+
+        // 背景 Prguse[229]
         this._libUrl('prguse', 229).then((url) => {
             if (url && this.keySetupEl === box) {
                 const bg = document.createElement('img');
@@ -817,64 +824,85 @@ export class PlayScene extends Scene {
                 box.insertBefore(bg, box.firstChild);
             }
         });
-        // 技能图标 MagIcon[Effect*2]（对齐背景图标槽 16-48,16-64）
+
+        // 技能图标 MagIcon[Effect*2]（背景图标槽 @47,24 36x37，图标 32x32 居中放 @49,26）
         this._libUrl('magicon', sk.effect * 2).then((url) => {
             if (url && this.keySetupEl === box) {
                 const im = document.createElement('img');
                 im.src = url; im.draggable = false;
-                im.style.cssText = 'position:absolute;left:16px;top:20px;width:31px;height:33px;';
+                im.style.cssText = 'position:absolute;left:49px;top:26px;width:32px;height:32px;';
                 box.appendChild(im);
             }
         });
-        // 技能名（图标右侧）
+
+        // 提示文字（原版 DKeySelDlgDirectPaint TextOut @95,38 → 图标右侧 @91,31）
         const name = document.createElement('div');
-        name.textContent = sk.name;
-        name.style.cssText = 'position:absolute;left:55px;top:28px;white-space:nowrap;';
+        name.textContent = sk.name + '快捷键盘被设置为.';
+        name.style.cssText = 'position:absolute;left:91px;top:31px;white-space:nowrap;color:#c0c0c0;';
         box.appendChild(name);
-        // F1-F8 键（原版 DKsF1..F8：正常态透明、当前键高亮 idx+1、按下显示 idx）
-        // 居中一排，背景提示文字（y≈80-112）下方
+
+        // F1-F8 键（原版 DKsF1..F8 @25/57/89/121/160/192/224/256,78 → 229 槽位 @34/66/98/130/171/203/235/267,83）
+        // 正常态透明、当前键高亮 idx+1、按下显示 idx（原版 DKsF1DirectPaint 语义）
+        const F_LEFT = [34, 66, 98, 130, 171, 203, 235, 267];
+        const F_TOP = 83;
+        const fIms = [];
+        const refreshKeys = () => {
+            for (let k = 1; k <= 8; k++) {
+                const im = fIms[k - 1];
+                if (selKey === k) {
+                    this._libUrl('prguse', 232 + (k - 1) * 2 + 1).then((url) => {
+                        if (url && this.keySetupEl === box) { im.src = url; im.style.visibility = 'visible'; }
+                    });
+                } else {
+                    im.style.visibility = 'hidden';
+                }
+            }
+        };
         for (let k = 1; k <= 8; k++) {
             const idx = 232 + (k - 1) * 2;
-            const left = 60 + (k - 1) * 32;
             const btn = document.createElement('div');
-            btn.style.cssText = `position:absolute;left:${left}px;top:118px;width:32px;height:30px;cursor:pointer;`;
-            const isCurrent = (sk.key === k);
+            btn.style.cssText = `position:absolute;left:${F_LEFT[k - 1]}px;top:${F_TOP}px;width:29px;height:30px;cursor:pointer;`;
             const im = document.createElement('img');
             im.draggable = false;
             im.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;';
             btn.appendChild(im);
-            const show = (imgIdx) => {
-                this._libUrl('prguse', imgIdx).then((url) => {
+            fIms.push(im);
+            btn.addEventListener('mousedown', () => {
+                this._libUrl('prguse', idx).then((url) => {
                     if (url && this.keySetupEl === box) { im.src = url; im.style.visibility = 'visible'; }
                 });
-            };
-            if (isCurrent) show(idx + 1);   // 当前快捷键高亮
-            btn.addEventListener('mousedown', () => show(idx));
-            btn.addEventListener('mouseup', () => { im.style.visibility = isCurrent ? 'visible' : 'hidden'; });
-            btn.addEventListener('mouseleave', () => { im.style.visibility = isCurrent ? 'visible' : 'hidden'; });
-            btn.addEventListener('click', () => {
-                this.conn.send('magicKeyChange', { magicId, key: k });
-                this.keySetupEl.remove();
-                this.keySetupEl = null;
             });
+            btn.addEventListener('mouseup', refreshKeys);
+            btn.addEventListener('mouseleave', refreshKeys);
+            btn.addEventListener('click', () => { selKey = k; refreshKeys(); });
             box.appendChild(btn);
         }
-        // 清除快捷键（原版 DKsNone，此资源无图，用文字）
-        const clear = document.createElement('div');
-        clear.textContent = '清除';
-        clear.style.cssText = 'position:absolute;right:120px;bottom:20px;cursor:pointer;color:#e8d9b0;';
-        clear.addEventListener('click', () => {
-            this.conn.send('magicKeyChange', { magicId, key: 0 });
+        refreshKeys();
+
+        // None 按钮（原版 DKsNone @296,78 → 229 @299,83）：点击清除（key=0）
+        const noneBtn = document.createElement('div');
+        noneBtn.style.cssText = 'position:absolute;left:299px;top:83px;width:39px;height:30px;cursor:pointer;';
+        noneBtn.title = '清除快捷键';
+        noneBtn.addEventListener('click', () => { selKey = 0; refreshKeys(); });
+        box.appendChild(noneBtn);
+
+        // 确定按钮（原版 DKsOk @296,120 → 229 确定槽 @222,131）：应用选择并关闭
+        const ok = document.createElement('div');
+        ok.style.cssText = 'position:absolute;left:222px;top:131px;width:73px;height:30px;cursor:pointer;';
+        ok.addEventListener('click', () => {
+            this.conn.send('magicKeyChange', { magicId, key: selKey });
             this.keySetupEl.remove();
             this.keySetupEl = null;
         });
-        box.appendChild(clear);
-        // 取消（原版 DKsOk，用文字按钮）
+        box.appendChild(ok);
+
+        // 取消按钮：关闭不应用（放在确定左侧）
         const cancel = document.createElement('div');
         cancel.textContent = '取消';
-        cancel.style.cssText = 'position:absolute;right:40px;bottom:20px;cursor:pointer;color:#e8d9b0;';
+        cancel.style.cssText = 'position:absolute;left:150px;top:138px;cursor:pointer;color:#e8d9b0;';
         cancel.addEventListener('click', () => { this.keySetupEl.remove(); this.keySetupEl = null; });
         box.appendChild(cancel);
+
         gui.appendChild(box);
     }
 

@@ -374,6 +374,10 @@ jootm2/
     - 前端：F11 → `_openSkillSetup`(statePage=2)；`_buildStateWin` 加 `stateSkillWrap/stateSkillListEl`；`_refreshSkillPage` 渲染技能行（名/Lv/key）；点行弹 F1-F8 选择框，选后发 `magicKeyChange`；翻页箭头改 `(statePage±1+3)%3` 循环 3 页。
     - `_castFromSlot` 改按 `sk.key===fkey` 查找技能施法（原按插入顺序）。
     - 验证：F11 打开技能页、点技能弹框、选 F1 后 skills.key=1 并刷新显示 [F1]。
+78. **被动技能不可设置快捷键**：
+    - Magic.csv 里 `EffectType=0` 是被动技能（Power/Spell/Delay 均 0）：基本剑术(3)、精神力战法(4)、攻杀剑术(7)、刺杀剑术(12)、半月弯刀(25)、烈火剑法(26)。
+    - `skillsJson` 加 `effectType`；`magicKeyChange` 服务端拒绝 `effectType==0` 设键；前端技能页被动显示「被动」灰色不可点、不弹框。
+    - 待办：服务器被动技能效果（基本剑术/精神力战法命中加成、攻杀/刺杀/半月/烈火攻击触发）尚未实现；主动技能部分未开放（地狱火9/疾光电影10/灵魂火符13/幽灵盾14/神圣战甲术15/困魔咒16/爆裂火焰23/地狱雷光24/心灵启示28/群体治疗29/魔法盾31/圣言术32/冰咆哮33）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

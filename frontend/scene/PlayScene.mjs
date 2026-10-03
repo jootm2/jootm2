@@ -535,14 +535,10 @@ export class PlayScene extends Scene {
         this.stateEquipEl = document.createElement('div');
         this.stateEquipEl.style.cssText = 'position:absolute;left:0;top:0;';
         this.stateEquipWrap.appendChild(this.stateEquipEl);
-        // 属性页（数值对齐背景标签 + 角色信息）
+        // 属性页（数值对齐背景标签）
         this.stateAttrWrap = document.createElement('div');
         this.stateAttrWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
         win.appendChild(this.stateAttrWrap);
-        this.stateInfoEl = document.createElement('div');
-        this.stateInfoEl.style.cssText = 'position:absolute;left:12px;top:16px;width:208px;'
-            + 'font-size:12px;line-height:18px;text-shadow:1px 1px 0 #000;';
-        this.stateAttrWrap.appendChild(this.stateInfoEl);
         this.stateAttrEl = document.createElement('div');
         this.stateAttrEl.style.cssText = 'position:absolute;left:112px;top:99px;width:96px;'
             + 'font-size:12px;line-height:20px;text-shadow:1px 1px 0 #000;';
@@ -637,19 +633,9 @@ export class PlayScene extends Scene {
         }
     }
 
-    // 属性页：角色信息 + 属性数值（纯数字，标签由背景图提供）
+    // 属性页：只显示属性数值（纯数字，标签由背景图提供；经验/金币由背景图自带，无需重复）
     _refreshAttrPage() {
         const p = this.self;
-        this.stateInfoEl.innerHTML = '';
-        const rows = [
-            `经验 ${p.exp}`,
-            `金币 ${p.gold || 0}`,
-        ];
-        for (const r of rows) {
-            const div = document.createElement('div');
-            div.textContent = r;
-            this.stateInfoEl.appendChild(div);
-        }
         this.stateAttrEl.innerHTML = '';
         for (const [field, y] of ATTR_ROWS) {
             const div = document.createElement('div');

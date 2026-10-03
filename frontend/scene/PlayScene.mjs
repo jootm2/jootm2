@@ -135,12 +135,15 @@ export class PlayScene extends Scene {
         this._buildBag();
     }
 
-    // F1-F8 施法：按已学技能顺序取第 fkey-1 个（原版快捷键，技能列表见 F10 背包）
+    // F1-F8 施法：按快捷键 key（F11 技能设置页绑定）查找技能
     _castFromSlot(fkey) {
         const skills = this.self && this.self.skills ? this.self.skills : {};
-        const entry = Object.entries(skills)[fkey - 1];
-        if (!entry) return;
-        this._castMagic(Number(entry[0]));
+        for (const [magicId, sk] of Object.entries(skills)) {
+            if (sk && sk.key === fkey) {
+                this._castMagic(Number(magicId));
+                return;
+            }
+        }
     }
 
     _castMagic(magicId) {
@@ -181,6 +184,7 @@ export class PlayScene extends Scene {
         if (e.code === 'Space') { e.preventDefault(); this._attackNearest(); }
         if (e.code === 'F9') { e.preventDefault(); this._toggleBag(); }          // 原版 VK_F9 = 背包
         if (e.code === 'F10') { e.preventDefault(); this._toggleStateWin(); }    // 原版 VK_F10 = 状态/装备属性
+        if (e.code === 'F11') { e.preventDefault(); this._openSkillSetup(); }    // 原版 VK_F11 = 技能设置
         if (e.code >= 'F1' && e.code <= 'F8') {
             e.preventDefault();
             this._castFromSlot(Number(e.code.substring(1)));
@@ -369,6 +373,11 @@ export class PlayScene extends Scene {
                     if (msg.level !== undefined) e.level = msg.level;
                     if (msg.exp !== undefined) e.exp = msg.exp;
                     if (msg.gold !== undefined) e.gold = msg.gold;
+                    if (msg.skills !== undefined) e.skills = msg.skills;   // 技能快捷键更新
+                }
+                // 技能页打开时同步刷新（快捷键变更）
+                if (this.stateWin && this.stateWin.style.display === 'block' && this.statePage === 2) {
+                    this._refreshSkillPage();
                 }
                 break;
             }
@@ -507,6 +516,15 @@ export class PlayScene extends Scene {
         if (!open) this._refreshStateWin();
     }
 
+    // F11：打开技能设置页（原版 VK_F11 → StatePage:=3 → OpenMyStatus）
+    _openSkillSetup() {
+        if (!this.stateWin) this._buildStateWin();
+        this.statePage = 2;
+        this.stateWin.style.display = 'block';
+        this._refreshStateWin();
+        this._bringToFront(this.stateWin);
+    }
+
     _buildStateWin() {
         if (this.stateWin) return;
         const gui = this.manager.winManager.container;
@@ -543,6 +561,14 @@ export class PlayScene extends Scene {
         this.stateAttrEl.style.cssText = 'position:absolute;left:112px;top:99px;width:96px;'
             + 'font-size:12px;line-height:20px;text-shadow:1px 1px 0 #000;';
         this.stateAttrWrap.appendChild(this.stateAttrEl);
+        // 技能页（F11，原版 StatePage=3 魔法页：Prguse[383] 背景 + 技能列表）
+        this.stateSkillWrap = document.createElement('div');
+        this.stateSkillWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
+        win.appendChild(this.stateSkillWrap);
+        this.stateSkillListEl = document.createElement('div');
+        this.stateSkillListEl.style.cssText = 'position:absolute;left:38px;top:52px;width:190px;height:270px;'
+            + 'font-size:12px;line-height:16px;color:#e8d9b0;text-shadow:1px 1px 0 #000;';
+        this.stateSkillWrap.appendChild(this.stateSkillListEl);
         // 角色名（原版：Left+122 水平居中，Top+23，纯名字）
         this.stateNameEl = document.createElement('div');
         this.stateNameEl.style.cssText = 'position:absolute;left:0;top:23px;width:232px;text-align:center;'
@@ -570,14 +596,17 @@ export class PlayScene extends Scene {
         const mkArrow = (idx, top, page) => {
             const b = document.createElement('div');
             b.style.cssText = `position:absolute;left:7px;top:${top}px;width:24px;height:23px;cursor:pointer;`;
-            b.addEventListener('click', () => { this.statePage = page; this._refreshStateWin(); });
+            b.addEventListener('click', () => {
+                this.statePage = (this.statePage + page + 3) % 3;   // 0装备 1属性 2技能 循环
+                this._refreshStateWin();
+            });
             this._libUrl('prguse', idx).then((url) => {
                 if (url) { const im = document.createElement('img'); im.src = url; im.draggable = false; b.appendChild(im); }
             });
             win.appendChild(b);
         };
-        mkArrow(373, 128, 0);   // 上箭头 → 装备页
-        mkArrow(372, 187, 1);   // 下箭头 → 属性页
+        mkArrow(373, 128, -1);   // 上箭头 → 上一页
+        mkArrow(372, 187, 1);    // 下箭头 → 下一页
         this.stateWin = win;
         this.statePage = 0;
         this._makeWindowDraggable(win);
@@ -592,11 +621,77 @@ export class PlayScene extends Scene {
         // 分页显示
         this.stateEquipWrap.style.display = this.statePage === 0 ? 'block' : 'none';
         this.stateAttrWrap.style.display = this.statePage === 1 ? 'block' : 'none';
+        this.stateSkillWrap.style.display = this.statePage === 2 ? 'block' : 'none';
         if (this.statePage === 0) {
             this._refreshEquipPage();
-        } else {
+        } else if (this.statePage === 1) {
             this._refreshAttrPage();
+        } else {
+            this._refreshSkillPage();
         }
+    }
+
+    // 技能页（F11）：已学技能列表 + 快捷键（点击行设置 F1-F8）
+    _refreshSkillPage() {
+        if (!this.stateSkillListEl) return;
+        this.stateSkillListEl.innerHTML = '';
+        const skills = this.self && this.self.skills ? this.self.skills : {};
+        const entries = Object.entries(skills);
+        if (!entries.length) {
+            const empty = document.createElement('div');
+            empty.textContent = '尚未学习任何技能';
+            empty.style.color = '#888';
+            this.stateSkillListEl.appendChild(empty);
+            return;
+        }
+        for (const [magicId, sk] of entries) {
+            const row = document.createElement('div');
+            const keyLabel = sk.key ? ('F' + sk.key) : '未设置';
+            row.textContent = `${sk.name}  Lv.${sk.level}  [${keyLabel}]`;
+            row.style.cssText = 'cursor:pointer;padding:3px 4px;margin-bottom:2px;';
+            row.addEventListener('mouseenter', () => { row.style.background = 'rgba(255,255,255,0.15)'; });
+            row.addEventListener('mouseleave', () => { row.style.background = ''; });
+            row.addEventListener('click', () => this._setupSkillKey(Number(magicId), sk));
+            this.stateSkillListEl.appendChild(row);
+        }
+    }
+
+    // 点击技能：弹出快捷键选择（F1-F8 + 取消）
+    _setupSkillKey(magicId, sk) {
+        const gui = this.manager.winManager.container;
+        // 移除旧的选择框
+        if (this.keySetupEl) { this.keySetupEl.remove(); this.keySetupEl = null; }
+        const box = document.createElement('div');
+        box.style.cssText = 'position:absolute;left:300px;top:120px;width:150px;height:150px;'
+            + 'background:rgba(0,0,0,0.85);border:1px solid #666;z-index:9999;'
+            + 'font-family:SimSun,serif;color:#fff;font-size:12px;pointer-events:auto;';
+        this.keySetupEl = box;
+        const title = document.createElement('div');
+        title.textContent = `${sk.name} 设置快捷键`;
+        title.style.cssText = 'padding:6px;text-align:center;color:#ffe400;';
+        box.appendChild(title);
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px 8px;';
+        for (let k = 1; k <= 8; k++) {
+            const btn = document.createElement('div');
+            btn.textContent = 'F' + k;
+            btn.style.cssText = 'text-align:center;padding:4px 0;cursor:pointer;border:1px solid #555;background:#333;';
+            btn.addEventListener('mouseenter', () => { btn.style.background = '#555'; });
+            btn.addEventListener('mouseleave', () => { btn.style.background = '#333'; });
+            btn.addEventListener('click', () => {
+                this.conn.send('magicKeyChange', { magicId, key: k });
+                this.keySetupEl.remove();
+                this.keySetupEl = null;
+            });
+            grid.appendChild(btn);
+        }
+        box.appendChild(grid);
+        const cancel = document.createElement('div');
+        cancel.textContent = '取消';
+        cancel.style.cssText = 'text-align:center;padding:4px;cursor:pointer;color:#ccc;';
+        cancel.addEventListener('click', () => { this.keySetupEl.remove(); this.keySetupEl = null; });
+        box.appendChild(cancel);
+        gui.appendChild(box);
     }
 
     // 装备页：人物底图（男376/女377）+ 13 槽图标

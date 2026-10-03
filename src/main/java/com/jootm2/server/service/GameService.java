@@ -124,6 +124,9 @@ public final class GameService {
                 case "castMagic":
                     castMagic(session, msg);
                     break;
+                case "magicKeyChange":
+                    magicKeyChange(session, msg);
+                    break;
                 case "logout":
                     logout(session);
                     break;
@@ -823,6 +826,32 @@ public final class GameService {
         p.bag.set(src, p.bag.get(dst));
         p.bag.set(dst, tmp);
         sendBagUpdate(p);
+    }
+
+    /** 设置技能快捷键（原版 CM_MAGICKEYCHANGE）：magicId 绑定 F1-F8，互斥（同键顶替）。 */
+    private void magicKeyChange(PlayerSession session, JsonObject msg) {
+        Player p = findBySession(session);
+        if (p == null) {
+            return;
+        }
+        int magicId = integer(msg, "magicId", -1);
+        int key = integer(msg, "key", 0);
+        Skill s = p.skills.get(magicId);
+        if (s == null) {
+            return;
+        }
+        if (key != 0) {
+            for (Skill other : p.skills.values()) {
+                if (other != s && other.key == key) {
+                    other.key = 0;
+                }
+            }
+        }
+        s.key = key;
+        // 推送技能更新给客户端
+        JsonObject extras = new JsonObject();
+        extras.add("skills", p.skillsJson(world));
+        world.sendStats(p, extras);
     }
 
     /** 使用祝福油（stdMode=3）提升/诅咒武器幸运。 */

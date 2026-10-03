@@ -700,14 +700,15 @@ export class PlayScene extends Scene {
         const bagItems = items.filter(x => x.slot === undefined);
         for (const it of bagItems) {
             const cell = document.createElement('div');
+            // min-width/height:0 防止图标固有尺寸撑高 grid 行（否则第一行被撑高、第二行整体下移）
             cell.style.cssText = 'display:flex;align-items:center;justify-content:center;'
-                + 'overflow:hidden;cursor:pointer;';
+                + 'overflow:hidden;cursor:pointer;min-width:0;min-height:0;';
             cell.title = it.name + '（双击使用，单击拿起）';
             this._libUrl('items', it.looks).then((url) => {
                 if (url) {
                     const im = document.createElement('img');
                     im.src = url; im.draggable = false;
-                    im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
+                    im.style.cssText = 'width:100%;height:100%;object-fit:contain;';
                     cell.appendChild(im);
                 }
             });

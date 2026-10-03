@@ -1026,12 +1026,41 @@ public final class GameService {
         p.dir = directionFrom(p.x, p.y, m.x, m.y);
         world.broadcastMove(p);   // 广播转向（位置不变，仅 dir 变化）
         m.lastHiterId = p.id;   // 记录仇恨（守卫据此反击）
-        if (!hitCheck(p, m)) {
+
+        // 被动技能命中加成（原版 RecalcAbilitys：基本剑术+3/级、精神力战法+8/3/级、攻杀+1/级）
+        int hitBonus = 0;
+        if (hasSkill(p, 3)) hitBonus += 3 * skillLevel(p, 3);
+        if (hasSkill(p, 4)) hitBonus += 8 * skillLevel(p, 4) / 3;
+        if (hasSkill(p, 7)) hitBonus += skillLevel(p, 7);
+
+        if (!hitCheck(p, m, hitBonus)) {
             world.sendSystem(p, "攻击未命中。");
             return;
         }
         int raw = rollDcWithLuck(p);
         int dmg = Math.max(1, raw - m.template.ac);
+
+        // 攻杀剑术：概率触发，伤害 +5+Level（原版 AttackSkillCount = 7-Level 计数触发）
+        if (hasSkill(p, 7)) {
+            int lv = skillLevel(p, 7);
+            if (Math.random() < 1.0 / Math.max(1, 7 - lv)) {
+                dmg += 5 + lv;
+                world.sendSystem(p, "攻杀！");
+            }
+        }
+        // 烈火剑法：概率触发，伤害 +40%~160%（原版 HitDouble = 4 + Level*4，每 10 秒蓄力）
+        if (hasSkill(p, 26)) {
+            int lv = skillLevel(p, 26);
+            if (Math.random() < 0.2) {
+                dmg += dmg * (4 + lv * 4) / 10;
+                world.sendSystem(p, "烈火！");
+            }
+        }
+        // 刺杀剑术：隔位刺杀额外伤害（简化：+2+Level）
+        if (hasSkill(p, 12)) {
+            dmg += 2 + skillLevel(p, 12);
+        }
+
         m.hp = Math.max(0, m.hp - dmg);
 
         // 吸血：按伤害回血
@@ -1056,6 +1085,30 @@ public final class GameService {
         o.addProperty("y", m.y);
         world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
         world.sendStats(m, null);
+
+        // 半月弯刀：溅射周围 1 格怪物（原版 SwordWideAttack）
+        if (hasSkill(p, 25)) {
+            int splash = dmg / 2;
+            for (Actor nb : world.nearby(m.map, m.x, m.y, 1)) {
+                if (nb instanceof Monster && nb != m && nb.alive) {
+                    Monster other = (Monster) nb;
+                    other.hp = Math.max(0, other.hp - splash);
+                    JsonObject so = new JsonObject();
+                    so.addProperty("type", "attack");
+                    so.addProperty("attackerId", p.id);
+                    so.addProperty("targetId", other.id);
+                    so.addProperty("damage", splash);
+                    so.addProperty("x", other.x);
+                    so.addProperty("y", other.y);
+                    world.broadcastAround(other.map, so, other.x, other.y, GameWorld.SIGHT_RANGE);
+                    world.sendStats(other, null);
+                    if (other.hp <= 0) {
+                        world.killMonster(other, System.currentTimeMillis(), p);
+                        grantExp(p, other);
+                    }
+                }
+            }
+        }
 
         if (m.hp <= 0) {
             world.killMonster(m, System.currentTimeMillis(), p);
@@ -1338,14 +1391,23 @@ public final class GameService {
         return 0;
     }
 
-    /** 命中判定：命中 vs 敏捷（基础命中 15 + 装备，基础敏捷 8 + 怪物）。 */
-    private boolean hitCheck(Player p, Monster m) {
-        int hit = 15 + p.combat.hit;
+    /** 命中判定：命中 vs 敏捷（基础命中 15 + 装备 + 被动技能命中加成，基础敏捷 8 + 怪物）。 */
+    private boolean hitCheck(Player p, Monster m, int hitBonus) {
+        int hit = 15 + p.combat.hit + hitBonus;
         int dodge = 8 + m.template.speed;
         if (dodge <= 0) {
             return true;
         }
         return Math.random() * (hit + dodge) < hit;
+    }
+
+    private boolean hasSkill(Player p, int magicId) {
+        return p.skills.containsKey(magicId);
+    }
+
+    private int skillLevel(Player p, int magicId) {
+        Skill s = p.skills.get(magicId);
+        return s == null ? 0 : s.level;
     }
 
     private void grantExp(Player p, Monster m) {

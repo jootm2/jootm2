@@ -1527,6 +1527,26 @@ public final class GameWorld {
         return true;
     }
 
+    /** 玩家主动丢弃背包物品到脚下（原版 CM_DROPITEM）。移除背包 → 生成 GroundItem → 广播。 */
+    public boolean dropItem(Player p, int makeIndex) {
+        ItemInstance found = null;
+        for (ItemInstance it : p.bag) {
+            if (it.makeIndex == makeIndex) {
+                found = it;
+                break;
+            }
+        }
+        if (found == null) {
+            return false;
+        }
+        p.bag.remove(found);
+        GroundItem gi = GroundItem.ofItem(newId(), found, p.x, p.y);
+        gi.map = p.map;
+        groundItems.put(gi.id, gi);
+        broadcastItemDrop(gi);
+        return true;
+    }
+
     private void respawnDead(long now) {
         for (Actor a : new ArrayList<>(actors.values())) {
             if (!(a instanceof Monster)) {

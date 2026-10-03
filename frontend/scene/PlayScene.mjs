@@ -195,6 +195,13 @@ export class PlayScene extends Scene {
         if (!this.self || !this.mapActor.map) return;
         if (e.button !== 0 && e.button !== 2) return;   // 0=左键 2=右键
         e.preventDefault();
+        // 选中（拿起）物品时点击画面 → 扔到对应格子（原版 DropItem）
+        if (this.pickedItem) {
+            const { tx, ty } = this._gridFromMouse(e);
+            this.conn.send('drop', { makeIndex: this.pickedItem.makeIndex, x: tx, y: ty });
+            this._clearPicked();
+            return;
+        }
         const dir = this._dirFromMouse(e);
         if (dir < 0) return;
         const run = e.button === 2;   // 左键走、右键跑
@@ -436,6 +443,11 @@ export class PlayScene extends Scene {
                 this._refreshBag();
                 this._refreshStateWin();
                 if (this.shopGoldEl) this.shopGoldEl.textContent = '金币 ' + (this.self.gold || 0);
+                // 卖出后投放框物品自动消失（被卖的物品已不在背包）
+                if (this.shopSellItem) {
+                    const still = (msg.items || []).some(x => x.makeIndex === this.shopSellItem.makeIndex);
+                    if (!still) this._clearSellSpot();
+                }
                 break;
             case 'npcSay':
                 this._showNpcDialog(msg);
@@ -452,6 +464,7 @@ export class PlayScene extends Scene {
                 if (this._runCycleTimer) { clearTimeout(this._runCycleTimer); this._runCycleTimer = null; }
                 this._viewX = null;   // 重置卷动中心
                 this.castTarget = null;
+                this._clearPicked();   // 换图丢弃手中拿起的物品状态
                 if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); }
                 for (const e of msg.nearby || []) this.entities.set(e.id, e);
                 for (const g of msg.groundItems || []) this.groundItems.set(g.id, g);
@@ -681,14 +694,15 @@ export class PlayScene extends Scene {
         this.goldEl.textContent = '金币 ' + (this.self.gold || 0);
         const items = this.self.items || [];
 
-        // 背包物品（8 列网格，图标居中）
+        // 背包物品（8 列网格，图标居中）：双击使用、单击拿起（原版 GetItemCursor 交互）
         this.bagGridEl.innerHTML = '';
+        this._pickedCell = null;
         const bagItems = items.filter(x => x.slot === undefined);
         for (const it of bagItems) {
             const cell = document.createElement('div');
             cell.style.cssText = 'display:flex;align-items:center;justify-content:center;'
                 + 'overflow:hidden;cursor:pointer;';
-            cell.title = it.name + '（点击使用）';
+            cell.title = it.name + '（双击使用，单击拿起）';
             this._libUrl('items', it.looks).then((url) => {
                 if (url) {
                     const im = document.createElement('img');
@@ -697,12 +711,40 @@ export class PlayScene extends Scene {
                     cell.appendChild(im);
                 }
             });
-            cell.addEventListener('click', () => {
-                if (this.shopSellMode) { this._pickSellItem(it); return; }   // 卖出模式：放入 ok 框投放
+            cell.addEventListener('dblclick', () => {
                 this.conn.send('useItem', { makeIndex: it.makeIndex });
             });
+            cell.addEventListener('click', () => this._onBagItemClick(it, cell));
             this.bagGridEl.appendChild(cell);
         }
+    }
+
+    // 背包物品单击：拿起 → 再点同一格取消 / 点另一格换位（移动）
+    _onBagItemClick(it, cell) {
+        if (!this.pickedItem) {
+            this.pickedItem = it;            // 拿起
+            this._markPicked(cell);
+            return;
+        }
+        if (this.pickedItem.makeIndex === it.makeIndex) {
+            this._clearPicked();             // 点同一物品：放下（取消）
+            return;
+        }
+        // 点另一物品：换位
+        this.conn.send('moveItem', { makeIndex: this.pickedItem.makeIndex, targetIndex: it.makeIndex });
+        this._clearPicked();
+    }
+
+    _markPicked(cell) {
+        if (this._pickedCell && this._pickedCell !== cell) this._pickedCell.style.outline = '';
+        this._pickedCell = cell;
+        cell.style.outline = '2px solid #ffe400';
+    }
+
+    _clearPicked() {
+        if (this._pickedCell) this._pickedCell.style.outline = '';
+        this._pickedCell = null;
+        this.pickedItem = null;
     }
 
     // ---- NPC 对话框（原版 DMerchantDlg 样式）----
@@ -913,10 +955,17 @@ export class PlayScene extends Scene {
         this.shopPriceEl.style.cssText = 'position:absolute;left:8px;top:6px;font-size:12px;text-shadow:1px 1px 0 #000;';
         this.shopPriceEl.textContent = '卖: ';
         panel.appendChild(this.shopPriceEl);
-        // 投放框 Spot (27,67) 61x52
+        // 投放框 Spot (27,67) 61x52：拿起物品后点这里放入要卖的物品
         const spot = document.createElement('div');
         spot.style.cssText = 'position:absolute;left:27px;top:67px;width:61px;height:52px;'
-            + 'display:flex;align-items:center;justify-content:center;overflow:hidden;';
+            + 'display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;';
+        spot.title = '拿起物品后点这里放入要卖的物品';
+        spot.addEventListener('click', () => {
+            if (this.pickedItem) {
+                this._pickSellItem(this.pickedItem);
+                this._clearPicked();
+            }
+        });
         this.shopSpotEl = spot;
         panel.appendChild(spot);
         // OK 按钮（原版 393 按下态，背景已画 OK）+ 关闭（背景已画红X）——热区模式
@@ -971,6 +1020,12 @@ export class PlayScene extends Scene {
     _sellOk(npcId) {
         if (!this.shopSellItem) return;
         this.conn.send('sellItem', { npcId, makeIndex: this.shopSellItem.makeIndex });
+    }
+
+    _clearSellSpot() {
+        this.shopSellItem = null;
+        if (this.shopSpotEl) this.shopSpotEl.innerHTML = '';
+        if (this.shopPriceEl) this.shopPriceEl.textContent = '卖: ';
     }
 
     _closeShopPanel() {
@@ -1177,6 +1232,9 @@ export class PlayScene extends Scene {
         this.shopListEl = null;
         this.shopSpotEl = null;
         this.shopGoldEl = null;
+        this.shopSellItem = null;
+        this.pickedItem = null;
+        this._pickedCell = null;
         const gui = this.manager.winManager.container;
         gui.innerHTML = '';
     }

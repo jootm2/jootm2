@@ -145,6 +145,12 @@ public final class GameService {
                 case "useItem":
                     useItem(session, msg);
                     break;
+                case "drop":
+                    dropItem(session, msg);
+                    break;
+                case "moveItem":
+                    moveItem(session, msg);
+                    break;
                 case "createGuild":
                     createGuild(session, msg);
                     break;
@@ -774,6 +780,49 @@ public final class GameService {
         } else {
             world.sendSystem(p, "无法使用该物品。");
         }
+    }
+
+    /** 丢弃背包物品到脚下（原版 CM_DROPITEM）。 */
+    private void dropItem(PlayerSession session, JsonObject msg) {
+        Player p = findBySession(session);
+        if (p == null) {
+            return;
+        }
+        int makeIndex = integer(msg, "makeIndex", -1);
+        if (world.dropItem(p, makeIndex)) {
+            world.sendSystem(p, "丢弃了物品。");
+            sendBagUpdate(p);
+        } else {
+            world.sendSystem(p, "物品不存在。");
+        }
+    }
+
+    /** 背包内物品换位（原版拿起物品放到另一格）。交换两个 makeIndex 在 bag 里的位置。 */
+    private void moveItem(PlayerSession session, JsonObject msg) {
+        Player p = findBySession(session);
+        if (p == null) {
+            return;
+        }
+        int makeIndex = integer(msg, "makeIndex", -1);
+        int targetIndex = integer(msg, "targetIndex", -1);
+        int src = -1;
+        int dst = -1;
+        for (int i = 0; i < p.bag.size(); i++) {
+            int mi = p.bag.get(i).makeIndex;
+            if (mi == makeIndex) {
+                src = i;
+            }
+            if (mi == targetIndex) {
+                dst = i;
+            }
+        }
+        if (src < 0 || dst < 0 || src == dst) {
+            return;
+        }
+        ItemInstance tmp = p.bag.get(src);
+        p.bag.set(src, p.bag.get(dst));
+        p.bag.set(dst, tmp);
+        sendBagUpdate(p);
     }
 
     /** 使用祝福油（stdMode=3）提升/诅咒武器幸运。 */

@@ -468,7 +468,7 @@ export class PlayScene extends Scene {
             drag = { sx: e.clientX, sy: e.clientY, l: win.offsetLeft, t: win.offsetTop, moved: false };
         });
         const mm = (e) => {
-            if (!drag) return;
+            if (!drag || !win.isConnected) return;   // 窗口已移除则忽略
             const dx = e.clientX - drag.sx;
             const dy = e.clientY - drag.sy;
             if (!drag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
@@ -807,6 +807,7 @@ export class PlayScene extends Scene {
         const dlg = document.createElement('div');
         dlg.style.cssText = 'position:absolute;left:0;top:0;width:416px;height:176px;pointer-events:auto;';
         this.npcDlg = dlg;
+        this._makeWindowDraggable(dlg);
         gui.appendChild(dlg);
 
         // 背景 Prguse[384]（商人对话框 416×176，异步插入不阻塞文本）
@@ -877,6 +878,7 @@ export class PlayScene extends Scene {
         panel.style.cssText = 'position:absolute;left:0;top:176px;width:308px;height:205px;'
             + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
         this.shopPanel = panel;
+        this._makeWindowDraggable(panel);
         this._libUrl('prguse', 385).then((url) => {
             if (url && this.shopPanel === panel) {
                 const bg = document.createElement('img');
@@ -968,6 +970,7 @@ export class PlayScene extends Scene {
         panel.style.cssText = 'position:absolute;left:260px;top:176px;width:140px;height:181px;'
             + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
         this.shopPanel = panel;
+        this._makeWindowDraggable(panel);
         this._libUrl('prguse', 392).then((url) => {
             if (url && this.shopPanel === panel) {
                 const bg = document.createElement('img');

@@ -645,8 +645,9 @@ export class PlayScene extends Scene {
         close.addEventListener('click', () => { panel.style.display = 'none'; });
         panel.appendChild(close);
         // 金币（原版 DGold 10,190）
+        // 金币（原版 DItemBagDirectPaint：TextOut(Left+64, Top+185, GetGoldStr) 白色千分位）
         this.goldEl = document.createElement('div');
-        this.goldEl.style.cssText = 'position:absolute;left:10px;top:190px;font-size:13px;color:#fbbf24;text-shadow:1px 1px 0 #000;';
+        this.goldEl.style.cssText = 'position:absolute;left:64px;top:185px;font-size:12px;color:#ffffff;text-shadow:1px 1px 0 #000;';
         panel.appendChild(this.goldEl);
         // 背包物品格子（原版 DItemGrid 20,13 286x162；TDGrid ColCount=8 RowCount=5 ColWidth=36 RowHeight=32）
         this.bagGridEl = document.createElement('div');
@@ -660,7 +661,8 @@ export class PlayScene extends Scene {
 
     _refreshBag() {
         if (!this.bagPanel || !this.self) return;
-        this.goldEl.textContent = '金币 ' + (this.self.gold || 0);
+        // 原版 GetGoldStr：千分位逗号，无「金币」前缀
+        this.goldEl.textContent = this._formatGold(this.self.gold || 0);
         const items = this.self.items || [];
 
         // 背包物品（8 列网格，图标居中）：双击使用、单击拿起（原版 GetItemCursor 交互）
@@ -687,6 +689,11 @@ export class PlayScene extends Scene {
             cell.addEventListener('click', () => this._onBagItemClick(it, cell));
             this.bagGridEl.appendChild(cell);
         }
+    }
+
+    // 金币千分位格式化（原版 GetGoldStr：每 3 位逗号）
+    _formatGold(n) {
+        return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
 
     // 背包物品单击：拿起 → 再点同一格取消 / 点另一格换位（移动）

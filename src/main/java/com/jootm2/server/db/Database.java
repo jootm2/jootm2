@@ -288,8 +288,10 @@ public final class Database implements AutoCloseable {
     }
 
     private void insertMagic(MagicTemplate m) throws SQLException {
+        // INSERT OR IGNORE：Magic.csv 里 GM 变体技能（惊寂之雷/静寂圣剑/天尊之兽等）
+        // 与正式技能 magicId 重复，保留先导入的正式技能、跳过变体（否则技能名/Job 被覆盖）
         try (PreparedStatement ps = connection.prepareStatement(
-                "INSERT OR REPLACE INTO magics (mag_id, data) VALUES (?, ?)")) {
+                "INSERT OR IGNORE INTO magics (mag_id, data) VALUES (?, ?)")) {
             ps.setInt(1, m.magId);
             ps.setString(2, m.serialize());
             ps.executeUpdate();

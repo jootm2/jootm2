@@ -58,10 +58,9 @@ export class PlayScene extends Scene {
         this.entities = new Map();      // id -> 实体快照
         this.sprites = new Map();       // id -> ActorSprite
         this.mapActor = new MapActor(SCREEN_WIDTH, MAPSURFACEHEIGHT);
-        this._holding = false;       // 鼠标按住状态（按住移动时更新目标点）
+        this._holding = false;       // 鼠标按住状态（按住持续移动，松开停止）
         this._mouseRun = false;      // 是否跑（右键）
-        this._targetX = -1;          // 移动目标格子 X（原版 TargetX，-1=无目标）
-        this._targetY = -1;          // 移动目标格子 Y
+        this._mouseDir = -1;         // 当前移动方向（鼠标相对人物，0-7）
         this._lastMoveAt = 0;        // 上次移动时间戳
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
@@ -90,11 +89,9 @@ export class PlayScene extends Scene {
         document.addEventListener('keydown', this._keyDown);
         this._mdHandler = (e) => this._onMouseDown(e);
         this._muHandler = () => {
-            this._holding = false;
-            this._targetX = -1;   // 松开停止移动（原版 DXDraw1MouseUp: TargetX := -1）
-            this._targetY = -1;
+            this._holding = false;   // 松开停止移动
         };
-        this._mmHandler = (e) => this._onMouseMove(e);   // 按住时实时更新目标点
+        this._mmHandler = (e) => this._onMouseMove(e);   // 按住时实时更新方向
         this._canvas.addEventListener('mousedown', this._mdHandler);
         document.addEventListener('mouseup', this._muHandler);   // 全局松开（防止移出 canvas 后仍按住）
         document.addEventListener('mousemove', this._mmHandler);
@@ -158,15 +155,23 @@ export class PlayScene extends Scene {
     }
 
     // 朝目标点移动一步（原版 ProcessActionMessages：每步按当前坐标重算朝目标的方向）
-    _stepToTarget() {
-        if (!this.self || this._targetX < 0) return;
-        const dx = this._targetX - this.self.x;
-        const dy = this._targetY - this.self.y;
-        if (dx === 0 && dy === 0) { this._targetX = -1; return; }   // 到达
-        const dir = DIRMAP[Math.sign(dx) + ',' + Math.sign(dy)];
-        if (dir === undefined) { this._targetX = -1; return; }
-        this.conn.send('move', { dir, run: this._mouseRun });
-        this._lastMoveAt = Date.now();
+    // 鼠标相对画面中心（人物）→ 逻辑 8 方向
+    _dirFromMouse(e) {
+        const rect = this._canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
+        const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
+        const dx = mx - (ox + 24);   // 人物格子中心 X
+        const dy = my - (oy + 16);   // 人物格子中心 Y
+        if (dx === 0 && dy === 0) return -1;
+        const ax = Math.abs(dx) / 48;
+        const ay = Math.abs(dy) / 32;
+        let lgx, lgy;
+        if (ax > ay * 1.5) { lgx = Math.sign(dx); lgy = 0; }
+        else if (ay > ax * 1.5) { lgx = 0; lgy = Math.sign(dy); }
+        else { lgx = Math.sign(dx); lgy = Math.sign(dy); }
+        return DIRMAP[lgx + ',' + lgy];
     }
 
     _onKeyDown(e) {
@@ -236,24 +241,21 @@ export class PlayScene extends Scene {
             }
         }
 
-        // 空地移动：设置目标点（原版 _DXDrawMouseDown 的 ChrAction/TargetX/TargetY），
-        // 跑动中重复右键只重设目标点（不额外走一步）；移动由主循环按间隔驱动
-        const { tx, ty } = this._gridFromMouse(e);
-        const hadTarget = this._targetX >= 0;
+        // 空地移动：记录方向，按住持续朝该方向移动（主循环按间隔节流，快速点击不累计）
+        const dir = this._dirFromMouse(e);
+        if (dir < 0) return;
         this._holding = true;
         this._mouseRun = run;
-        this._targetX = tx;
-        this._targetY = ty;
-        if (!hadTarget) this._stepToTarget();   // 首次设目标：立即走一步
+        this._mouseDir = dir;
+        // 立即可以走第一步（重置间隔，让「点一下」也走一步）
+        this._lastMoveAt = 0;
     }
 
-    // 按住移动时，实时更新目标点（原版 mousemove 每 300ms 重新 MouseDown 更新 TargetX/Y）
+    // 按住移动时，实时更新移动方向（移动过程中转向）
     _onMouseMove(e) {
         if (!this._holding) return;
-        const { tx, ty } = this._gridFromMouse(e);
-        if (tx === this._targetX && ty === this._targetY) return;
-        this._targetX = tx;
-        this._targetY = ty;
+        const dir = this._dirFromMouse(e);
+        if (dir >= 0) this._mouseDir = dir;
     }
 
     // 鼠标 → 游戏格子（渲染中心 + 卷动偏移反推，与 screenX/screenY 互逆）
@@ -427,8 +429,7 @@ export class PlayScene extends Scene {
                 this.entities.clear();
                 this.groundItems.clear();
                 this._holding = false;
-                this._targetX = -1;
-                this._targetY = -1;
+                this._mouseDir = -1;
                 this._viewX = null;   // 重置卷动中心
                 this.castTarget = null;
                 this._clearPicked();   // 换图丢弃手中拿起的物品状态
@@ -1060,15 +1061,12 @@ export class PlayScene extends Scene {
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
         const now = Date.now();
-        // 朝目标点移动（原版 ProcessActionMessages：每步按间隔发 move，到达即停）
-        if (this._targetX >= 0 && this.self) {
-            if (this.self.x === this._targetX && this.self.y === this._targetY) {
-                this._targetX = -1;   // 到达目标
-            } else {
-                const stepDur = this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL;
-                if (now - this._lastMoveAt >= stepDur) {
-                    this._stepToTarget();
-                }
+        // 按住持续朝当前方向移动（主循环按间隔节流，松开 _holding=false 即停）
+        if (this._holding && this.self && this._mouseDir >= 0) {
+            const stepDur = this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL;
+            if (now - this._lastMoveAt >= stepDur) {
+                this.conn.send('move', { dir: this._mouseDir, run: this._mouseRun });
+                this._lastMoveAt = now;
             }
         }
         // NPC 对话框走远自动关闭（原版：离开打开时的位置 >= 8 格即 CloseMDlg）

@@ -334,6 +334,11 @@ jootm2/
     - 跑动重构：原「`_runStep` 发 2 格（原子）+ `_runCycleTimer` 递归」导致连续点击时多个 setTimeout 链叠加、且第 2 格不检查 `_holding`，松手后仍滑行。
     - 改为 `_runStep` 每 `RUN_INTERVAL` 跑 1 格，每步开头判断 `_holding && _mouseRun`，松手即停；`mousedown` 清除旧 `_runTimer`（快速点击覆盖而非排队）；`mouseup` 也 `clearTimeout(_runTimer)`。
     - 验证：右键点传送员只发 move 不对话；连续 3 次右键（80ms 间隔）总 move=3、松手后不再增长（原 6+ 次滑行）。
+70. **跑动中忽略重复右键 + 背包格子改原版 36×32**：
+    - 移动语义修正为「第一次右键开始跑，跑动过程中后续右键一律忽略（`if(run && _holding && _mouseRun) return`），跑动结束时由 `_runStep` 每格判断 `_holding`，松开即停」。之前「mousedown 清除旧定时器」仍会累计。
+    - 切到走（左键）时清除 `_runTimer`；跑动中 mousemove 仍可转向。
+    - 背包格子对齐原版 `TDGrid`（DWinCtl.pas 703-706）：`ColCount=8 RowCount=5 ColWidth=36 RowHeight=32`，即 8×5=40 格、格子 36×32。原误设 8×4、35×40 竖长方形（选中黄框比例 0.875「太高」）。现比例 1.13 接近正方形。
+    - 验证：跑动中额外 3 次右键 move 仍=1、松手不增长；格子 36×32、行距 32px。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

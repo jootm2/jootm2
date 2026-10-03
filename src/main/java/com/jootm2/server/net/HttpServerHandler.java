@@ -4,25 +4,32 @@ import com.jootm2.server.service.GameService;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.DefaultFileRegion;
+import io.netty.channel.FileRegion;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
+import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.codec.http.QueryStringDecoder;
 
 import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -116,29 +123,46 @@ public final class HttpServerHandler extends SimpleChannelInboundHandler<FullHtt
         String cache = cacheControl(name);
         String rangeHeader = req.headers().get(HttpHeaderNames.RANGE);
         if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-            // Range 请求只读需要的字节区间（WIL 库可到 10MB+，整文件 readAllBytes 会拖慢并占满内存）
+            // Range 请求零拷贝分发：FileRegion(transferTo→sendfile) 直接内核页缓存→socket，
+            // 不读进用户态堆内存（WIL 库 10MB+，20 并发下避免堆拷贝与磁盘整读）
             try {
                 long fileSize = Files.size(file);
                 long[] range = parseRange(rangeHeader, fileSize);
                 if (range != null) {
-                    int start = (int) range[0];
-                    int end = (int) range[1];
-                    int len = end - start + 1;
-                    byte[] chunk = new byte[len];
-                    try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
-                        raf.seek(start);
-                        raf.readFully(chunk);
+                    long start = range[0];
+                    long end = range[1];
+                    long count = end - start + 1;
+                    FileChannel fc = FileChannel.open(file, StandardOpenOption.READ);
+                    try {
+                        DefaultHttpResponse resp = new DefaultHttpResponse(
+                                HttpVersion.HTTP_1_1, HttpResponseStatus.PARTIAL_CONTENT);
+                        resp.headers().set(HttpHeaderNames.CONTENT_TYPE, ct);
+                        resp.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes");
+                        resp.headers().set(HttpHeaderNames.CONTENT_RANGE,
+                                "bytes " + start + "-" + end + "/" + fileSize);
+                        resp.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, (int) count);
+                        resp.headers().set(HttpHeaderNames.CACHE_CONTROL, cache);
+                        applyCors(resp.headers());
+                        boolean keepAlive = HttpUtil.isKeepAlive(req);
+                        if (keepAlive) {
+                            resp.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+                        }
+
+                        ctx.write(resp);
+                        FileRegion region = new DefaultFileRegion(fc, start, count);
+                        ctx.write(region);
+                        ChannelFuture f = ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
+                        f.addListener((ChannelFutureListener) future -> {
+                            try { fc.close(); } catch (IOException ignored) { }
+                        });
+                        if (!keepAlive) {
+                            f.addListener(ChannelFutureListener.CLOSE);
+                        }
+                        return;
+                    } catch (Exception e) {
+                        try { fc.close(); } catch (IOException ignored) { }
+                        throw e;
                     }
-                    ByteBuf buf = Unpooled.wrappedBuffer(chunk);
-                    FullHttpResponse resp = new DefaultFullHttpResponse(
-                            HttpVersion.HTTP_1_1, HttpResponseStatus.PARTIAL_CONTENT, buf);
-                    resp.headers().set(HttpHeaderNames.CONTENT_TYPE, ct);
-                    resp.headers().set(HttpHeaderNames.ACCEPT_RANGES, "bytes");
-                    resp.headers().set(HttpHeaderNames.CONTENT_RANGE,
-                            "bytes " + start + "-" + end + "/" + fileSize);
-                    resp.headers().set(HttpHeaderNames.CACHE_CONTROL, cache);
-                    respond(ctx, req, resp);
-                    return;
                 }
             } catch (IOException e) {
                 sendError(ctx, req, HttpResponseStatus.INTERNAL_SERVER_ERROR);
@@ -202,10 +226,15 @@ public final class HttpServerHandler extends SimpleChannelInboundHandler<FullHtt
         end = Math.min(end, fileSize - 1);
         return new long[]{start, end};
     }
-private void respond(ChannelHandlerContext ctx, FullHttpRequest req, FullHttpResponse resp) {
-        resp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-        resp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, OPTIONS");
-        resp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
+    /** 给响应头统一加 CORS（FullHttpResponse 与流式 DefaultHttpResponse 共用）。 */
+    private static void applyCors(io.netty.handler.codec.http.HttpHeaders headers) {
+        headers.set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+        headers.set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, OPTIONS");
+        headers.set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
+    }
+
+    private void respond(ChannelHandlerContext ctx, FullHttpRequest req, FullHttpResponse resp) {
+        applyCors(resp.headers());
         resp.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, resp.content().readableBytes());
 
         if (HttpUtil.isKeepAlive(req)) {

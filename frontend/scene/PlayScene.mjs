@@ -91,7 +91,11 @@ export class PlayScene extends Scene {
         this._keyDown = (e) => this._onKeyDown(e);
         document.addEventListener('keydown', this._keyDown);
         this._mdHandler = (e) => this._onMouseDown(e);
-        this._muHandler = () => { this._holding = false; };
+        this._muHandler = () => {
+            this._holding = false;
+            // 松开立即停止跑动（清除尚未触发的下一步），避免动作队列残留
+            if (this._runTimer) { clearTimeout(this._runTimer); this._runTimer = null; }
+        };
         this._mmHandler = (e) => this._onMouseMove(e);   // 按住时实时更新方向
         this._canvas.addEventListener('mousedown', this._mdHandler);
         document.addEventListener('mouseup', this._muHandler);   // 全局松开（防止移出 canvas 后仍按住）
@@ -202,41 +206,48 @@ export class PlayScene extends Scene {
             this._clearPicked();
             return;
         }
-        const dir = this._dirFromMouse(e);
-        if (dir < 0) return;
         const run = e.button === 2;   // 左键走、右键跑
         const { mx, my } = this._mouseXY(e);
 
-        // 贴图区域判定（原版 GetAttackFocusCharacter）：怪物相邻→攻击、NPC→对话
-        const monster = this._actorAtScreen(mx, my, 'monster');
-        if (monster && monster.hp > 0 && this._dist(this.self, monster) <= 1) {
-            this.castTarget = monster.id;   // 红框高亮
-            this.conn.send('attack', { targetId: monster.id });
-            return;
+        // 贴图区域判定（原版 GetAttackFocusCharacter）：仅左键触发怪物攻击/NPC 对话/玩家攻击/拾取；
+        // 右键只用于「跑」，点 NPC/怪不对话不攻击
+        if (e.button === 0) {
+            const monster = this._actorAtScreen(mx, my, 'monster');
+            if (monster && monster.hp > 0 && this._dist(this.self, monster) <= 1) {
+                this.castTarget = monster.id;   // 红框高亮
+                this.conn.send('attack', { targetId: monster.id });
+                return;
+            }
+            const npc = this._actorAtScreen(mx, my, 'npc');
+            if (npc) {
+                // 原版点中 NPC 贴图即对话（客户端不限距离，服务端限 15 格）
+                this.conn.send('npcTalk', { npcId: npc.id });
+                return;
+            }
+            // 其他玩家（原版：点击玩家 = 攻击，与怪物同）
+            const player = this._actorAtScreen(mx, my, 'player');
+            if (player && this._dist(this.self, player) <= 1) {
+                this.castTarget = player.id;   // 红框高亮
+                this.conn.send('attack', { targetId: player.id });
+                return;
+            }
+            const { tx, ty } = this._gridFromMouse(e);
+            const gi = this._groundAt(tx, ty);
+            if (gi && gi.x === this.self.x && gi.y === this.self.y) {
+                this.conn.send('pickup', { itemId: gi.id });
+                return;
+            }
         }
-        const npc = this._actorAtScreen(mx, my, 'npc');
-        if (npc) {
-            // 原版点中 NPC 贴图即对话（客户端不限距离，服务端限 15 格）
-            this.conn.send('npcTalk', { npcId: npc.id });
-            return;
-        }
-        // 其他玩家（原版：点击玩家 = 攻击，与怪物同）
-        const player = this._actorAtScreen(mx, my, 'player');
-        if (player && this._dist(this.self, player) <= 1) {
-            this.castTarget = player.id;   // 红框高亮
-            this.conn.send('attack', { targetId: player.id });
-            return;
-        }
-        const { tx, ty } = this._gridFromMouse(e);
-        const gi = this._groundAt(tx, ty);
-        if (gi && gi.x === this.self.x && gi.y === this.self.y) {
-            this.conn.send('pickup', { itemId: gi.id });
-            return;
-        }
-        // 空地：记录方向；走立即走 1 格、跑立即跑 2 格（原子）；按住则持续
+
+        const dir = this._dirFromMouse(e);
+        if (dir < 0) return;
+        // 空地移动：记录方向；按住则持续（走/跑每步结束判断鼠标状态，松手即停）
         this._holding = true;
         this._mouseDir = dir;
         this._mouseRun = run;
+        // 清除之前的移动定时器，避免连续点击把动作排队累计
+        if (this._runTimer) { clearTimeout(this._runTimer); this._runTimer = null; }
+        if (this._runCycleTimer) { clearTimeout(this._runCycleTimer); this._runCycleTimer = null; }
         if (run) {
             this._runStep();
         } else {
@@ -245,21 +256,14 @@ export class PlayScene extends Scene {
         }
     }
 
-    // 一次跑动：朝当前方向移动 2 格（原版 SM_RUN movestep=2），原子、不受抬起中断
+    // 跑动：每 RUN_INTERVAL 跑 1 格；每步开头判断鼠标状态，松手即停（不累计队列）
     _runStep() {
+        if (!this._holding || !this._mouseRun) return;   // 松手/非跑：停止
         this.conn.send('move', { dir: this._mouseDir, run: true });
         this._lastMoveAt = Date.now();
         this._runTimer = setTimeout(() => {
-            this.conn.send('move', { dir: this._mouseDir, run: true });   // 第 2 格
-            this._lastMoveAt = Date.now();
             this._runTimer = null;
-            // 仍按住则安排下一个跑周期（再跑 2 格）
-            if (this._holding && this._mouseRun) {
-                this._runCycleTimer = setTimeout(() => {
-                    this._runCycleTimer = null;
-                    if (this._holding && this._mouseRun) this._runStep();
-                }, RUN_INTERVAL);
-            }
+            this._runStep();   // 递归：下一步前重新判断鼠标状态
         }, RUN_INTERVAL);
     }
 

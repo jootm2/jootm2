@@ -377,7 +377,12 @@ jootm2/
 78. **被动技能不可设置快捷键**：
     - Magic.csv 里 `EffectType=0` 是被动技能（Power/Spell/Delay 均 0）：基本剑术(3)、精神力战法(4)、攻杀剑术(7)、刺杀剑术(12)、半月弯刀(25)、烈火剑法(26)。
     - `skillsJson` 加 `effectType`；`magicKeyChange` 服务端拒绝 `effectType==0` 设键；前端技能页被动显示「被动」灰色不可点、不弹框。
-    - 待办：服务器被动技能效果（基本剑术/精神力战法命中加成、攻杀/刺杀/半月/烈火攻击触发）尚未实现；主动技能部分未开放（地狱火9/疾光电影10/灵魂火符13/幽灵盾14/神圣战甲术15/困魔咒16/爆裂火焰23/地狱雷光24/心灵启示28/群体治疗29/魔法盾31/圣言术32/冰咆哮33）。
+    - 待办：主动技能部分未开放（地狱火9/疾光电影10/灵魂火符13/幽灵盾14/神圣战甲术15/困魔咒16/爆裂火焰23/地狱雷光24/心灵启示28/群体治疗29/魔法盾31/圣言术32/冰咆哮33）。
+79. **被动技能战斗效果完整实现**（对照 ObjBase.pas RecalcAbilitys + attack 触发）：
+    - 命中加成：基本剑术(3)+3/级、精神力战法(4)+8/3/级、攻杀(7)+1/级 → `hitCheck` 加 `hitBonus`。
+    - 攻杀剑术(7)：概率 `1/(7-Level)` 触发，伤害 +5+Level；烈火剑法(26)：20% 触发，伤害 +40%~160%（HitDouble=4+Level*4）；刺杀剑术(12)：额外 +2+Level。
+    - 半月弯刀(25)：溅射周围 1 格怪物 dmg/2（SwordWideAttack），溅射击杀也计经验。
+    - 新增 `hasSkill`/`skillLevel` 辅助方法。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

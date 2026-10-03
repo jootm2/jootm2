@@ -418,7 +418,7 @@ export class PlayScene extends Scene {
                     if (msg.skills !== undefined) e.skills = msg.skills;   // 技能快捷键更新
                 }
                 // 技能页打开时同步刷新（快捷键变更）
-                if (this.stateWin && this.stateWin.style.display === 'block' && this.statePage === 2) {
+                if (this.stateWin && this.stateWin.style.display === 'block' && this.statePage === 3) {
                     this._refreshSkillPage();
                 }
                 break;
@@ -777,9 +777,9 @@ export class PlayScene extends Scene {
             lvEl.style.cssText = 'position:absolute;left:56px;top:17px;font-size:11px;';
             row.appendChild(lvEl);
             if (!passive) {
-                // 快捷键图标（原版 keyimg Prguse[650..657] @bbx+145）或「未设置」（紧挨等级）
+                // 快捷键图标（原版 keyimg Prguse[650..657]，此资源缺失改用 DKeySelDlg 的 F 键图 232/234/...）
                 if (sk.key) {
-                    this._libUrl('prguse', 650 + (sk.key - 1)).then((url) => {
+                    this._libUrl('prguse', 232 + (sk.key - 1) * 2).then((url) => {
                         if (url) {
                             const im = document.createElement('img');
                             im.src = url; im.draggable = false;
@@ -831,17 +831,12 @@ export class PlayScene extends Scene {
         name.textContent = sk.name;
         name.style.cssText = 'position:absolute;left:68px;top:26px;white-space:nowrap;';
         box.appendChild(name);
-        // 提示文字（229 背景文字区 y≈84-112）
-        const title = document.createElement('div');
-        title.textContent = '快捷键盘被设置为';
-        title.style.cssText = 'position:absolute;left:28px;top:88px;white-space:nowrap;';
-        box.appendChild(title);
-        // F1-F8 键图标（Prguse[232/234/236/238/240/242/244/246]，标题下方一排）
+        // F1-F8 键图标（Prguse[232/234/236/238/240/242/244/246]，背景提示文字下方一排）
         for (let k = 1; k <= 8; k++) {
             const idx = 232 + (k - 1) * 2;
             const left = 25 + (k - 1) * 32;
             const btn = document.createElement('div');
-            btn.style.cssText = `position:absolute;left:${left}px;top:112px;width:32px;height:30px;cursor:pointer;`;
+            btn.style.cssText = `position:absolute;left:${left}px;top:115px;width:32px;height:30px;cursor:pointer;`;
             this._libUrl('prguse', idx).then((url) => {
                 if (url && this.keySetupEl === box) {
                     const im = document.createElement('img');

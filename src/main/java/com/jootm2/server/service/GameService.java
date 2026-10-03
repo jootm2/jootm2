@@ -840,9 +840,9 @@ public final class GameService {
         if (s == null) {
             return;
         }
-        MagicTemplate mt = world.magicTemplates.get(magicId);
-        if (mt != null && mt.effectType == 0 && key != 0) {
-            // 被动技能（基本剑术/精神力战法/攻杀/刺杀等）不可设置快捷键
+        // 被动技能白名单（基本剑术3/精神力战法4/攻杀7/刺杀12）不可设置快捷键。
+        // 半月弯刀25/烈火剑法26/野蛮冲撞27 虽 effectType=0 但为主动可设置，故不能用 effectType 判断。
+        if (key != 0 && (magicId == 3 || magicId == 4 || magicId == 7 || magicId == 12)) {
             world.sendSystem(p, "被动技能无法设置快捷键。");
             return;
         }

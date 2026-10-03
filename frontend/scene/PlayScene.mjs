@@ -557,7 +557,7 @@ export class PlayScene extends Scene {
     _openSkillSetup() {
         if (!this.stateWin) this._buildStateWin();
         const open = this.stateWin.style.display === 'block';
-        this.statePage = 2;
+        this.statePage = 3;
         if (open) {
             this.stateWin.style.display = 'none';
         } else {
@@ -604,6 +604,22 @@ export class PlayScene extends Scene {
         this.stateAttrEl.style.cssText = 'position:absolute;left:112px;top:99px;width:96px;'
             + 'font-size:12px;line-height:20px;text-shadow:1px 1px 0 #000;';
         this.stateAttrWrap.appendChild(this.stateAttrEl);
+        // 属性数值页（原版 StatePage=2：经验/重量/负重/腕力/精确度/敏捷度等，背景 Prguse[382]）
+        this.stateAttr2Wrap = document.createElement('div');
+        this.stateAttr2Wrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
+        win.appendChild(this.stateAttr2Wrap);
+        this._libUrl('prguse', 382).then((url) => {
+            if (url && this.stateWin === win) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:38px;top:52px;';
+                this.stateAttr2Wrap.insertBefore(bg, this.stateAttr2Wrap.firstChild);
+            }
+        });
+        this.stateAttr2El = document.createElement('div');
+        this.stateAttr2El.style.cssText = 'position:absolute;left:58px;top:62px;width:150px;'
+            + 'font-size:12px;line-height:14px;text-shadow:1px 1px 0 #000;';
+        this.stateAttr2Wrap.appendChild(this.stateAttr2El);
         // 技能页（F12，原版 StatePage=3 魔法页：Prguse[383] 背景 + 5 个技能行 + 内部分页）
         this.stateSkillWrap = document.createElement('div');
         this.stateSkillWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
@@ -666,7 +682,7 @@ export class PlayScene extends Scene {
             const b = document.createElement('div');
             b.style.cssText = `position:absolute;left:7px;top:${top}px;width:24px;height:23px;cursor:pointer;`;
             b.addEventListener('click', () => {
-                this.statePage = (this.statePage + page + 3) % 3;   // 0装备 1属性 2技能 循环
+                this.statePage = (this.statePage + page + 4) % 4;   // 0装备 1状态值 2属性数值 3技能 循环
                 this._refreshStateWin();
             });
             this._libUrl('prguse', idx).then((url) => {
@@ -690,11 +706,14 @@ export class PlayScene extends Scene {
         // 分页显示
         this.stateEquipWrap.style.display = this.statePage === 0 ? 'block' : 'none';
         this.stateAttrWrap.style.display = this.statePage === 1 ? 'block' : 'none';
-        this.stateSkillWrap.style.display = this.statePage === 2 ? 'block' : 'none';
+        this.stateAttr2Wrap.style.display = this.statePage === 2 ? 'block' : 'none';
+        this.stateSkillWrap.style.display = this.statePage === 3 ? 'block' : 'none';
         if (this.statePage === 0) {
             this._refreshEquipPage();
         } else if (this.statePage === 1) {
             this._refreshAttrPage();
+        } else if (this.statePage === 2) {
+            this._refreshAttr2Page();
         } else {
             this._refreshSkillPage();
         }
@@ -837,6 +856,38 @@ export class PlayScene extends Scene {
                 : (p[field] || '0-0');
             this.stateAttrEl.appendChild(div);
         }
+    }
+
+    // 属性数值页（原版 StatePage=2）：经验/重量/负重/腕力/精确度/敏捷度 + 防御恢复（当前未实现置 0）
+    _refreshAttr2Page() {
+        const p = this.self;
+        this.stateAttr2El.innerHTML = '';
+        const rows = [
+            ['当前经验', `${p.exp || 0}`],
+            ['升级经验', `${p.maxExp || 0}`],
+            ['背包重量', `${p.weight || 0}/${p.maxWeight || 0}`],
+            ['负重量', `${p.wearWeight || 0}/${p.maxWearWeight || 0}`],
+            ['腕力', `${p.handWeight || 0}/${p.maxHandWeight || 0}`],
+            ['精确度', `${p.hit || 0}`],
+            ['敏捷度', `${p.speed || 0}`],
+            ['魔法防御', `+${(p.antiMagic || 0) * 10}%`],
+            ['中毒防御', `+${(p.antiPoison || 0) * 10}%`],
+            ['中毒恢复', `+${(p.poisonRecover || 0) * 10}%`],
+            ['体力恢复', `+${(p.healthRecover || 0) * 10}%`],
+            ['魔法恢复', `+${(p.spellRecover || 0) * 10}%`],
+        ];
+        rows.forEach(([label, val], i) => {
+            const line = document.createElement('div');
+            line.style.cssText = `position:absolute;left:0;top:${i * 14}px;white-space:nowrap;`;
+            const l = document.createElement('span');
+            l.textContent = label;
+            line.appendChild(l);
+            const v = document.createElement('span');
+            v.textContent = val;
+            v.style.cssText = 'position:absolute;left:85px;';
+            line.appendChild(v);
+            this.stateAttr2El.appendChild(line);
+        });
     }
 
     // ---- 背包（F10，原版 DItemBag）----

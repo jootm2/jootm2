@@ -3,6 +3,7 @@ package com.jootm2.server.game;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.jootm2.server.game.common.Ability;
+import com.jootm2.server.game.common.ExperienceTable;
 import com.jootm2.server.game.common.ItemInstance;
 import com.jootm2.server.game.common.ItemTemplate;
 import com.jootm2.server.game.common.MagicTemplate;
@@ -335,6 +336,37 @@ public final class Player extends Actor {
         o.addProperty("dc", combat.dcMin + "-" + combat.dcMax);
         o.addProperty("mc", combat.mcMin + "-" + combat.mcMax);
         o.addProperty("sc", combat.scMin + "-" + combat.scMax);
+        // 属性数值页（原版 DStateWin StatePage=2）字段：经验/负重/命中/敏捷
+        o.addProperty("maxExp", ExperienceTable.expForLevel(level));
+        int bagWeight = 0;
+        for (ItemInstance it : bag) {
+            ItemTemplate t = world != null ? world.itemTemplates.get(it.index) : null;
+            if (t != null) bagWeight += t.weight;
+        }
+        int wearWeight = 0;
+        for (ItemInstance eq : equipment) {
+            if (eq != null) {
+                ItemTemplate t = world != null ? world.itemTemplates.get(eq.index) : null;
+                if (t != null) wearWeight += t.weight;
+            }
+        }
+        int handWeight = 0;
+        ItemInstance wpn = equipment[MessageIds.U_WEAPON];
+        if (wpn != null) {
+            ItemTemplate t = world != null ? world.itemTemplates.get(wpn.index) : null;
+            if (t != null) handWeight = t.weight;
+        }
+        int mwDiv = job == 0 ? 3 : (job == 1 ? 5 : 4);
+        int mwwDiv = job == 0 ? 20 : (job == 1 ? 100 : 50);
+        int mhwDiv = job == 0 ? 13 : (job == 1 ? 90 : 42);
+        o.addProperty("weight", bagWeight);
+        o.addProperty("maxWeight", 50 + (level / mwDiv) * level);
+        o.addProperty("wearWeight", wearWeight);
+        o.addProperty("maxWearWeight", 15 + (level / mwwDiv) * level);
+        o.addProperty("handWeight", handWeight);
+        o.addProperty("maxHandWeight", Math.min(255, 12 + (level / mhwDiv) * level));
+        o.addProperty("hit", combat.hit);
+        o.addProperty("speed", combat.speed);
         o.add("skills", skillsJson(world));
         o.add("items", itemsJson(world));
         return o;

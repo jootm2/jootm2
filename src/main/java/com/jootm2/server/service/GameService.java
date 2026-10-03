@@ -46,8 +46,10 @@ public final class GameService {
 
     public static final int MAX_CHARS_PER_ACCOUNT = 2;
 
-    /** 普通攻击间隔（ms），对齐原版攻击速度节奏，防快速点击连打。 */
-    public static final long ATTACK_INTERVAL = 1000;
+    /** 普通攻击服务端兜底间隔（ms）。正常攻速由客户端 CanNextHit（约 1030ms）+ 攻击动作
+     * 完成驱动（对齐原版，服务端本无玩家攻击限速）；此处仅留一个宽松下限，防脚本绕过客户端
+     * 瞬间刷攻击消息，不干扰正常攻击节奏。 */
+    public static final long ATTACK_INTERVAL = 500;
 
     private final ServerConfig config;
     private final Database database;

@@ -18,6 +18,9 @@ const DIRMAP = {
 const WALK_INTERVAL = 540;   // 走（左键）
 const RUN_INTERVAL = 360;    // 跑（右键）
 
+// 玩家攻击动画时长（HA.hit：6 帧 × 85ms = 510ms），动作完成才允许下一次攻击
+const ATTACK_ANIM_MS = 510;
+
 // 怪物/NPC 移动过渡时长（ms）：对齐多数怪物 walk 动画 6 帧×120ms=720ms
 const MONSTER_MOVE_DUR = 720;
 
@@ -62,6 +65,7 @@ export class PlayScene extends Scene {
         this._mouseRun = false;      // 是否跑（右键）
         this._mouseDir = -1;         // 当前移动方向（鼠标相对人物，0-7）
         this._lastMoveAt = 0;        // 上次移动时间戳
+        this._lastHitTime = 0;       // 上次攻击时间戳（CanNextHit 攻速控制）
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
         this._zTop = 100;            // 窗口 z-index 计数器（点击前置递增）
@@ -199,7 +203,39 @@ export class PlayScene extends Scene {
             const d = Math.max(Math.abs(e.x - this.self.x), Math.abs(e.y - this.self.y));
             if (d <= 1 && d < bestDist) { bestDist = d; best = e; }
         }
-        if (best) this.conn.send('attack', { targetId: best.id });
+        if (best) this._tryAttack(best.id);
+    }
+
+    // 攻击前判定（对齐原版 CanNextAction + CanNextHit）：
+    // 1) 角色空闲（IsIdle，不在攻击/施法/移动动作中）——「后一个动作的前提是前一个动作完成」
+    // 2) 攻速间隔到（CanNextHit：1400 - min(800, min(370, level*14) + HitSpeed*60)）
+    _tryAttack(targetId) {
+        if (!this._isIdle()) return;
+        if (!this._canNextHit()) return;
+        this._lastHitTime = Date.now();
+        // 本地立即标记攻击动作（不等服务端回包）：动画播放期间 _isIdle()=false，无法再次攻击
+        if (this.self) {
+            this.self._action = 'attack';
+            this.self._actionAt = Date.now();
+        }
+        this.conn.send('attack', { targetId });
+    }
+
+    // 角色是否空闲（动作已完成）：self 无动作或已回到 stand
+    _isIdle() {
+        const s = this.self;
+        if (!s) return false;
+        const action = s._action || 'stand';
+        return action === 'stand';
+    }
+
+    // 攻速间隔（原版 CanNextHit）。HitSpeed 简化取 0（StdItems.csv 无攻击速度字段）。
+    _canNextHit() {
+        const level = this.self ? (this.self.level || 1) : 1;
+        let levelfast = Math.min(370, level * 14);
+        levelfast = Math.min(800, levelfast);   // + HitSpeed*60（当前 0）
+        const nexthit = Math.max(0, 1400 - levelfast);
+        return (Date.now() - this._lastHitTime) > nexthit;
     }
 
     // ---- 鼠标按下（点怪攻击 / 点 NPC 对话 / 点物拾取 / 空地走）----
@@ -223,7 +259,7 @@ export class PlayScene extends Scene {
             const monster = this._actorAtScreen(mx, my, 'monster');
             if (monster && monster.hp > 0 && this._dist(this.self, monster) <= 1) {
                 this.castTarget = monster.id;   // 红框高亮
-                this.conn.send('attack', { targetId: monster.id });
+                this._tryAttack(monster.id);
                 return;
             }
             const npc = this._actorAtScreen(mx, my, 'npc');
@@ -236,7 +272,7 @@ export class PlayScene extends Scene {
             const player = this._actorAtScreen(mx, my, 'player');
             if (player && this._dist(this.self, player) <= 1) {
                 this.castTarget = player.id;   // 红框高亮
-                this.conn.send('attack', { targetId: player.id });
+                this._tryAttack(player.id);
                 return;
             }
             const { tx, ty } = this._gridFromMouse(e);
@@ -1301,6 +1337,11 @@ export class PlayScene extends Scene {
             // 移动停止超时回站立（所有实体：连续移动动画循环，停止后归位 stand）
             if ((e._action === 'walk' || e._action === 'run')
                 && (now - (e._lastMoveAt || 0)) > 600) {
+                e._action = 'stand';
+            }
+            // 攻击/受击动作播放完回站立（动作完成，解除 _isIdle 锁定，可进行下一次攻击）
+            if ((e._action === 'attack' || e._action === 'struck')
+                && (now - (e._actionAt || 0)) > ATTACK_ANIM_MS) {
                 e._action = 'stand';
             }
             const sp = this._sprite(e);

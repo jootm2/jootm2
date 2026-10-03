@@ -81,6 +81,13 @@ public final class Player extends Actor {
     /** 隐身术截止时间戳（ms），0 = 未隐身。 */
     public long hideUntil = 0;
 
+    /** 增益 buff：幽灵盾(14)/神圣战甲术(15) 加防御/魔御，截止时间戳。 */
+    public long acBuffUntil = 0;
+    public int acBuffBonus = 0;
+    public int macBuffBonus = 0;
+    /** 魔法盾(31) 减伤截止时间戳。 */
+    public long shieldUntil = 0;
+
     public GameWorld world;
     public PlayerSession session;
 
@@ -218,6 +225,15 @@ public final class Player extends Actor {
         }
         if (yset[1] && yset[2]) {
             if (yset[0]) { combat.scMin += 1; combat.scMax += 2; }
+        }
+
+        // 增益 buff（幽灵盾/神圣战甲术）：未过期则加防御/魔御
+        long now = System.currentTimeMillis();
+        if (acBuffUntil > now) {
+            combat.acMin += acBuffBonus;
+            combat.acMax += acBuffBonus;
+            combat.macMin += macBuffBonus;
+            combat.macMax += macBuffBonus;
         }
 
         maxHp = BASE_HP[job] + hpAdd + (level - 1) * HP_GROWTH;

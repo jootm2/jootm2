@@ -916,7 +916,20 @@ public final class GameWorld {
         List<Actor> snapshot = new ArrayList<>(actors.values());
         for (Actor a : snapshot) {
             if (a instanceof Player) {
-                regen((Player) a, now);
+                Player pl = (Player) a;
+                regen(pl, now);
+                // 增益 buff 过期：清字段并重算
+                if (pl.acBuffUntil > 0 && pl.acBuffUntil <= now) {
+                    pl.acBuffUntil = 0;
+                    pl.acBuffBonus = 0;
+                    pl.macBuffBonus = 0;
+                    pl.recompute(this);
+                    sendStats(pl, null);
+                }
+                if (pl.shieldUntil > 0 && pl.shieldUntil <= now) {
+                    pl.shieldUntil = 0;
+                    sendStats(pl, null);
+                }
             } else if (a instanceof Monster) {
                 monsterAi((Monster) a, now);
             }
@@ -1257,6 +1270,10 @@ public final class GameWorld {
     private void attackPlayer(Monster m, Player target) {
         int raw = m.rollAttack();
         int dmg = Math.max(1, raw - target.combat.acMax);
+        // 魔法盾：减伤 30%
+        if (target.shieldUntil > System.currentTimeMillis()) {
+            dmg = dmg * 7 / 10;
+        }
         // 护身：伤害先由 MP 抵消
         if (target.manaToHealth > 0 && target.mp > 0) {
             int mpCost = Math.min(target.mp, dmg);

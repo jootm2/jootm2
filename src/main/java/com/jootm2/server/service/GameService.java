@@ -1201,6 +1201,30 @@ public final class GameService {
                         grantExp(p, m);
                     }
                     success = true;
+                    // 范围魔法：溅射周围 1 格（爆裂火焰/地狱雷光/冰咆哮）
+                    if (isAreaMagic(magicId)) {
+                        int splash = damage / 2;
+                        for (Actor nb : world.nearby(m.map, m.x, m.y, 1)) {
+                            if (nb instanceof Monster && nb != m && nb.alive) {
+                                Monster other = (Monster) nb;
+                                other.hp = Math.max(0, other.hp - splash);
+                                JsonObject so = new JsonObject();
+                                so.addProperty("type", "attack");
+                                so.addProperty("attackerId", p.id);
+                                so.addProperty("targetId", other.id);
+                                so.addProperty("damage", splash);
+                                so.addProperty("magicId", magicId);
+                                so.addProperty("x", other.x);
+                                so.addProperty("y", other.y);
+                                world.broadcastAround(other.map, so, other.x, other.y, GameWorld.SIGHT_RANGE);
+                                world.sendStats(other, null);
+                                if (other.hp <= 0) {
+                                    world.killMonster(other, now, p);
+                                    grantExp(p, other);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         } else if (magicId == 6) {
@@ -1269,6 +1293,79 @@ public final class GameService {
                     success = true;
                 }
             }
+        } else if (magicId == 29) {
+            // 群体治疗术：治疗周围队友
+            int heal = t.power + (int) (Math.random() * (t.maxPower - t.power + 1)) + lv * 2;
+            int healed = 0;
+            for (Actor nb : world.nearby(p.map, p.x, p.y, 5)) {
+                if (nb instanceof Player && nb.alive) {
+                    Player other = (Player) nb;
+                    if (other.hp < other.maxHp) {
+                        other.hp = Math.min(other.maxHp, other.hp + heal);
+                        world.sendStats(other, null);
+                        healed++;
+                    }
+                }
+            }
+            world.sendSystem(p, "施展了 " + t.name + "，治疗了 " + healed + " 个目标。");
+            success = true;
+        } else if (magicId == 14 || magicId == 15) {
+            // 幽灵盾 / 神圣战甲术：加防御/魔御（持续）
+            int dur = (30 + lv * 10) * 1000;
+            p.acBuffUntil = now + dur;
+            p.acBuffBonus = magicId == 15 ? (3 + lv * 3) : (2 + lv * 2);   // 神圣战甲术加防御更多
+            p.macBuffBonus = magicId == 14 ? (3 + lv * 3) : (1 + lv);      // 幽灵盾加魔御更多
+            p.recompute(world);
+            world.sendSystem(p, "施展了 " + t.name + "，防御提升。");
+            world.sendStats(p, null);
+            success = true;
+        } else if (magicId == 31) {
+            // 魔法盾：减伤（持续）
+            int dur = (30 + lv * 10) * 1000;
+            p.shieldUntil = now + dur;
+            world.sendSystem(p, "魔法盾开启，减伤持续 " + (dur / 1000) + " 秒。");
+            success = true;
+        } else if (magicId == 16) {
+            // 困魔咒：定身目标怪物
+            Actor a = world.actor(targetId);
+            if (a instanceof Monster && a.alive) {
+                Monster m = (Monster) a;
+                m.paralyzedUntil = now + (5 + lv * 3) * 1000;
+                world.sendSystem(p, "困住了 " + m.name + "。");
+                success = true;
+            }
+        } else if (magicId == 32) {
+            // 圣言术：对不死系造成巨额伤害
+            Actor a = world.actor(targetId);
+            if (a instanceof Monster && a.alive) {
+                Monster m = (Monster) a;
+                int damage = magicDamage(p, t, lv, m) * 3;
+                m.hp = Math.max(0, m.hp - damage);
+                JsonObject o = new JsonObject();
+                o.addProperty("type", "attack");
+                o.addProperty("attackerId", p.id);
+                o.addProperty("targetId", m.id);
+                o.addProperty("damage", damage);
+                o.addProperty("magicId", magicId);
+                o.addProperty("x", m.x);
+                o.addProperty("y", m.y);
+                world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
+                world.sendStats(m, null);
+                if (m.hp <= 0) {
+                    world.killMonster(m, now, p);
+                    grantExp(p, m);
+                }
+                world.sendSystem(p, "圣言术对 " + m.name + " 造成 " + damage + " 伤害。");
+                success = true;
+            }
+        } else if (magicId == 28) {
+            // 心灵启示：窥探目标血量
+            Actor a = world.actor(targetId);
+            if (a instanceof Monster && a.alive) {
+                Monster m = (Monster) a;
+                world.sendSystem(p, m.name + " 血量 " + m.hp + "/" + m.maxHp);
+                success = true;
+            }
         } else {
             world.sendSystem(p, "该魔法暂未开放。");
             return;
@@ -1299,7 +1396,14 @@ public final class GameService {
     }
 
     private boolean isDamageMagic(int magicId) {
-        return magicId == 1 || magicId == 5 || magicId == 11 || magicId == 35;   // 火球/大火球/雷电/灭天火
+        // 火球/大火球/雷电/灭天火 + 地狱火/疾光电影/灵魂火符/爆裂火焰/地狱雷光/冰咆哮
+        return magicId == 1 || magicId == 5 || magicId == 9 || magicId == 10 || magicId == 11
+                || magicId == 13 || magicId == 23 || magicId == 24 || magicId == 33 || magicId == 35;
+    }
+
+    /** 范围伤害魔法（爆裂火焰/地狱雷光/冰咆哮）：命中后溅射周围 1 格。 */
+    private boolean isAreaMagic(int magicId) {
+        return magicId == 23 || magicId == 24 || magicId == 33;
     }
 
     /** Magic damage: base power scaled by skill level, plus MC, minus target MAC. */

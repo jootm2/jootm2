@@ -321,6 +321,14 @@ jootm2/
     - npcSelect 只认 `@exit` → `@Quit` 走 execute("Quit") 找不到 section → 空白对话框。修复：关闭语义忽略大小写（exit/quit），buy/sell 同步忽略。
     - 兜底：execute 返回空 sayText 且非 buy/sell/closed/moved 时自动回退 execute("main")，链接指向不存在 section（@main1/@main_1）不再空白。
     - 验证：书店老板卖出返回正常；npcSelect @Quit 触发 npcClose；服务端返回 npcSay 序列 [主对话/ shop=sell / 主对话] 全部正常。
+68. **背包交互改原版「拿起-放下」模型（双击使用/单击选中）**：
+    - **双击才使用**：`cell dblclick → useItem`，单击不再直接使用（原版物品光标交互）。
+    - **单击选中（拿起）**：`this.pickedItem` 记录，cell 黄框高亮（`_markPicked`/`_clearPicked` 直接改 outline，不重建 DOM，避免破坏 dblclick）。再点同一格取消；点另一格 → `moveItem` 换位。
+    - **扔到地上**：`_onMouseDown` 开头若 `pickedItem` 存在 → `drop`（服务端 `GameWorld.dropItem` 移除背包→生成 `GroundItem` 脚下→广播 `itemDrop`）。
+    - **卖出**：`_showSellDlg` 的投放框 spot 加 click，拿起物品后点投放框 → `_pickSellItem` 放入待卖；移除 `shopSellMode` 单击自动投放。
+    - **卖出后投放框自动清空**：`bagUpdate` 里检测 `shopSellItem.makeIndex` 已不在 `msg.items` → `_clearSellSpot`。
+    - 服务端新增 `drop`/`moveItem` 消息（GameService switch + dropItem/moveItem 方法）；`moveItem` 交换两个 makeIndex 在 bag 的位置。
+    - 换图/销毁清空 `pickedItem`。验证：单击选中高亮、单击取消、双击消耗金创药、换位顺序正确、扔地上地面物品+1、卖出金币+1 且投放框清空。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

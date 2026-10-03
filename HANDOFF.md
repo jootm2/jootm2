@@ -383,6 +383,12 @@ jootm2/
     - 攻杀剑术(7)：概率 `1/(7-Level)` 触发，伤害 +5+Level；烈火剑法(26)：20% 触发，伤害 +40%~160%（HitDouble=4+Level*4）；刺杀剑术(12)：额外 +2+Level。
     - 半月弯刀(25)：溅射周围 1 格怪物 dmg/2（SwordWideAttack），溅射击杀也计经验。
     - 新增 `hasSkill`/`skillLevel` 辅助方法。
+80. **补齐未开放的主动技能**：
+    - 伤害魔法扩展 `isDamageMagic`：地狱火9/疾光电影10/灵魂火符13/爆裂火焰23/地狱雷光24/冰咆哮33；范围魔法(23/24/33)命中后溅射周围1格(dmg/2)。
+    - 群体治疗术(29)：治疗周围5格队友。
+    - 幽灵盾(14)/神圣战甲术(15)：加防御/魔御持续 buff（`Player.acBuffUntil/acBuffBonus/macBuffBonus`，`recompute` 体现，`tick` 过期恢复）。
+    - 魔法盾(31)：减伤30%持续 buff（`shieldUntil`，`attackPlayer` 里减伤，`tick` 过期）。
+    - 困魔咒(16)：定身目标；圣言术(32)：3倍魔法伤害；心灵启示(28)：显示目标血量。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

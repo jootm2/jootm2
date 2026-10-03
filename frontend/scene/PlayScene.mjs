@@ -268,9 +268,9 @@ export class PlayScene extends Scene {
                 this.conn.send('npcTalk', { npcId: npc.id });
                 return;
             }
-            // 其他玩家（原版：点击玩家 = 攻击，与怪物同）
+            // 其他玩家（原版：点击玩家 = 攻击，与怪物同；排除自己，原版 IsSelectMyself 判断）
             const player = this._actorAtScreen(mx, my, 'player');
-            if (player && this._dist(this.self, player) <= 1) {
+            if (player && player.id !== this.self.id && this._dist(this.self, player) <= 1) {
                 this.castTarget = player.id;   // 红框高亮
                 this._tryAttack(player.id);
                 return;
@@ -597,13 +597,23 @@ export class PlayScene extends Scene {
         this.stateAttrEl.style.cssText = 'position:absolute;left:112px;top:99px;width:96px;'
             + 'font-size:12px;line-height:20px;text-shadow:1px 1px 0 #000;';
         this.stateAttrWrap.appendChild(this.stateAttrEl);
-        // 技能页（F11，原版 StatePage=3 魔法页：Prguse[383] 背景 + 技能列表）
+        // 技能页（F12，原版 StatePage=3 魔法页：Prguse[383] 背景 + 技能列表）
         this.stateSkillWrap = document.createElement('div');
         this.stateSkillWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
         win.appendChild(this.stateSkillWrap);
+        // 技能页背景 Prguse[383]（原版在 38,52；此前缺背景导致沿用装备页 370 底图，界面错乱）
+        this._libUrl('prguse', 383).then((url) => {
+            if (url && this.stateWin === win) {
+                const bg = document.createElement('img');
+                bg.src = url; bg.draggable = false;
+                bg.style.cssText = 'position:absolute;left:38px;top:52px;';
+                // 插入到技能列表之前：背景异步加载完时列表已存在，保证列表文字不被背景遮挡
+                this.stateSkillWrap.insertBefore(bg, this.stateSkillListEl);
+            }
+        });
         this.stateSkillListEl = document.createElement('div');
-        this.stateSkillListEl.style.cssText = 'position:absolute;left:38px;top:52px;width:190px;height:270px;'
-            + 'font-size:12px;line-height:16px;color:#e8d9b0;text-shadow:1px 1px 0 #000;';
+        this.stateSkillListEl.style.cssText = 'position:absolute;left:86px;top:60px;width:100px;height:185px;'
+            + 'font-size:12px;line-height:37px;color:#e8d9b0;text-shadow:1px 1px 0 #000;';
         this.stateSkillWrap.appendChild(this.stateSkillListEl);
         // 角色名（原版：Left+122 水平居中，Top+23，纯名字）
         this.stateNameEl = document.createElement('div');
@@ -684,8 +694,8 @@ export class PlayScene extends Scene {
             const row = document.createElement('div');
             const passive = (sk.effectType === 0);   // 被动技能（基本剑术/精神力战法/攻杀等）
             const keyLabel = passive ? '被动' : (sk.key ? ('F' + sk.key) : '未设置');
-            row.textContent = `${sk.name}  Lv.${sk.level}  [${keyLabel}]`;
-            row.style.cssText = 'padding:3px 4px;margin-bottom:2px;'
+            row.textContent = `${sk.name}  ${sk.level}  [${keyLabel}]`;
+            row.style.cssText = 'height:37px;line-height:37px;white-space:nowrap;overflow:hidden;'
                 + (passive ? 'color:#888;' : 'cursor:pointer;');
             if (!passive) {
                 row.addEventListener('mouseenter', () => { row.style.background = 'rgba(255,255,255,0.15)'; });

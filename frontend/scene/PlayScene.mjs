@@ -59,30 +59,40 @@ const PASSIVE_MAGICS = new Set([3, 4]);
 
 // ---- 技能特效帧（magic/magic2 库，对齐原版 EffectBase + EXPLOSIONBASE 简化映射）----
 // 每项 = 起始帧 + 连续帧数，动画帧间隔约 80ms（原版 NextFrameTime）。
+// 帧号对齐原版 EffectBase + EXPLOSIONBASE(170)：命中爆炸 = EffectBase + 170。
 const FX_FRAMES = {
-    boom:        { lib: 'magic', base: 1650, frames: 10, ft: 80 },   // 通用命中爆炸
-    fireball:    { lib: 'magic', base: 600,  frames: 6,  ft: 80 },   // 火球飞行
-    bigfireball: { lib: 'magic', base: 400,  frames: 8,  ft: 80 },   // 大火球飞行
-    heal:        { lib: 'magic', base: 920,  frames: 6,  ft: 90 },   // 治疗光圈
-    firewall:    { lib: 'magic', base: 1600, frames: 10, ft: 120 },  // 火墙火焰
-    shield:      { lib: 'magic', base: 1620, frames: 4,  ft: 120 },  // 魔法盾泡泡
-    thunder:     { lib: 'magic', base: 1650, frames: 10, ft: 70 },   // 雷击（简化复用爆炸帧）
+    // 命中爆炸（各技能专属）
+    boomFire:     { lib: 'magic',  base: 770,  frames: 10, ft: 80 },   // 火球爆炸
+    boomBigFire:  { lib: 'magic',  base: 570,  frames: 10, ft: 80 },   // 大火球爆炸
+    boomBflame:   { lib: 'magic',  base: 1670, frames: 10, ft: 80 },   // 爆裂火焰大爆炸
+    boomIce:      { lib: 'magic',  base: 170,  frames: 10, ft: 80 },   // 冰咆哮
+    boomHoly:     { lib: 'magic',  base: 50,   frames: 6,  ft: 80 },   // 圣言术圣光
+    lightning:    { lib: 'magic',  base: 3840, frames: 12, ft: 70 },   // 疾光电影闪电
+    lightningArea:{ lib: 'magic2', base: 160,  frames: 10, ft: 70 },   // 地狱雷光
+    // 飞行弹道
+    fireball:     { lib: 'magic',  base: 600,  frames: 6,  ft: 80 },   // 火球飞行
+    bigfireball:  { lib: 'magic',  base: 400,  frames: 8,  ft: 80 },   // 大火球飞行
+    soulfu:       { lib: 'magic',  base: 0,    frames: 8,  ft: 80 },   // 灵魂火符飞行
+    // 治疗/持续
+    heal:         { lib: 'magic',  base: 920,  frames: 6,  ft: 90 },   // 治疗光圈
+    firewall:     { lib: 'magic',  base: 1600, frames: 10, ft: 120 },  // 火墙火焰
+    shield:       { lib: 'magic',  base: 1620, frames: 4,  ft: 120 },  // 魔法盾泡泡
 };
 // 每个技能 → 特效（fly=飞行弹道, hit=命中爆炸/雷击, ground=地面持续）
 const MAGIC_VFX = {
-    1:  { fly: 'fireball',    hit: 'boom' },      // 火球术
-    5:  { fly: 'bigfireball', hit: 'boom' },      // 大火球
-    9:  { fly: 'fireball',    hit: 'boom' },      // 地狱火
-    10: { fly: 'thunder',     hit: 'thunder' },   // 疾光电影
-    11: { fly: 'thunder',     hit: 'thunder' },   // 雷电术
-    13: { fly: 'fireball',    hit: 'boom' },      // 灵魂火符
-    22: { ground: 'firewall' },                   // 火墙
-    23: { hit: 'boom' },                          // 爆裂火焰
-    24: { hit: 'thunder' },                       // 地狱雷光
-    32: { hit: 'boom' },                          // 圣言术
-    33: { hit: 'boom' },                          // 冰咆哮
-    2:  { hit: 'heal' },                          // 治愈术
-    6:  { hit: 'heal' },                          // 施毒术（命中绿光）
+    1:  { fly: 'fireball',     hit: 'boomFire' },      // 火球术
+    5:  { fly: 'bigfireball',  hit: 'boomBigFire' },   // 大火球
+    9:  { hit: 'boomFire' },                          // 地狱火（直线穿透，命中爆炸）
+    10: { hit: 'lightning' },                          // 疾光电影（闪电）
+    11: { hit: 'lightning' },                          // 雷电术（闪电）
+    13: { fly: 'soulfu',       hit: 'boomFire' },      // 灵魂火符
+    22: { ground: 'firewall' },                        // 火墙
+    23: { hit: 'boomBflame' },                         // 爆裂火焰
+    24: { hit: 'lightningArea' },                      // 地狱雷光
+    32: { hit: 'boomHoly' },                           // 圣言术
+    33: { hit: 'boomIce' },                            // 冰咆哮
+    2:  { hit: 'heal' },                               // 治愈术
+    6:  { hit: 'heal' },                               // 施毒术（命中绿光）
 };
 
 export class PlayScene extends Scene {

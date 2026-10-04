@@ -153,11 +153,21 @@ export class MapActor {
                     const anchorX = sx(e.x) + (e.offsetX || 0);
                     const anchorY = sy(e.y) + (e.offsetY || 0);
                     if (e.layers) {
+                        ctx.save();
+                        // 隐身术：半透明
+                        if (e.alpha != null && e.alpha < 1) ctx.globalAlpha = e.alpha;
                         for (const layer of e.layers) {
                             if (layer.canvas) {
                                 ctx.drawImage(layer.canvas, anchorX + layer.px, anchorY + layer.py);
                             }
                         }
+                        // 中毒：绿色调覆盖（source-atop 仅作用于已绘制的实体像素）
+                        if (e.poison) {
+                            ctx.globalCompositeOperation = 'source-atop';
+                            ctx.fillStyle = 'rgba(60,255,60,0.35)';
+                            ctx.fillRect(anchorX - 8, anchorY - 80, 72, 110);
+                        }
+                        ctx.restore();
                     } else if (e.tex) {
                         ctx.drawImage(e.tex, anchorX - e.tex.width / 2, anchorY - e.tex.height);
                     }

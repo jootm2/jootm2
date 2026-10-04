@@ -59,6 +59,34 @@ const SWORD_SKILLS = new Set([25, 26, 27]);
 // 故不能用 effectType===0 判被动，需白名单。
 const PASSIVE_MAGICS = new Set([3, 4, 7, 12]);
 
+// ---- 技能特效帧（magic/magic2 库，对齐原版 EffectBase + EXPLOSIONBASE 简化映射）----
+// 每项 = 起始帧 + 连续帧数，动画帧间隔约 80ms（原版 NextFrameTime）。
+const FX_FRAMES = {
+    boom:        { lib: 'magic', base: 1650, frames: 10, ft: 80 },   // 通用命中爆炸
+    fireball:    { lib: 'magic', base: 600,  frames: 6,  ft: 80 },   // 火球飞行
+    bigfireball: { lib: 'magic', base: 400,  frames: 8,  ft: 80 },   // 大火球飞行
+    heal:        { lib: 'magic', base: 920,  frames: 6,  ft: 90 },   // 治疗光圈
+    firewall:    { lib: 'magic', base: 1600, frames: 10, ft: 120 },  // 火墙火焰
+    shield:      { lib: 'magic', base: 1620, frames: 4,  ft: 120 },  // 魔法盾泡泡
+    thunder:     { lib: 'magic', base: 1650, frames: 10, ft: 70 },   // 雷击（简化复用爆炸帧）
+};
+// 每个技能 → 特效（fly=飞行弹道, hit=命中爆炸/雷击, ground=地面持续）
+const MAGIC_VFX = {
+    1:  { fly: 'fireball',    hit: 'boom' },      // 火球术
+    5:  { fly: 'bigfireball', hit: 'boom' },      // 大火球
+    9:  { fly: 'fireball',    hit: 'boom' },      // 地狱火
+    10: { fly: 'thunder',     hit: 'thunder' },   // 疾光电影
+    11: { fly: 'thunder',     hit: 'thunder' },   // 雷电术
+    13: { fly: 'fireball',    hit: 'boom' },      // 灵魂火符
+    22: { ground: 'firewall' },                   // 火墙
+    23: { hit: 'boom' },                          // 爆裂火焰
+    24: { hit: 'thunder' },                       // 地狱雷光
+    32: { hit: 'boom' },                          // 圣言术
+    33: { hit: 'boom' },                          // 冰咆哮
+    2:  { hit: 'heal' },                          // 治愈术
+    6:  { hit: 'heal' },                          // 施毒术（命中绿光）
+};
+
 export class PlayScene extends Scene {
     constructor(manager, snapshot) {
         super(manager);
@@ -77,6 +105,9 @@ export class PlayScene extends Scene {
         this.castTarget = null;      // 施法目标（怪物 id）
         this.magicTarget = null;     // 鼠标悬停的施法目标（原版 FocusCret：怪物/玩家）
         this._lastMouse = { mx: 0, my: 0 };   // 鼠标在 canvas 内的最近位置（施法朝此处）
+        this.effects = [];           // 技能特效（飞行/命中/地面火墙）
+        this.damageNumbers = [];     // 伤害飘字
+        this._fxCache = new Map();   // 特效帧纹理缓存 'lib/index' -> canvas
         this._zTop = 100;            // 窗口 z-index 计数器（点击前置递增）
         this._dragCleaners = [];     // 窗口拖动监听清理函数
         this._canvas = document.getElementById('screen');
@@ -431,6 +462,11 @@ export class PlayScene extends Scene {
                     if (msg.exp !== undefined) e.exp = msg.exp;
                     if (msg.gold !== undefined) e.gold = msg.gold;
                     if (msg.skills !== undefined) e.skills = msg.skills;   // 技能快捷键更新
+                    // 状态特效：魔法盾 / 隐身 / 中毒 / 定身
+                    if (msg.shield !== undefined) e._shield = msg.shield;
+                    if (msg.hidden !== undefined) e._hidden = msg.hidden;
+                    if (msg.poison !== undefined) e._poison = msg.poison;
+                    if (msg.paralyzed !== undefined) e._paralyzed = msg.paralyzed;
                 }
                 // 技能页打开时同步刷新（快捷键变更）
                 if (this.stateWin && this.stateWin.style.display === 'block' && this.statePage === 3) {
@@ -439,11 +475,18 @@ export class PlayScene extends Scene {
                 break;
             }
             case 'attack': {
-                this._log(`攻击 ${msg.targetId}，伤害 ${msg.damage}`);
                 const a = this.entities.get(msg.attackerId);
                 if (a) { a._action = 'attack'; a._actionAt = Date.now(); }
                 const t = this.entities.get(msg.targetId);
-                if (t) { t._action = 'struck'; t._actionAt = Date.now(); }
+                if (t) {
+                    t._action = 'struck'; t._actionAt = Date.now();
+                    // 伤害飘字
+                    this._spawnDamageNumber(t.x, t.y, msg.damage, msg.magicId);
+                    // 魔法命中特效（攻击类技能在目标位置爆炸/雷击）
+                    if (msg.magicId && MAGIC_VFX[msg.magicId] && MAGIC_VFX[msg.magicId].hit) {
+                        this._spawnFx({ kind: 'hit', fx: MAGIC_VFX[msg.magicId].hit, x: t.x, y: t.y });
+                    }
+                }
                 break;
             }
             case 'death': {
@@ -456,6 +499,26 @@ export class PlayScene extends Scene {
             case 'spellCast': {
                 const c = this.entities.get(msg.casterId);
                 if (c) { c._action = 'attack'; c._actionAt = Date.now(); }
+                // 施法特效：飞行弹道（火球/灵魂火符/雷击飞向目标点）
+                const vfx = MAGIC_VFX[msg.magicId];
+                if (vfx && vfx.fly && c) {
+                    this._spawnFx({
+                        kind: 'fly',
+                        fx: vfx.fly,
+                        sx: c.x, sy: c.y,
+                        x: msg.targetX ?? c.x, y: msg.targetY ?? c.y,
+                        hit: vfx.hit || null,
+                    });
+                } else if (vfx && vfx.hit && !vfx.fly) {
+                    // 定点命中（爆裂/冰咆哮/圣言/治愈等）：直接在目标点播放
+                    this._spawnFx({ kind: 'hit', fx: vfx.hit, x: msg.targetX ?? c.x, y: msg.targetY ?? c.y });
+                }
+                break;
+            }
+            case 'fireWall': {
+                // 火墙地面特效（持续，超时或被踩消失）
+                const dur = (msg.duration || 8) * 1000;
+                this._spawnFx({ kind: 'ground', fx: 'firewall', x: msg.x, y: msg.y, dur });
                 break;
             }
             case 'chat':
@@ -1581,10 +1644,13 @@ export class PlayScene extends Scene {
                 name: e.name, isSelf,
                 hp: e.hp, maxHp: e.maxHp, type: e.type,
                 isTarget: this.castTarget != null && e.id === this.castTarget,
+                alpha: e._hidden ? 0.5 : undefined,   // 隐身半透明
+                poison: !!e._poison,                  // 中毒绿色调
                 layers: sp.getLayers(now),
             });
         }
         this.mapActor.render(ctx, vcx, vcy, entities, shiftX, shiftY);
+        this._renderEffects(ctx, vcx, vcy, shiftX, shiftY);
         this._renderGroundItems(ctx);
         this._renderHud();
     }
@@ -1597,6 +1663,112 @@ export class PlayScene extends Scene {
             this.sprites.set(e.id, sp);
         }
         return sp;
+    }
+
+    // ---- 技能特效渲染系统（飞行/命中/地面火墙 + 伤害飘字）----
+
+    _spawnFx(fx) {
+        fx.startAt = Date.now();
+        this.effects.push(fx);
+    }
+
+    _spawnDamageNumber(x, y, damage, magicId) {
+        const sx = this.mapActor.screenX(x);
+        const sy = this.mapActor.screenY(y);
+        this.damageNumbers.push({
+            x: sx + 24, y: sy,
+            text: String(damage),
+            color: magicId ? '#5ad2ff' : '#ffffff',   // 魔法伤害蓝、物理白
+            startAt: Date.now(),
+        });
+    }
+
+    _fxTexture(fxDef, frame) {
+        const idx = fxDef.base + frame;
+        const key = fxDef.lib + '/' + idx;
+        if (this._fxCache.has(key)) return this._fxCache.get(key);
+        const lib = getLib(fxDef.lib);
+        if (lib) {
+            lib.getTexture(idx).then(t => this._fxCache.set(key, t || null));
+        }
+        this._fxCache.set(key, null);
+        return null;
+    }
+
+    _drawFx(ctx, def, frame, gx, gy) {
+        const tex = this._fxTexture(def, frame);
+        if (!tex) return;
+        const sx = this.mapActor.screenX(gx);
+        const sy = this.mapActor.screenY(gy);
+        // 帧锚点 px/py 以格子中心为基准（原版 ScreenXYfromMCXY 返回中心）
+        ctx.drawImage(tex.canvas, sx + (tex.px || 0), sy + (tex.py || 0));
+    }
+
+    _renderEffects(ctx, vcx, vcy, shiftX, shiftY) {
+        if (!this.self) return;
+        const now = Date.now();
+        // 魔法盾：角色身上的护盾泡泡（magic 1620 起 4 帧循环）
+        for (const e of this.entities.values()) {
+            if (!e._shield) continue;
+            const def = FX_FRAMES.shield;
+            const frame = Math.floor(now / (def.ft || 120)) % def.frames;
+            this._drawFx(ctx, def, frame, e.x, e.y);
+        }
+        const survivors = [];
+        for (const fx of this.effects) {
+            const elapsed = now - fx.startAt;
+            if (fx.kind === 'ground') {
+                // 火墙：被怪物/玩家踩到即消失（原版火墙被踩加速熄灭）
+                const stepped = [...this.entities.values()].some(e =>
+                    (e.type === 'monster' || e.type === 'player') && e.x === fx.x && e.y === fx.y);
+                if (stepped) continue;
+                const def = FX_FRAMES[fx.fx];
+                if (elapsed > (fx.dur || 8000)) continue;   // 持续到时限
+                this._drawFx(ctx, def, Math.floor(elapsed / (def.ft || 120)) % def.frames, fx.x, fx.y);
+                survivors.push(fx);
+            } else if (fx.kind === 'fly') {
+                const def = FX_FRAMES[fx.fx];
+                const dist = Math.max(1, Math.abs(fx.x - fx.sx) + Math.abs(fx.y - fx.sy));
+                const dur = dist * 55;   // 飞行时长（每格 55ms）
+                const p = Math.min(1, elapsed / dur);
+                const cx = fx.sx + (fx.x - fx.sx) * p;
+                const cy = fx.sy + (fx.y - fx.sy) * p;
+                this._drawFx(ctx, def, Math.floor(elapsed / (def.ft || 80)) % def.frames, cx, cy);
+                if (p >= 1) {
+                    if (fx.hit) this._spawnFx({ kind: 'hit', fx: fx.hit, x: fx.x, y: fx.y });
+                    continue;   // 飞行结束，转为命中
+                }
+                survivors.push(fx);
+            } else {
+                // hit：一次性播放
+                const def = FX_FRAMES[fx.fx];
+                const frame = Math.floor(elapsed / (def.ft || 80));
+                if (frame >= def.frames) continue;   // 播放完移除
+                this._drawFx(ctx, def, frame, fx.x, fx.y);
+                survivors.push(fx);
+            }
+        }
+        this.effects = survivors;
+
+        // 伤害飘字（上飘 30px，800ms 淡出）
+        const nums = [];
+        for (const d of this.damageNumbers) {
+            const p = (now - d.startAt) / 800;
+            if (p >= 1) continue;
+            const ty = d.y - p * 30;
+            ctx.save();
+            ctx.globalAlpha = 1 - p;
+            ctx.font = 'bold 13px SimSun,serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = d.color;
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 3;
+            ctx.strokeText(d.text, d.x, ty);
+            ctx.fillText(d.text, d.x, ty);
+            ctx.restore();
+            nums.push(d);
+        }
+        this.damageNumbers = nums;
     }
 
     // 地面物品（照原版 DropedItemList：格子中心对齐；金币金色圆点，物品绿块 + 名字）

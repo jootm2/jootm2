@@ -998,6 +998,7 @@ public final class GameWorld {
             o.addProperty("type", "fireWall");
             o.addProperty("x", tx);
             o.addProperty("y", ty);
+            o.addProperty("duration", durationSec);
             broadcastAround(p.map, o, tx, ty, SIGHT_RANGE);
         }
         return made;
@@ -1647,6 +1648,16 @@ public final class GameWorld {
         o.addProperty("maxMp", a.maxMp);
         o.addProperty("level", a.level);
         o.addProperty("exp", a.exp);
+        long now = System.currentTimeMillis();
+        if (a instanceof Player) {
+            Player pl = (Player) a;
+            o.addProperty("shield", pl.shieldUntil > now);   // 魔法盾
+            o.addProperty("hidden", pl.hideUntil > now);     // 隐身术
+        }
+        o.addProperty("poison", a.poisonTicks > 0);          // 施毒术中毒
+        if (a instanceof Monster) {
+            o.addProperty("paralyzed", ((Monster) a).paralyzedUntil > now);   // 困魔咒/麻痹定身
+        }
         if (extras != null) {
             for (String k : extras.keySet()) {
                 o.add(k, extras.get(k));

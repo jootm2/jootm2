@@ -1282,10 +1282,21 @@ public final class GameService {
         }
 
         if (isHealMagic(magicId)) {
-            int heal = t.power + (int) (Math.random() * (t.maxPower - t.power + 1));
+            // 治愈术：治疗自己（原版 GetPower(MPow) + SC*2 道术加成）
+            int heal = Math.max(1, magicPower(p, t, lv) + p.combat.scMax * 2);
             p.hp = Math.min(p.maxHp, p.hp + heal);
             world.sendSystem(p, "施展了 " + t.name + "，恢复 " + heal + " 点生命。");
             world.sendStats(p, null);
+            success = true;
+        } else if (magicId == 9 || magicId == 10) {
+            // 地狱火(9)/疾光电影(10)：直线穿透（原版 MagPassThroughMagic：5/8 格，疾光对不死系加成）
+            int ndir = directionFrom(p.x, p.y, targetX, targetY);
+            p.dir = ndir;
+            world.broadcastMove(p);
+            int range = magicId == 9 ? 5 : 8;
+            int pwr = magicPower(p, t, lv);
+            int hit = passThroughMagic(p, ndir, range, pwr, magicId == 10, magicId, now);
+            world.sendSystem(p, hit > 0 ? t.name + " 击中了 " + hit + " 个目标。" : "没有命中目标。");
             success = true;
         } else if (isProjectileMagic(magicId)) {
             // 投掷/范围魔法：朝坐标释放，命中对象才伤害，无对象仅动画（雷电/火球砸空地、灵魂火符飞远）
@@ -1298,7 +1309,12 @@ public final class GameService {
                 if (Math.random() * 10 < 1 + m.template.mac / 5) {
                     world.sendSystem(p, "魔法被躲过了。");
                 } else {
-                    int damage = magicDamage(p, t, lv, m);
+                    // 灵魂火符用道术 SC，其余用法师 MC
+                    int damage = (magicId == 13) ? taoistDamage(p, t, lv, m) : magicDamage(p, t, lv, m);
+                    // 雷电术对不死系 1.5 倍（原版 LA_UNDEAD）
+                    if (magicId == 11 && m.template.undead == 1) {
+                        damage = Math.round(damage * 1.5f);
+                    }
                     m.hp = Math.max(0, m.hp - damage);
                     broadcastMagicHit(p, m, damage, magicId);
                     if (m.hp <= 0) {
@@ -1313,11 +1329,11 @@ public final class GameService {
             }
             success = true;   // 无对象也施放成功（动画已广播）
         } else if (magicId == 6) {
-            // 施毒术：目标中毒（持续掉血）
+            // 施毒术：目标中毒（持续掉血，原版 POISON_DECHEALTH：GetPower13(30) + 2*SC 道术加成）
             if (target instanceof Monster && target.alive) {
                 Monster m = (Monster) target;
                 m.poisonTicks = 10;
-                m.poisonDamage = Math.max(1, p.combat.scMin / 2 + lv + 1);
+                m.poisonDamage = Math.max(1, 30 + 2 * p.combat.scMax);
                 m.lastPoisonAt = now;
                 world.sendSystem(p, "对 " + m.name + " 施放了 " + t.name + "。");
                 success = true;
@@ -1349,9 +1365,21 @@ public final class GameService {
             randomTeleport(p);
             success = true;
         } else if (magicId == 18 || magicId == 19) {
-            // 隐身术 / 集体隐身术：怪物丢失目标
+            // 隐身术(18)=自身 / 集体隐身术(19)=周围队友（原版 MagMakePrivateTransparent / MagMakeGroupTransparent）
             int dur = (30 + 3 * p.combat.scMax) * 1000;
-            p.hideUntil = now + dur;
+            int hidden = 0;
+            if (magicId == 18) {
+                p.hideUntil = now + dur;
+                hidden = 1;
+            } else {
+                for (Actor nb : world.nearby(p.map, p.x, p.y, 3)) {
+                    if (nb instanceof Player && nb.alive) {
+                        ((Player) nb).hideUntil = now + dur;
+                        world.sendStats(nb, null);
+                        hidden++;
+                    }
+                }
+            }
             world.sendSystem(p, "你进入了隐身状态（" + (dur / 1000) + " 秒）。");
             success = true;
         } else if (magicId == 22) {
@@ -1381,8 +1409,8 @@ public final class GameService {
                 }
             }
         } else if (magicId == 29) {
-            // 群体治疗术：治疗周围队友
-            int heal = t.power + (int) (Math.random() * (t.maxPower - t.power + 1)) + lv * 2;
+            // 群体治疗术：治疗周围队友（原版 MagBigHealing，SC*2 道术加成）
+            int heal = Math.max(1, magicPower(p, t, lv) + p.combat.scMax * 2);
             int healed = 0;
             for (Actor nb : world.nearby(p.map, p.x, p.y, 5)) {
                 if (nb instanceof Player && nb.alive) {
@@ -1397,14 +1425,20 @@ public final class GameService {
             world.sendSystem(p, "施展了 " + t.name + "，治疗了 " + healed + " 个目标。");
             success = true;
         } else if (magicId == 14 || magicId == 15) {
-            // 幽灵盾 / 神圣战甲术：加防御/魔御（持续）
+            // 幽灵盾(14)=范围加魔御 / 神圣战甲(15)=范围加防御（原版 MagMakeDefenceArea）
             int dur = (30 + lv * 10) * 1000;
-            p.acBuffUntil = now + dur;
-            p.acBuffBonus = magicId == 15 ? (3 + lv * 3) : (2 + lv * 2);   // 神圣战甲术加防御更多
-            p.macBuffBonus = magicId == 14 ? (3 + lv * 3) : (1 + lv);      // 幽灵盾加魔御更多
-            p.recompute(world);
-            world.sendSystem(p, "施展了 " + t.name + "，防御提升。");
-            world.sendStats(p, null);
+            int buffed = 0;
+            for (Actor nb : world.nearby(p.map, p.x, p.y, 3)) {
+                if (!(nb instanceof Player) || !nb.alive) continue;
+                Player other = (Player) nb;
+                other.acBuffUntil = now + dur;
+                if (magicId == 15) other.acBuffBonus = 3 + lv * 3;   // 神圣战甲：加防御
+                else other.macBuffBonus = 3 + lv * 3;                // 幽灵盾：加魔御
+                other.recompute(world);
+                world.sendStats(other, null);
+                buffed++;
+            }
+            world.sendSystem(p, "施展了 " + t.name + "，为 " + buffed + " 个目标提升防御。");
             success = true;
         } else if (magicId == 31) {
             // 魔法盾：减伤（持续）
@@ -1423,18 +1457,23 @@ public final class GameService {
                 world.sendSystem(p, "没有目标。");
             }
         } else if (magicId == 32) {
-            // 圣言术：对不死系造成巨额伤害
+            // 圣言术：只对不死系造成巨额伤害（原版 MagTurnUndead），非不死系无效
             if (target instanceof Monster && target.alive) {
                 Monster m = (Monster) target;
-                int damage = magicDamage(p, t, lv, m) * 3;
-                m.hp = Math.max(0, m.hp - damage);
-                broadcastMagicHit(p, m, damage, magicId);
-                if (m.hp <= 0) {
-                    world.killMonster(m, now, p);
-                    grantExp(p, m);
+                if (m.template.undead != 1) {
+                    world.sendSystem(p, "圣言术只对不死系怪物有效。");
+                    success = false;
+                } else {
+                    int damage = magicDamage(p, t, lv, m) * 3;
+                    m.hp = Math.max(0, m.hp - damage);
+                    broadcastMagicHit(p, m, damage, magicId);
+                    if (m.hp <= 0) {
+                        world.killMonster(m, now, p);
+                        grantExp(p, m);
+                    }
+                    world.sendSystem(p, "圣言术对 " + m.name + " 造成 " + damage + " 伤害。");
+                    success = true;
                 }
-                world.sendSystem(p, "圣言术对 " + m.name + " 造成 " + damage + " 伤害。");
-                success = true;
             } else {
                 world.sendSystem(p, "没有目标。");
             }
@@ -1473,12 +1512,13 @@ public final class GameService {
     }
 
     private boolean isHealMagic(int magicId) {
-        return magicId == 2 || magicId == 24;   // 治愈术 / 群体治愈术
+        return magicId == 2;   // 治愈术（群体治疗 29 单独处理）
     }
 
-    /** 投掷/范围攻击魔法：朝坐标释放，命中对象才伤害，无对象仅动画（雷电/火球砸空地、灵魂火符飞远）。 */
+    /** 投掷/范围攻击魔法：朝坐标释放，命中对象才伤害，无对象仅动画（雷电/火球砸空地、灵魂火符飞远）。
+     *  地狱火(9)/疾光电影(10) 是直线穿透，单独处理。 */
     private boolean isProjectileMagic(int magicId) {
-        return magicId == 1 || magicId == 5 || magicId == 9 || magicId == 10 || magicId == 11
+        return magicId == 1 || magicId == 5 || magicId == 11
                 || magicId == 13 || magicId == 23 || magicId == 24 || magicId == 33;
     }
 
@@ -1571,14 +1611,52 @@ public final class GameService {
         world.sendStats(p, null);
     }
 
-    /** Magic damage: base power scaled by skill level, plus MC, minus target MAC. */
-    private int magicDamage(Player p, MagicTemplate t, int lv, Monster m) {
+    /** 魔法基础伤害（不含目标魔御 MAC）：base power 按技能等级缩放 + 随机 + MC。 */
+    private int magicPower(Player p, MagicTemplate t, int lv) {
         int base = t.power + (int) (Math.random() * (t.maxPower - t.power + 1));
         int scaled = Math.round((float) base / 4 * (lv + 1)) + t.defPower
                 + (int) (Math.random() * Math.max(1, t.defMaxPower - t.defPower + 1));
         int mc = p.combat.mcMin + (int) (Math.random() * (p.combat.mcMax - p.combat.mcMin + 1));
-        int mac = m.template.mac;
-        return Math.max(1, scaled + mc - mac);
+        return scaled + mc;
+    }
+
+    /** Magic damage: base power scaled by skill level, plus MC, minus target MAC. */
+    private int magicDamage(Player p, MagicTemplate t, int lv, Monster m) {
+        return Math.max(1, magicPower(p, t, lv) - m.template.mac);
+    }
+
+    /** 道士道术伤害（灵魂火符等）：用 SC 代替 MC（原版 GetPower(MPow) + SC）。 */
+    private int taoistDamage(Player p, MagicTemplate t, int lv, Monster m) {
+        int base = t.power + (int) (Math.random() * (t.maxPower - t.power + 1));
+        int scaled = Math.round((float) base / 4 * (lv + 1)) + t.defPower
+                + (int) (Math.random() * Math.max(1, t.defMaxPower - t.defPower + 1));
+        int sc = p.combat.scMin + (int) (Math.random() * (p.combat.scMax - p.combat.scMin + 1));
+        return Math.max(1, scaled + sc - m.template.mac);
+    }
+
+    /** 直线穿透魔法（地狱火/疾光电影）：沿方向直线路径上所有目标受伤害（原版 MagPassThroughMagic）。 */
+    private int passThroughMagic(Player p, int ndir, int range, int pwr, boolean undeadAttack, int magicId, long now) {
+        int hit = 0;
+        int x = p.x, y = p.y;
+        for (int i = 0; i < range; i++) {
+            x += Direction.dx(ndir);
+            y += Direction.dy(ndir);
+            if (!p.map.inside(x, y)) break;
+            Actor a = findTargetAt(p.map, x, y);
+            if (!(a instanceof Monster) || !a.alive) continue;
+            Monster m = (Monster) a;
+            if (Math.random() * 10 < 1 + m.template.mac / 5) continue;   // 魔法躲避（AntiMagic）
+            int dmg = pwr;
+            if (undeadAttack && m.template.undead == 1) dmg = Math.round(dmg * 1.5f);   // 不死系加成
+            m.hp = Math.max(0, m.hp - dmg);
+            broadcastMagicHit(p, m, dmg, magicId);
+            if (m.hp <= 0) {
+                world.killMonster(m, now, p);
+                grantExp(p, m);
+            }
+            hit++;
+        }
+        return hit;
     }
 
     /** 抗拒火环/气功波：推开周围 1 格内的怪物。 */

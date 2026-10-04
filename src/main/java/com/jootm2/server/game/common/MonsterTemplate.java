@@ -16,6 +16,7 @@ public final class MonsterTemplate {
     public int raceImg;
     public int appr;          // image number
     public int level;
+    public int undead;        // 不死系（0=否，1=是）；雷电术/圣言术据此加成
     public int exp;
     public int hp;
     public int mp;

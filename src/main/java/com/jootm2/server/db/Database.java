@@ -256,6 +256,7 @@ public final class Database implements AutoCloseable {
         m.raceImg = num(r[2]);
         m.appr = num(r[3]);
         m.level = num(r[4]);
+        m.undead = num(r[5]);
         m.coolEye = num(r[6]);
         m.exp = num(r[7]);
         m.hp = num(r[8]);

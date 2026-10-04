@@ -1713,25 +1713,47 @@ export class PlayScene extends Scene {
         return null;
     }
 
-    _drawFx(ctx, def, frame, gx, gy) {
+    _drawFx(ctx, def, frame, gx, gy, ox = 0, oy = 0) {
         const tex = this._fxTexture(def, frame);
         if (!tex) return;
-        const sx = this.mapActor.screenX(gx);
-        const sy = this.mapActor.screenY(gy);
-        // 帧锚点 px/py 以格子中心为基准（原版 ScreenXYfromMCXY 返回中心）
+        const sx = this.mapActor.screenX(gx) + ox;
+        const sy = this.mapActor.screenY(gy) + oy;
+        // 原版 DrawBlend：lighter 光效混合 + 帧锚点 px/py 以格子中心为基准
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
         ctx.drawImage(tex.canvas, sx + (tex.px || 0), sy + (tex.py || 0));
+        ctx.restore();
     }
 
     _renderEffects(ctx, vcx, vcy, shiftX, shiftY) {
         if (!this.self) return;
         const now = Date.now();
-        // 魔法盾：护盾泡泡（magic 3880 起 12 帧成形动画，成形后停在最后一帧持续）
+        // 魔法盾：护盾泡泡（magic 3880 起：前 10 帧成形动画播放一次，之后循环最后 2 帧泡泡，跟随实体偏移）
         for (const e of this.entities.values()) {
             if (!e._shield) continue;
             const def = FX_FRAMES.shield;
+            const ft = def.ft || 100;
             const elapsed = now - (e._shieldAt || now);
-            const frame = Math.min(Math.floor(elapsed / (def.ft || 100)), def.frames - 1);
-            this._drawFx(ctx, def, frame, e.x, e.y);
+            const formFrames = 10;   // 成形动画帧数（3880-3889）
+            let frame;
+            if (elapsed < formFrames * ft) {
+                frame = Math.floor(elapsed / ft);                    // 成形动画
+            } else {
+                frame = formFrames + Math.floor((elapsed - formFrames * ft) / ft) % 2;   // 泡泡循环（3890-3891）
+            }
+            // 跟随实体偏移（self 走动画 / 怪物移动过渡）
+            let ox = 0, oy = 0;
+            if (e.id === this.self.id) {
+                ox = (this._viewX - e.x) * 48;
+                oy = (this._viewY - e.y) * 32;
+            } else if (e._moveAt != null && e._fromX != null) {
+                const t = (now - e._moveAt) / MONSTER_MOVE_DUR;
+                if (t < 1) {
+                    ox = (e._fromX - e.x) * 48 * (1 - t);
+                    oy = (e._fromY - e.y) * 32 * (1 - t);
+                }
+            }
+            this._drawFx(ctx, def, frame, e.x, e.y, ox, oy);
         }
         const survivors = [];
         for (const fx of this.effects) {

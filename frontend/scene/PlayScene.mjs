@@ -50,14 +50,12 @@ const ATTR_ROWS = [
     ['hp', 199], ['mp', 219],
 ];
 
-// 战士主动技能（EffectType=0 但可主动释放）：朝方向施放，不选目标。
-// 半月弯刀(25)=范围、烈火剑法(26)=单体高伤、野蛮冲撞(27)=冲撞
-const SWORD_SKILLS = new Set([25, 26, 27]);
+// 战士主动技能（EffectType=0 但为「开关/蓄力/冲撞」主动技能）：
+// 攻杀(7)/刺杀(12)/半月(25) = 攻击模式开关，烈火(26) = 蓄力，野蛮(27) = 冲撞
+const SWORD_SKILLS = new Set([7, 12, 25, 26, 27]);
 
-// 被动技能（无法主动施放）：基本剑术/精神力战法/攻杀/刺杀。
-// 注意半月弯刀(25)/烈火剑法(26)/野蛮冲撞(27) 虽 EffectType=0 但为主动可施放，
-// 故不能用 effectType===0 判被动，需白名单。
-const PASSIVE_MAGICS = new Set([3, 4, 7, 12]);
+// 纯被动技能（无法主动施放）：基本剑术(3)/精神力战法(4)
+const PASSIVE_MAGICS = new Set([3, 4]);
 
 // ---- 技能特效帧（magic/magic2 库，对齐原版 EffectBase + EXPLOSIONBASE 简化映射）----
 // 每项 = 起始帧 + 连续帧数，动画帧间隔约 80ms（原版 NextFrameTime）。
@@ -462,11 +460,15 @@ export class PlayScene extends Scene {
                     if (msg.exp !== undefined) e.exp = msg.exp;
                     if (msg.gold !== undefined) e.gold = msg.gold;
                     if (msg.skills !== undefined) e.skills = msg.skills;   // 技能快捷键更新
-                    // 状态特效：魔法盾 / 隐身 / 中毒 / 定身
+                    // 状态特效：魔法盾 / 隐身 / 中毒 / 定身 / 战士开关
                     if (msg.shield !== undefined) e._shield = msg.shield;
                     if (msg.hidden !== undefined) e._hidden = msg.hidden;
                     if (msg.poison !== undefined) e._poison = msg.poison;
                     if (msg.paralyzed !== undefined) e._paralyzed = msg.paralyzed;
+                    if (msg.wideHit !== undefined) e._wideHit = msg.wideHit;
+                    if (msg.crossHit !== undefined) e._crossHit = msg.crossHit;
+                    if (msg.longHit !== undefined) e._longHit = msg.longHit;
+                    if (msg.fireHit !== undefined) e._fireHit = msg.fireHit;
                 }
                 // 技能页打开时同步刷新（快捷键变更）
                 if (this.stateWin && this.stateWin.style.display === 'block' && this.statePage === 3) {

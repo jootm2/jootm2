@@ -841,9 +841,9 @@ public final class GameService {
         if (s == null) {
             return;
         }
-        // 被动技能白名单（基本剑术3/精神力战法4/攻杀7/刺杀12）不可设置快捷键。
-        // 半月弯刀25/烈火剑法26/野蛮冲撞27 虽 effectType=0 但为主动可设置，故不能用 effectType 判断。
-        if (key != 0 && (magicId == 3 || magicId == 4 || magicId == 7 || magicId == 12)) {
+        // 纯被动技能（基本剑术3/精神力战法4）不可设置快捷键。
+        // 攻杀7/刺杀12/半月25/烈火26/野蛮27 虽 effectType=0 但为「开关/蓄力」主动技能，可设置。
+        if (key != 0 && (magicId == 3 || magicId == 4)) {
             world.sendSystem(p, "被动技能无法设置快捷键。");
             return;
         }
@@ -1018,7 +1018,15 @@ public final class GameService {
         } catch (Exception ignored) {
         }
         Actor a = world.actor(targetId);
-        if (!(a instanceof Monster) || !a.alive) {
+        if (a == null || !a.alive) {
+            return;
+        }
+        // 玩家目标：攻击模式分支（默认全体，后续单独做和平/行会判定）
+        if (a instanceof Player) {
+            attackPlayer(p, (Player) a);
+            return;
+        }
+        if (!(a instanceof Monster)) {
             return;
         }
         Monster m = (Monster) a;
@@ -1043,24 +1051,29 @@ public final class GameService {
         int raw = rollDcWithLuck(p);
         int dmg = Math.max(1, raw - m.template.ac);
 
-        // 攻杀剑术：概率触发，伤害 +5+Level（原版 AttackSkillCount = 7-Level 计数触发）
-        if (hasSkill(p, 7)) {
+        // 烈火剑法（蓄力）：开启后下次攻击伤害 +40%~160%，一次性用完关闭；超时（20 秒）则失效
+        if (p.fireHitOn) {
+            if (System.currentTimeMillis() > p.fireHitUntil) {
+                p.fireHitOn = false;
+                p.fireHitUntil = 0;
+            } else {
+                int lv = skillLevel(p, 26);
+                dmg += dmg * (4 + lv * 4) / 10;
+                p.fireHitOn = false;
+                p.fireHitUntil = 0;
+                world.sendSystem(p, "烈火！");
+            }
+        }
+        // 攻杀剑术（开关开启时）：概率触发，伤害 +5+Level（原版 HM_CROSSHIT）
+        if (p.crossHitOn) {
             int lv = skillLevel(p, 7);
             if (Math.random() < 1.0 / Math.max(1, 7 - lv)) {
                 dmg += 5 + lv;
                 world.sendSystem(p, "攻杀！");
             }
         }
-        // 烈火剑法：概率触发，伤害 +40%~160%（原版 HitDouble = 4 + Level*4，每 10 秒蓄力）
-        if (hasSkill(p, 26)) {
-            int lv = skillLevel(p, 26);
-            if (Math.random() < 0.2) {
-                dmg += dmg * (4 + lv * 4) / 10;
-                world.sendSystem(p, "烈火！");
-            }
-        }
-        // 刺杀剑术：隔位刺杀额外伤害（简化：+2+Level）
-        if (hasSkill(p, 12)) {
+        // 刺杀剑术（开关开启时）：隔位刺杀额外伤害 +2+Level（原版 HM_LONGHIT）
+        if (p.longHitOn) {
             dmg += 2 + skillLevel(p, 12);
         }
 
@@ -1089,22 +1102,18 @@ public final class GameService {
         world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
         world.sendStats(m, null);
 
-        // 半月弯刀：溅射周围 1 格怪物（原版 SwordWideAttack）
-        if (hasSkill(p, 25)) {
+        // 半月弯刀（开关开启时）：扇形范围攻击，额外打前方左右方向（原版 SwordWideAttack）
+        if (p.wideHitOn) {
             int splash = dmg / 2;
-            for (Actor nb : world.nearby(m.map, m.x, m.y, 1)) {
+            int[] dirs = { (p.dir + 7) % 8, (p.dir + 1) % 8 };
+            for (int d : dirs) {
+                int tx = p.x + Direction.dx(d);
+                int ty = p.y + Direction.dy(d);
+                Actor nb = findTargetAt(p.map, tx, ty);
                 if (nb instanceof Monster && nb != m && nb.alive) {
                     Monster other = (Monster) nb;
                     other.hp = Math.max(0, other.hp - splash);
-                    JsonObject so = new JsonObject();
-                    so.addProperty("type", "attack");
-                    so.addProperty("attackerId", p.id);
-                    so.addProperty("targetId", other.id);
-                    so.addProperty("damage", splash);
-                    so.addProperty("x", other.x);
-                    so.addProperty("y", other.y);
-                    world.broadcastAround(other.map, so, other.x, other.y, GameWorld.SIGHT_RANGE);
-                    world.sendStats(other, null);
+                    broadcastMagicHit(p, other, splash, 25);
                     if (other.hp <= 0) {
                         world.killMonster(other, System.currentTimeMillis(), p);
                         grantExp(p, other);
@@ -1116,6 +1125,61 @@ public final class GameService {
         if (m.hp <= 0) {
             world.killMonster(m, System.currentTimeMillis(), p);
             grantExp(p, m);
+        }
+    }
+
+    /** 攻击玩家（PVP）：攻击模式分支，默认全体可攻击（后续单独做和平/行会判定）。 */
+    private void attackPlayer(Player p, Player target) {
+        // 攻击模式：0=和平 1=全体 2=行会。默认全体，此分支后续扩展模式判定。
+        if (p.attackMode == 0) {
+            world.sendSystem(p, "和平模式下无法攻击玩家。");
+            return;
+        }
+        if (p.distanceTo(target) > 1) {
+            return;
+        }
+        p.dir = directionFrom(p.x, p.y, target.x, target.y);
+        world.broadcastMove(p);
+
+        int raw = rollDcWithLuck(p);
+        int dmg = Math.max(1, raw - target.combat.acMax);
+
+        // 战士开关效果（与怪物攻击一致）
+        if (p.fireHitOn) {
+            if (System.currentTimeMillis() > p.fireHitUntil) {
+                p.fireHitOn = false;
+                p.fireHitUntil = 0;
+            } else {
+                int lv = skillLevel(p, 26);
+                dmg += dmg * (4 + lv * 4) / 10;
+                p.fireHitOn = false;
+                p.fireHitUntil = 0;
+                world.sendSystem(p, "烈火！");
+            }
+        }
+        if (p.crossHitOn) {
+            int lv = skillLevel(p, 7);
+            if (Math.random() < 1.0 / Math.max(1, 7 - lv)) {
+                dmg += 5 + lv;
+            }
+        }
+        if (p.longHitOn) {
+            dmg += 2 + skillLevel(p, 12);
+        }
+
+        target.hp = Math.max(0, target.hp - dmg);
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "attack");
+        o.addProperty("attackerId", p.id);
+        o.addProperty("targetId", target.id);
+        o.addProperty("damage", dmg);
+        o.addProperty("x", target.x);
+        o.addProperty("y", target.y);
+        world.broadcastAround(target.map, o, target.x, target.y, GameWorld.SIGHT_RANGE);
+        world.sendStats(target, null);
+
+        if (target.hp <= 0) {
+            world.killPlayer(target);
         }
     }
 
@@ -1175,15 +1239,34 @@ public final class GameService {
 
         boolean success = false;
 
-        // 战士主动技能（朝面向方向，不选目标）
+        // 战士主动技能（原版 SpellXY：半月/攻杀/刺杀是「攻击模式开关」，烈火是「蓄力」，
+        // 野蛮冲撞朝方向冲撞。这些不产生即时伤害，切换开关后由普通攻击附加效果）
         if (magicId == 25) {
-            success = halfMoon(p, t, lv, now);
-            finishCast(p, t, skill, lv, now, spellCost, success);
+            p.wideHitOn = !p.wideHitOn;
+            if (p.wideHitOn) { p.crossHitOn = false; p.longHitOn = false; }
+            world.sendSystem(p, p.wideHitOn ? "半月弯刀开启。" : "半月弯刀关闭。");
+            finishCast(p, t, skill, lv, now, spellCost, true);
+            return;
+        }
+        if (magicId == 7) {
+            p.crossHitOn = !p.crossHitOn;
+            if (p.crossHitOn) { p.wideHitOn = false; p.longHitOn = false; }
+            world.sendSystem(p, p.crossHitOn ? "攻杀剑术开启。" : "攻杀剑术关闭。");
+            finishCast(p, t, skill, lv, now, spellCost, true);
+            return;
+        }
+        if (magicId == 12) {
+            p.longHitOn = !p.longHitOn;
+            if (p.longHitOn) { p.wideHitOn = false; p.crossHitOn = false; }
+            world.sendSystem(p, p.longHitOn ? "刺杀剑术开启。" : "刺杀剑术关闭。");
+            finishCast(p, t, skill, lv, now, spellCost, true);
             return;
         }
         if (magicId == 26) {
-            success = fireSword(p, t, lv, now);
-            finishCast(p, t, skill, lv, now, spellCost, success);
+            p.fireHitOn = true;
+            p.fireHitUntil = now + 20 * 1000;   // 20 秒内未攻击则蓄力失效
+            world.sendSystem(p, "烈火剑法蓄力完成，下次攻击威力大增。");
+            finishCast(p, t, skill, lv, now, spellCost, true);
             return;
         }
         if (magicId == 27) {
@@ -1450,60 +1533,6 @@ public final class GameService {
     }
 
     /** 半月弯刀：前方扇形 3 方向物理攻击。 */
-    private boolean halfMoon(Player p, MagicTemplate t, int lv, long now) {
-        int hit = 0;
-        int[] dirs = { (p.dir + 7) % 8, p.dir, (p.dir + 1) % 8 };
-        for (int d : dirs) {
-            int tx = p.x + Direction.dx(d);
-            int ty = p.y + Direction.dy(d);
-            Actor a = findTargetAt(p.map, tx, ty);
-            if (!(a instanceof Monster) || !a.alive) {
-                continue;
-            }
-            Monster m = (Monster) a;
-            if (!hitCheck(p, m, 0)) {
-                continue;
-            }
-            int raw = rollDcWithLuck(p);
-            int dmg = Math.max(1, raw - m.template.ac) + lv;
-            m.hp = Math.max(0, m.hp - dmg);
-            broadcastMagicHit(p, m, dmg, 25);
-            if (m.hp <= 0) {
-                world.killMonster(m, now, p);
-                grantExp(p, m);
-            }
-            hit++;
-        }
-        world.sendSystem(p, hit > 0 ? "半月弯刀击中了 " + hit + " 个目标。" : "周围没有目标。");
-        return hit > 0;
-    }
-
-    /** 烈火剑法：前方最近目标单体高伤。 */
-    private boolean fireSword(Player p, MagicTemplate t, int lv, long now) {
-        int tx = p.x + Direction.dx(p.dir);
-        int ty = p.y + Direction.dy(p.dir);
-        Actor a = findTargetAt(p.map, tx, ty);
-        if (!(a instanceof Monster) || !a.alive) {
-            world.sendSystem(p, "前方没有目标。");
-            return false;
-        }
-        Monster m = (Monster) a;
-        if (!hitCheck(p, m, 0)) {
-            world.sendSystem(p, "攻击未命中。");
-            return false;
-        }
-        int raw = rollDcWithLuck(p);
-        int dmg = Math.max(1, raw - m.template.ac) + (4 + lv * 4);   // 烈火：DC 伤害 + 40%~160%
-        m.hp = Math.max(0, m.hp - dmg);
-        broadcastMagicHit(p, m, dmg, 26);
-        if (m.hp <= 0) {
-            world.killMonster(m, now, p);
-            grantExp(p, m);
-        }
-        world.sendSystem(p, "烈火剑法对 " + m.name + " 造成 " + dmg + " 伤害。");
-        return true;
-    }
-
     /** 野蛮冲撞：朝方向冲撞，推开路径上怪物并前进 1 格。 */
     private boolean rushRush(Player p, int dir, int lv) {
         int ndir = (dir >= 0 && dir <= 7) ? dir : p.dir;

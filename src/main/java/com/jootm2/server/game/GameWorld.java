@@ -1653,6 +1653,10 @@ public final class GameWorld {
             Player pl = (Player) a;
             o.addProperty("shield", pl.shieldUntil > now);   // 魔法盾
             o.addProperty("hidden", pl.hideUntil > now);     // 隐身术
+            o.addProperty("wideHit", pl.wideHitOn);          // 半月弯刀开关
+            o.addProperty("crossHit", pl.crossHitOn);        // 攻杀剑术开关
+            o.addProperty("longHit", pl.longHitOn);          // 刺杀剑术开关
+            o.addProperty("fireHit", pl.fireHitOn);          // 烈火剑法蓄力
         }
         o.addProperty("poison", a.poisonTicks > 0);          // 施毒术中毒
         if (a instanceof Monster) {

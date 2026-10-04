@@ -89,6 +89,17 @@ public final class Player extends Actor {
     /** 魔法盾(31) 减伤截止时间戳。 */
     public long shieldUntil = 0;
 
+    /** 战士主动技能开关（原版 BoAllowWideHit/FireHit/CrossHit/LongHit）：
+     *  半月弯刀/攻杀/刺杀 是「攻击模式开关」，烈火剑法 是「蓄力」（下次攻击附带，用完关闭）。 */
+    public boolean wideHitOn = false;    // 半月弯刀：攻击变扇形范围
+    public boolean crossHitOn = false;   // 攻杀剑术：攻击概率附带攻杀
+    public boolean longHitOn = false;    // 刺杀剑术：攻击变隔位刺杀
+    public boolean fireHitOn = false;    // 烈火剑法：蓄力，下次攻击伤害翻倍
+    public long fireHitUntil = 0;        // 烈火蓄力超时时间戳（20 秒未用则失效）
+
+    /** 攻击模式：0=和平 1=全体 2=行会。默认全体（后续单独做模式判定）。 */
+    public int attackMode = 1;
+
     public GameWorld world;
     public PlayerSession session;
 

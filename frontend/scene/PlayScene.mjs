@@ -73,7 +73,8 @@ const FX_FRAMES = {
     boomHoly:     { lib: 'magic',  base: 3930, frames: 10, ft: 80 },   // 圣言术（特例 3930）
     diyu:         { lib: 'magic',  base: 1090, frames: 6,  ft: 80 },   // 地狱火直线（Effect=7→920+170）
     jgdy:         { lib: 'magic',  base: 1110, frames: 6,  ft: 80 },   // 疾光电影直线（Effect=8→940+170）
-    thunder:      { lib: 'magic2', base: 20,   frames: 3,  ft: 100 },  // 雷电（Effect=9→Magic2 20）
+    thunder:      { lib: 'magic2', base: 10,   frames: 6,  ft: 50 },   // 雷电（原版 mtThunder：EffectBase=10，帧10-13为贯穿屏幕闪电，帧14尾焰）
+    thunderFire:  { lib: 'magic2', base: 140,  frames: 10, ft: 50 },   // 地狱雷光（原版 mtFireThunder：EffectBase=140，10 帧扩散雷爆）
     // 飞行弹道（EffectBase + FLYBASE 10）
     fireball:     { lib: 'magic',  base: 10,   frames: 6,  ft: 80 },   // 火球飞行（0+10）
     bigfireball:  { lib: 'magic',  base: 410,  frames: 6,  ft: 80 },   // 大火球飞行（400+10）
@@ -93,7 +94,7 @@ const MAGIC_VFX = {
     13: { fly: 'soulfu',       hit: 'boomSoulfu' },    // 灵魂火符
     22: { ground: 'firewall' },                        // 火墙
     23: { hit: 'boomBflame' },                         // 爆裂火焰
-    24: { hit: 'thunder' },                            // 地狱雷光（雷击）
+    24: { hit: 'thunderFire' },                        // 地狱雷光（原版 mtFireThunder 扩散雷爆）
     32: { hit: 'boomHoly' },                           // 圣言术
     33: { hit: 'boomIce' },                            // 冰咆哮
     2:  { hit: 'heal' },                               // 治愈术

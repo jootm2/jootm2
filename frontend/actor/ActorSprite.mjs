@@ -6,7 +6,8 @@ import { getLib } from '../image/Images.mjs';
 import * as A from './actorData.mjs';
 
 // 动作名 → 动作表段名（玩家用 HA，怪物/NPC 用 MA）
-const PLAYER_SEG = { stand: 'stand', walk: 'walk', run: 'run', attack: 'hit', struck: 'struck', die: 'die' };
+// 施法（spell）映射到 HA.spell 段（start 392, 6 帧×60ms），与普通攻击 hit 段不同（原版 ActSpell）
+const PLAYER_SEG = { stand: 'stand', walk: 'walk', run: 'run', attack: 'hit', spell: 'spell', struck: 'struck', die: 'die' };
 const MON_SEG = { stand: 'stand', walk: 'walk', attack: 'attack', struck: 'struck', die: 'die' };
 
 export class ActorSprite {
@@ -50,8 +51,8 @@ export class ActorSprite {
         }
         if (!segs) return null;
 
-        // attack/struck 一次性播放完回 stand；walk/run 循环播放（停止由 PlayScene 超时回 stand）
-        if (action === 'attack' || action === 'struck') {
+        // attack/spell/struck 一次性播放完回 stand；walk/run 循环播放（停止由 PlayScene 超时回 stand）
+        if (action === 'attack' || action === 'spell' || action === 'struck') {
             const seg = segs[segKey] || segs.stand;
             const af = A.actionFrames(0, seg, dir);
             if (af.ftime > 0 && (now - at) > af.count * af.ftime) {

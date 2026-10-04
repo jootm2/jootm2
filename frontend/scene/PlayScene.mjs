@@ -20,6 +20,8 @@ const RUN_INTERVAL = 360;    // 跑（右键）
 
 // 玩家攻击动画时长（HA.hit：6 帧 × 85ms = 510ms），动作完成才允许下一次攻击
 const ATTACK_ANIM_MS = 510;
+// 玩家施法动画时长（HA.spell：6 帧 × 60ms = 360ms，原版 ActSpell），与攻击动作区分
+const SPELL_ANIM_MS = 360;
 
 // 怪物/NPC 移动过渡时长（ms）：对齐多数怪物 walk 动画 6 帧×120ms=720ms
 const MONSTER_MOVE_DUR = 720;
@@ -516,7 +518,8 @@ export class PlayScene extends Scene {
             }
             case 'spellCast': {
                 const c = this.entities.get(msg.casterId);
-                if (c) { c._action = 'attack'; c._actionAt = Date.now(); }
+                // 施法动作（HA.spell 段，与普通攻击 hit 段不同）
+                if (c) { c._action = 'spell'; c._actionAt = Date.now(); }
                 // 施法特效：飞行弹道（火球/灵魂火符/雷击飞向目标点）
                 const vfx = MAGIC_VFX[msg.magicId];
                 if (vfx && vfx.fly && c) {
@@ -1636,9 +1639,10 @@ export class PlayScene extends Scene {
                 && (now - (e._lastMoveAt || 0)) > 600) {
                 e._action = 'stand';
             }
-            // 攻击/受击动作播放完回站立（动作完成，解除 _isIdle 锁定，可进行下一次攻击）
-            if ((e._action === 'attack' || e._action === 'struck')
-                && (now - (e._actionAt || 0)) > ATTACK_ANIM_MS) {
+            // 攻击/施法/受击动作播放完回站立（动作完成，解除 _isIdle 锁定，可进行下一次攻击/施法）
+            const animMs = (e._action === 'spell') ? SPELL_ANIM_MS : ATTACK_ANIM_MS;
+            if ((e._action === 'attack' || e._action === 'spell' || e._action === 'struck')
+                && (now - (e._actionAt || 0)) > animMs) {
                 e._action = 'stand';
             }
             const sp = this._sprite(e);

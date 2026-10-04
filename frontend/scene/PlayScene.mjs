@@ -59,36 +59,39 @@ const PASSIVE_MAGICS = new Set([3, 4]);
 
 // ---- 技能特效帧（magic/magic2 库，对齐原版 EffectBase + EXPLOSIONBASE 简化映射）----
 // 每项 = 起始帧 + 连续帧数，动画帧间隔约 80ms（原版 NextFrameTime）。
-// 帧号对齐原版 EffectBase + EXPLOSIONBASE(170)：命中爆炸 = EffectBase + 170。
+// 帧号对齐原版 EffectBase[Effect-1] 表：命中爆炸 = EffectBase + EXPLOSIONBASE(170)，
+// 飞行 = EffectBase + FLYBASE(10)，部分技能有特例（爆裂/冰咆哮/圣言）。
 const FX_FRAMES = {
-    // 命中爆炸（各技能专属）
-    boomFire:     { lib: 'magic',  base: 770,  frames: 10, ft: 80 },   // 火球爆炸
-    boomBigFire:  { lib: 'magic',  base: 570,  frames: 10, ft: 80 },   // 大火球爆炸
-    boomBflame:   { lib: 'magic',  base: 1670, frames: 10, ft: 80 },   // 爆裂火焰大爆炸
-    boomIce:      { lib: 'magic',  base: 170,  frames: 10, ft: 80 },   // 冰咆哮
-    boomHoly:     { lib: 'magic',  base: 50,   frames: 6,  ft: 80 },   // 圣言术圣光
-    lightning:    { lib: 'magic',  base: 3840, frames: 12, ft: 70 },   // 疾光电影闪电
-    lightningArea:{ lib: 'magic2', base: 160,  frames: 10, ft: 70 },   // 地狱雷光
-    // 飞行弹道
-    fireball:     { lib: 'magic',  base: 600,  frames: 6,  ft: 80 },   // 火球飞行
-    bigfireball:  { lib: 'magic',  base: 400,  frames: 8,  ft: 80 },   // 大火球飞行
-    soulfu:       { lib: 'magic',  base: 0,    frames: 8,  ft: 80 },   // 灵魂火符飞行
+    // 命中爆炸（EffectBase + 170）
+    boomFire:     { lib: 'magic',  base: 170,  frames: 10, ft: 80 },   // 火球（Effect=1→0+170）
+    boomBigFire:  { lib: 'magic',  base: 570,  frames: 10, ft: 80 },   // 大火球（Effect=3→400+170）
+    boomSoulfu:   { lib: 'magic',  base: 1110, frames: 6,  ft: 80 },   // 灵魂火符命中（Effect=10→940+170）
+    boomBflame:   { lib: 'magic',  base: 1660, frames: 10, ft: 80 },   // 爆裂火焰（特例 1660）
+    boomIce:      { lib: 'magic',  base: 3850, frames: 10, ft: 80 },   // 冰咆哮（特例 3850）
+    boomHoly:     { lib: 'magic',  base: 3930, frames: 10, ft: 80 },   // 圣言术（特例 3930）
+    diyu:         { lib: 'magic',  base: 1090, frames: 6,  ft: 80 },   // 地狱火直线（Effect=7→920+170）
+    jgdy:         { lib: 'magic',  base: 1110, frames: 6,  ft: 80 },   // 疾光电影直线（Effect=8→940+170）
+    thunder:      { lib: 'magic2', base: 20,   frames: 3,  ft: 100 },  // 雷电（Effect=9→Magic2 20）
+    // 飞行弹道（EffectBase + FLYBASE 10）
+    fireball:     { lib: 'magic',  base: 10,   frames: 6,  ft: 80 },   // 火球飞行（0+10）
+    bigfireball:  { lib: 'magic',  base: 410,  frames: 6,  ft: 80 },   // 大火球飞行（400+10）
+    soulfu:       { lib: 'magic',  base: 950,  frames: 6,  ft: 80 },   // 灵魂火符飞行（940+10）
     // 治疗/持续
-    heal:         { lib: 'magic',  base: 920,  frames: 6,  ft: 90 },   // 治疗光圈
+    heal:         { lib: 'magic',  base: 200,  frames: 8,  ft: 90 },   // 治愈（Effect=2→200）
     firewall:     { lib: 'magic',  base: 1600, frames: 10, ft: 120 },  // 火墙火焰
-    shield:       { lib: 'magic',  base: 1620, frames: 4,  ft: 120 },  // 魔法盾泡泡
+    shield:       { lib: 'magic',  base: 3880, frames: 12, ft: 100 },  // 魔法盾泡泡（Effect=29→3880）
 };
 // 每个技能 → 特效（fly=飞行弹道, hit=命中爆炸/雷击, ground=地面持续）
 const MAGIC_VFX = {
     1:  { fly: 'fireball',     hit: 'boomFire' },      // 火球术
     5:  { fly: 'bigfireball',  hit: 'boomBigFire' },   // 大火球
-    9:  { hit: 'boomFire' },                          // 地狱火（直线穿透，命中爆炸）
-    10: { hit: 'lightning' },                          // 疾光电影（闪电）
-    11: { hit: 'lightning' },                          // 雷电术（闪电）
-    13: { fly: 'soulfu',       hit: 'boomFire' },      // 灵魂火符
+    9:  { hit: 'diyu' },                               // 地狱火（直线火焰）
+    10: { hit: 'jgdy' },                               // 疾光电影（直线闪电）
+    11: { hit: 'thunder' },                            // 雷电术（雷击）
+    13: { fly: 'soulfu',       hit: 'boomSoulfu' },    // 灵魂火符
     22: { ground: 'firewall' },                        // 火墙
     23: { hit: 'boomBflame' },                         // 爆裂火焰
-    24: { hit: 'lightningArea' },                      // 地狱雷光
+    24: { hit: 'thunder' },                            // 地狱雷光（雷击）
     32: { hit: 'boomHoly' },                           // 圣言术
     33: { hit: 'boomIce' },                            // 冰咆哮
     2:  { hit: 'heal' },                               // 治愈术
@@ -471,7 +474,10 @@ export class PlayScene extends Scene {
                     if (msg.gold !== undefined) e.gold = msg.gold;
                     if (msg.skills !== undefined) e.skills = msg.skills;   // 技能快捷键更新
                     // 状态特效：魔法盾 / 隐身 / 中毒 / 定身 / 战士开关
-                    if (msg.shield !== undefined) e._shield = msg.shield;
+                    if (msg.shield !== undefined) {
+                        if (msg.shield && !e._shield) e._shieldAt = Date.now();   // 护盾开启时间（成形动画用）
+                        e._shield = msg.shield;
+                    }
                     if (msg.hidden !== undefined) e._hidden = msg.hidden;
                     if (msg.poison !== undefined) e._poison = msg.poison;
                     if (msg.paralyzed !== undefined) e._paralyzed = msg.paralyzed;
@@ -1719,11 +1725,12 @@ export class PlayScene extends Scene {
     _renderEffects(ctx, vcx, vcy, shiftX, shiftY) {
         if (!this.self) return;
         const now = Date.now();
-        // 魔法盾：角色身上的护盾泡泡（magic 1620 起 4 帧循环）
+        // 魔法盾：护盾泡泡（magic 3880 起 12 帧成形动画，成形后停在最后一帧持续）
         for (const e of this.entities.values()) {
             if (!e._shield) continue;
             const def = FX_FRAMES.shield;
-            const frame = Math.floor(now / (def.ft || 120)) % def.frames;
+            const elapsed = now - (e._shieldAt || now);
+            const frame = Math.min(Math.floor(elapsed / (def.ft || 100)), def.frames - 1);
             this._drawFx(ctx, def, frame, e.x, e.y);
         }
         const survivors = [];

@@ -980,6 +980,10 @@ public final class GameWorld {
         Actor t = actor(targetId);
         int tx = t != null ? t.x : p.x;
         int ty = t != null ? t.y : p.y;
+        return makeFireWallAt(p, tx, ty, damage, durationSec);
+    }
+
+    public int makeFireWallAt(Player p, int tx, int ty, int damage, int durationSec) {
         long expire = System.currentTimeMillis() + durationSec * 1000L;
         int[][] cells = {{tx, ty - 1}, {tx - 1, ty}, {tx, ty}, {tx + 1, ty}, {tx, ty + 1}};
         int made = 0;

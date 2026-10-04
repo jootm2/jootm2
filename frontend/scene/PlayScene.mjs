@@ -50,8 +50,9 @@ const ATTR_ROWS = [
     ['hp', 199], ['mp', 219],
 ];
 
-// 需要施法目标的魔法（伤害/施毒/火墙/诱惑）
-const TARGET_MAGICS = new Set([1, 5, 6, 11, 20, 22, 35]);
+// 战士主动技能（EffectType=0 但可主动释放）：朝方向施放，不选目标。
+// 半月弯刀(25)=范围、烈火剑法(26)=单体高伤、野蛮冲撞(27)=冲撞
+const SWORD_SKILLS = new Set([25, 26, 27]);
 
 // 被动技能（无法主动施放）：基本剑术/精神力战法/攻杀/刺杀。
 // 注意半月弯刀(25)/烈火剑法(26)/野蛮冲撞(27) 虽 EffectType=0 但为主动可施放，
@@ -74,6 +75,8 @@ export class PlayScene extends Scene {
         this.magicPage = 0;          // 技能页内部分页页码（每页 5 个技能）
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
+        this.magicTarget = null;     // 鼠标悬停的施法目标（原版 FocusCret：怪物/玩家）
+        this._lastMouse = { mx: 0, my: 0 };   // 鼠标在 canvas 内的最近位置（施法朝此处）
         this._zTop = 100;            // 窗口 z-index 计数器（点击前置递增）
         this._dragCleaners = [];     // 窗口拖动监听清理函数
         this._canvas = document.getElementById('screen');
@@ -157,16 +160,20 @@ export class PlayScene extends Scene {
     }
 
     _castMagic(magicId) {
-        if (TARGET_MAGICS.has(magicId)) {
-            const t = this.castTarget != null ? this.entities.get(this.castTarget) : null;
-            if (!t) {
-                this._log('[系统] 请先点击选择一个怪物作为施法目标。');
-                return;
-            }
-            this.conn.send('castMagic', { magicId, targetId: t.id });
-        } else {
-            this.conn.send('castMagic', { magicId, targetId: -1 });
+        // 战士主动技能（半月/烈火/野蛮）：朝面向方向施放，不选目标（原版 EffectType=0 分支）
+        if (SWORD_SKILLS.has(magicId)) {
+            this.conn.send('castMagic', { magicId, targetX: this.self.dir, targetY: 0, targetId: 0 });
+            return;
         }
+        // 法师/道士技能：朝鼠标位置释放（原版 UseMagic：MagicTarget=FocusCret，无则取鼠标格子坐标）
+        const { tx, ty } = this._gridFromXY(this._lastMouse.mx, this._lastMouse.my);
+        let targetId = 0, targX = tx, targY = ty;
+        const t = this.magicTarget;
+        if (t && t.id !== this.self.id) {
+            targetId = t.id;       // 悬停在目标上：以目标为落点
+            targX = t.x; targY = t.y;
+        }
+        this.conn.send('castMagic', { magicId, targetX: targX, targetY: targY, targetId });
     }
 
     // 朝目标点移动一步（原版 ProcessActionMessages：每步按当前坐标重算朝目标的方向）
@@ -299,8 +306,14 @@ export class PlayScene extends Scene {
         this._lastMoveAt = 0;
     }
 
-    // 按住移动时，实时更新移动方向（移动过程中转向）
+    // 鼠标移动：始终记录最近位置 + 悬停施法目标（原版 FocusCret），按住时实时更新移动方向
     _onMouseMove(e) {
+        const { mx, my } = this._mouseXY(e);
+        this._lastMouse = { mx, my };
+        // 悬停目标追踪（怪物优先，其次玩家）
+        const mon = this._actorAtScreen(mx, my, 'monster');
+        const pl = this._actorAtScreen(mx, my, 'player');
+        this.magicTarget = (mon && mon.hp > 0) ? mon : (pl && pl.id !== this.self.id ? pl : null);
         if (!this._holding) return;
         const dir = this._dirFromMouse(e);
         if (dir >= 0) this._mouseDir = dir;
@@ -308,9 +321,11 @@ export class PlayScene extends Scene {
 
     // 鼠标 → 游戏格子（渲染中心 + 卷动偏移反推，与 screenX/screenY 互逆）
     _gridFromMouse(e) {
-        const rect = this._canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
+        const { mx, my } = this._mouseXY(e);
+        return this._gridFromXY(mx, my);
+    }
+
+    _gridFromXY(mx, my) {
         const ox = Math.floor((SCREEN_WIDTH - 48) / 2);
         const oy = Math.floor((MAPSURFACEHEIGHT - 32) / 2);
         const tx = Math.floor((mx - ox + this.mapActor._shiftX) / 48) + this.mapActor._cx;

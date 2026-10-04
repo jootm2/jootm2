@@ -1139,6 +1139,8 @@ public final class GameService {
             return;
         }
         int magicId = integer(msg, "magicId", -1);
+        int targetX = integer(msg, "targetX", -1);
+        int targetY = integer(msg, "targetY", -1);
         long targetId = longVal(msg, "targetId", -1);
         MagicTemplate t = world.magicTemplates.get(magicId);
         if (t == null) {
@@ -1167,19 +1169,45 @@ public final class GameService {
         cast.addProperty("casterId", p.id);
         cast.addProperty("magicId", magicId);
         cast.addProperty("effect", t.effect);
+        cast.addProperty("targetX", targetX);
+        cast.addProperty("targetY", targetY);
         world.broadcastAround(p.map, cast, p.x, p.y, GameWorld.SIGHT_RANGE);
 
         boolean success = false;
+
+        // 战士主动技能（朝面向方向，不选目标）
+        if (magicId == 25) {
+            success = halfMoon(p, t, lv, now);
+            finishCast(p, t, skill, lv, now, spellCost, success);
+            return;
+        }
+        if (magicId == 26) {
+            success = fireSword(p, t, lv, now);
+            finishCast(p, t, skill, lv, now, spellCost, success);
+            return;
+        }
+        if (magicId == 27) {
+            success = rushRush(p, targetX, lv);
+            finishCast(p, t, skill, lv, now, spellCost, success);
+            return;
+        }
+
+        // 目标查找：targetId 优先，否则按坐标（朝鼠标位置释放，无对象也可施放）
+        Actor target = targetId > 0 ? world.actor(targetId) : null;
+        if (target == null || !target.alive) {
+            target = findTargetAt(p.map, targetX, targetY);
+        }
+
         if (isHealMagic(magicId)) {
             int heal = t.power + (int) (Math.random() * (t.maxPower - t.power + 1));
             p.hp = Math.min(p.maxHp, p.hp + heal);
             world.sendSystem(p, "施展了 " + t.name + "，恢复 " + heal + " 点生命。");
             world.sendStats(p, null);
             success = true;
-        } else if (isDamageMagic(magicId)) {
-            Actor a = world.actor(targetId);
-            if (a instanceof Monster && a.alive) {
-                Monster m = (Monster) a;
+        } else if (isProjectileMagic(magicId)) {
+            // 投掷/范围魔法：朝坐标释放，命中对象才伤害，无对象仅动画（雷电/火球砸空地、灵魂火符飞远）
+            if (target instanceof Monster && target.alive) {
+                Monster m = (Monster) target;
                 if (p.distanceTo(m) > 8) {
                     return;
                 }
@@ -1189,57 +1217,29 @@ public final class GameService {
                 } else {
                     int damage = magicDamage(p, t, lv, m);
                     m.hp = Math.max(0, m.hp - damage);
-                    JsonObject o = new JsonObject();
-                    o.addProperty("type", "attack");
-                    o.addProperty("attackerId", p.id);
-                    o.addProperty("targetId", m.id);
-                    o.addProperty("damage", damage);
-                    o.addProperty("magicId", magicId);
-                    o.addProperty("x", m.x);
-                    o.addProperty("y", m.y);
-                    world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
-                    world.sendStats(m, null);
+                    broadcastMagicHit(p, m, damage, magicId);
                     if (m.hp <= 0) {
                         world.killMonster(m, now, p);
                         grantExp(p, m);
                     }
-                    success = true;
                     // 范围魔法：溅射周围 1 格（爆裂火焰/地狱雷光/冰咆哮）
                     if (isAreaMagic(magicId)) {
-                        int splash = damage / 2;
-                        for (Actor nb : world.nearby(m.map, m.x, m.y, 1)) {
-                            if (nb instanceof Monster && nb != m && nb.alive) {
-                                Monster other = (Monster) nb;
-                                other.hp = Math.max(0, other.hp - splash);
-                                JsonObject so = new JsonObject();
-                                so.addProperty("type", "attack");
-                                so.addProperty("attackerId", p.id);
-                                so.addProperty("targetId", other.id);
-                                so.addProperty("damage", splash);
-                                so.addProperty("magicId", magicId);
-                                so.addProperty("x", other.x);
-                                so.addProperty("y", other.y);
-                                world.broadcastAround(other.map, so, other.x, other.y, GameWorld.SIGHT_RANGE);
-                                world.sendStats(other, null);
-                                if (other.hp <= 0) {
-                                    world.killMonster(other, now, p);
-                                    grantExp(p, other);
-                                }
-                            }
-                        }
+                        splashMagic(p, m, damage, magicId, now);
                     }
                 }
             }
+            success = true;   // 无对象也施放成功（动画已广播）
         } else if (magicId == 6) {
             // 施毒术：目标中毒（持续掉血）
-            Actor a = world.actor(targetId);
-            if (a instanceof Monster && a.alive) {
-                Monster m = (Monster) a;
+            if (target instanceof Monster && target.alive) {
+                Monster m = (Monster) target;
                 m.poisonTicks = 10;
                 m.poisonDamage = Math.max(1, p.combat.scMin / 2 + lv + 1);
                 m.lastPoisonAt = now;
                 world.sendSystem(p, "对 " + m.name + " 施放了 " + t.name + "。");
                 success = true;
+            } else {
+                world.sendSystem(p, "没有目标。");
             }
         } else if (magicId == 17 || magicId == 30) {
             // 召唤骷髅 / 召唤神兽：创建宠物
@@ -1272,16 +1272,17 @@ public final class GameService {
             world.sendSystem(p, "你进入了隐身状态（" + (dur / 1000) + " 秒）。");
             success = true;
         } else if (magicId == 22) {
-            // 火墙：目标周围十字 5 格持续伤害
+            // 火墙：朝目标坐标周围十字 5 格持续伤害
+            int wx = target != null ? target.x : targetX;
+            int wy = target != null ? target.y : targetY;
             int damage = Math.max(1, p.combat.mcMax + t.power + lv * 2);
-            int made = world.makeFireWall(p, targetId, damage, 8 + lv * 2);
+            int made = world.makeFireWallAt(p, wx, wy, damage, 8 + lv * 2);
             world.sendSystem(p, made > 0 ? "释放了火墙。(" + made + " 格)" : "火墙释放失败。");
             success = made > 0;
         } else if (magicId == 20) {
             // 诱惑之光：迷惑怪物成为宠物 / 定身已有宠物
-            Actor a = world.actor(targetId);
-            if (a instanceof Monster && a.alive) {
-                Monster m = (Monster) a;
+            if (target instanceof Monster && target.alive) {
+                Monster m = (Monster) target;
                 if (m.masterId == p.id) {
                     m.paralyzedUntil = now + (10 + lv * 5) * 1000;
                     world.sendSystem(p, m.name + " 被定身了。");
@@ -1330,44 +1331,38 @@ public final class GameService {
             success = true;
         } else if (magicId == 16) {
             // 困魔咒：定身目标怪物
-            Actor a = world.actor(targetId);
-            if (a instanceof Monster && a.alive) {
-                Monster m = (Monster) a;
+            if (target instanceof Monster && target.alive) {
+                Monster m = (Monster) target;
                 m.paralyzedUntil = now + (5 + lv * 3) * 1000;
                 world.sendSystem(p, "困住了 " + m.name + "。");
                 success = true;
+            } else {
+                world.sendSystem(p, "没有目标。");
             }
         } else if (magicId == 32) {
             // 圣言术：对不死系造成巨额伤害
-            Actor a = world.actor(targetId);
-            if (a instanceof Monster && a.alive) {
-                Monster m = (Monster) a;
+            if (target instanceof Monster && target.alive) {
+                Monster m = (Monster) target;
                 int damage = magicDamage(p, t, lv, m) * 3;
                 m.hp = Math.max(0, m.hp - damage);
-                JsonObject o = new JsonObject();
-                o.addProperty("type", "attack");
-                o.addProperty("attackerId", p.id);
-                o.addProperty("targetId", m.id);
-                o.addProperty("damage", damage);
-                o.addProperty("magicId", magicId);
-                o.addProperty("x", m.x);
-                o.addProperty("y", m.y);
-                world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
-                world.sendStats(m, null);
+                broadcastMagicHit(p, m, damage, magicId);
                 if (m.hp <= 0) {
                     world.killMonster(m, now, p);
                     grantExp(p, m);
                 }
                 world.sendSystem(p, "圣言术对 " + m.name + " 造成 " + damage + " 伤害。");
                 success = true;
+            } else {
+                world.sendSystem(p, "没有目标。");
             }
         } else if (magicId == 28) {
             // 心灵启示：窥探目标血量
-            Actor a = world.actor(targetId);
-            if (a instanceof Monster && a.alive) {
-                Monster m = (Monster) a;
+            if (target instanceof Monster && target.alive) {
+                Monster m = (Monster) target;
                 world.sendSystem(p, m.name + " 血量 " + m.hp + "/" + m.maxHp);
                 success = true;
+            } else {
+                world.sendSystem(p, "没有目标。");
             }
         } else {
             world.sendSystem(p, "该魔法暂未开放。");
@@ -1398,15 +1393,153 @@ public final class GameService {
         return magicId == 2 || magicId == 24;   // 治愈术 / 群体治愈术
     }
 
-    private boolean isDamageMagic(int magicId) {
-        // 火球/大火球/雷电/灭天火 + 地狱火/疾光电影/灵魂火符/爆裂火焰/地狱雷光/冰咆哮
+    /** 投掷/范围攻击魔法：朝坐标释放，命中对象才伤害，无对象仅动画（雷电/火球砸空地、灵魂火符飞远）。 */
+    private boolean isProjectileMagic(int magicId) {
         return magicId == 1 || magicId == 5 || magicId == 9 || magicId == 10 || magicId == 11
-                || magicId == 13 || magicId == 23 || magicId == 24 || magicId == 33 || magicId == 35;
+                || magicId == 13 || magicId == 23 || magicId == 24 || magicId == 33;
     }
 
     /** 范围伤害魔法（爆裂火焰/地狱雷光/冰咆哮）：命中后溅射周围 1 格。 */
     private boolean isAreaMagic(int magicId) {
         return magicId == 23 || magicId == 24 || magicId == 33;
+    }
+
+    /** 坐标处查找对象（怪物优先，其次玩家）。 */
+    private Actor findTargetAt(GameMap map, int x, int y) {
+        Monster mon = null;
+        Player pl = null;
+        for (Actor a : world.nearby(map, x, y, 0)) {
+            if (mon == null && a instanceof Monster) {
+                mon = (Monster) a;
+            } else if (pl == null && a instanceof Player) {
+                pl = (Player) a;
+            }
+        }
+        return mon != null ? mon : pl;
+    }
+
+    /** 广播魔法命中伤害。 */
+    private void broadcastMagicHit(Player p, Monster m, int damage, int magicId) {
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "attack");
+        o.addProperty("attackerId", p.id);
+        o.addProperty("targetId", m.id);
+        o.addProperty("damage", damage);
+        o.addProperty("magicId", magicId);
+        o.addProperty("x", m.x);
+        o.addProperty("y", m.y);
+        world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
+        world.sendStats(m, null);
+    }
+
+    /** 范围魔法溅射：命中目标周围 1 格怪物受半额伤害。 */
+    private void splashMagic(Player p, Monster m, int damage, int magicId, long now) {
+        int splash = damage / 2;
+        for (Actor nb : world.nearby(m.map, m.x, m.y, 1)) {
+            if (!(nb instanceof Monster) || nb == m || !nb.alive) {
+                continue;
+            }
+            Monster other = (Monster) nb;
+            other.hp = Math.max(0, other.hp - splash);
+            broadcastMagicHit(p, other, splash, magicId);
+            if (other.hp <= 0) {
+                world.killMonster(other, now, p);
+                grantExp(p, other);
+            }
+        }
+    }
+
+    /** 半月弯刀：前方扇形 3 方向物理攻击。 */
+    private boolean halfMoon(Player p, MagicTemplate t, int lv, long now) {
+        int hit = 0;
+        int[] dirs = { (p.dir + 7) % 8, p.dir, (p.dir + 1) % 8 };
+        for (int d : dirs) {
+            int tx = p.x + Direction.dx(d);
+            int ty = p.y + Direction.dy(d);
+            Actor a = findTargetAt(p.map, tx, ty);
+            if (!(a instanceof Monster) || !a.alive) {
+                continue;
+            }
+            Monster m = (Monster) a;
+            if (!hitCheck(p, m, 0)) {
+                continue;
+            }
+            int raw = rollDcWithLuck(p);
+            int dmg = Math.max(1, raw - m.template.ac) + lv;
+            m.hp = Math.max(0, m.hp - dmg);
+            broadcastMagicHit(p, m, dmg, 25);
+            if (m.hp <= 0) {
+                world.killMonster(m, now, p);
+                grantExp(p, m);
+            }
+            hit++;
+        }
+        world.sendSystem(p, hit > 0 ? "半月弯刀击中了 " + hit + " 个目标。" : "周围没有目标。");
+        return hit > 0;
+    }
+
+    /** 烈火剑法：前方最近目标单体高伤。 */
+    private boolean fireSword(Player p, MagicTemplate t, int lv, long now) {
+        int tx = p.x + Direction.dx(p.dir);
+        int ty = p.y + Direction.dy(p.dir);
+        Actor a = findTargetAt(p.map, tx, ty);
+        if (!(a instanceof Monster) || !a.alive) {
+            world.sendSystem(p, "前方没有目标。");
+            return false;
+        }
+        Monster m = (Monster) a;
+        if (!hitCheck(p, m, 0)) {
+            world.sendSystem(p, "攻击未命中。");
+            return false;
+        }
+        int raw = rollDcWithLuck(p);
+        int dmg = Math.max(1, raw - m.template.ac) + (4 + lv * 4);   // 烈火：DC 伤害 + 40%~160%
+        m.hp = Math.max(0, m.hp - dmg);
+        broadcastMagicHit(p, m, dmg, 26);
+        if (m.hp <= 0) {
+            world.killMonster(m, now, p);
+            grantExp(p, m);
+        }
+        world.sendSystem(p, "烈火剑法对 " + m.name + " 造成 " + dmg + " 伤害。");
+        return true;
+    }
+
+    /** 野蛮冲撞：朝方向冲撞，推开路径上怪物并前进 1 格。 */
+    private boolean rushRush(Player p, int dir, int lv) {
+        int ndir = (dir >= 0 && dir <= 7) ? dir : p.dir;
+        p.dir = ndir;
+        int pushed = 0;
+        for (int step = 1; step <= 2; step++) {
+            int cx = p.x + Direction.dx(ndir) * step;
+            int cy = p.y + Direction.dy(ndir) * step;
+            Actor a = findTargetAt(p.map, cx, cy);
+            if (a instanceof Monster && a.alive) {
+                Monster m = (Monster) a;
+                if (m.level <= p.level) {
+                    pushCreature(m, ndir, 2);
+                    pushed++;
+                }
+            }
+        }
+        world.tryMove(p, ndir);
+        world.broadcastMove(p);
+        world.sendSystem(p, pushed > 0 ? "野蛮冲撞击退了 " + pushed + " 个敌人。" : "你向前冲撞。");
+        return true;
+    }
+
+    /** 施法收尾：扣 MP、记录冷却、熟练度成长、刷新状态（战士主动技能提前 return 用）。 */
+    private void finishCast(Player p, MagicTemplate t, Skill skill, int lv, long now, int spellCost, boolean success) {
+        p.mp -= spellCost;
+        p.skillCooldown.put(t.magId, now);
+        if (success && skill.level < 3) {
+            skill.curTrain += 1 + (int) (Math.random() * 3);
+            if (skill.curTrain >= t.maxTrain[lv]) {
+                skill.curTrain -= t.maxTrain[lv];
+                skill.level = lv + 1;
+                world.sendSystem(p, "你的 " + t.name + " 升到了 " + (skill.level + 1) + " 级！");
+            }
+        }
+        world.sendStats(p, null);
     }
 
     /** Magic damage: base power scaled by skill level, plus MC, minus target MAC. */

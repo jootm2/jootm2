@@ -756,25 +756,21 @@ public final class GameWorld {
         if (target == null) {
             return false;
         }
-        boolean mapChanged = p.map != target;
         if (tx < 0 || ty < 0 || !target.canWalk(tx, ty)) {
             int[] cell = target.randomFreeCell();
             tx = cell[0];
             ty = cell[1];
         }
-        if (mapChanged) {
-            JsonObject remove = new JsonObject();
-            remove.addProperty("type", "entityRemove");
-            remove.addProperty("id", p.id);
-            broadcastAround(p.map, remove, p.x, p.y, SIGHT_RANGE);
-        }
+        // 瞬移（对齐原版 SpaceMove 的 SPACEMOVE_HIDE/SHOW）：旧位置广播移除 →
+        // 改坐标 → 给自己发 changeMap 快照（前端重建并重置卷动中心 = 立即到达，
+        // 不走 move 过渡动画）→ 新位置广播出现。同图/跨图统一处理。
+        JsonObject remove = new JsonObject();
+        remove.addProperty("type", "entityRemove");
+        remove.addProperty("id", p.id);
+        broadcastAround(p.map, remove, p.x, p.y, SIGHT_RANGE);
         changeMap(p, mapId, tx, ty);
-        if (mapChanged) {
-            p.session.sendText(mapSnapshot(p, "changeMap").toString());
-            broadcastEntityAdd(p);
-        } else {
-            broadcastMove(p);
-        }
+        p.session.sendText(mapSnapshot(p, "changeMap").toString());
+        broadcastEntityAdd(p);
         return true;
     }
 

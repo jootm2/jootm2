@@ -91,6 +91,8 @@ public final class GameWorld {
     private final List<FireWall> fireWalls = new ArrayList<>();
     private final Map<String, Guild> guilds = new HashMap<>();
     private final Map<String, String> guildOfPlayer = new HashMap<>();
+    /** 卷包解包映射（原版 UnbindList.txt）：shape → 拆出的物品名。 */
+    private final Map<Integer, String> unbindItems = new HashMap<>();
     private final Map<Long, Party> partyOf = new HashMap<>();
     private Castle castle;
 
@@ -121,6 +123,7 @@ public final class GameWorld {
         scanAvailableMaps();
         loadMapInfo();
         this.monGenEntries = WorldData.loadMonGen(envDir.resolve("MonGen.txt"));
+        loadUnbindList();
         loadNpcs();
         loadMapQuests();
         this.castle = WorldData.loadCastle(envDir.resolve("Castle").resolve("Sabuk.txt"));
@@ -130,6 +133,32 @@ public final class GameWorld {
         attachNpcs(defaultMap);
         System.out.println("[world] castle=" + castle.name + " map=" + castle.mapId
                 + " doorHP=" + castle.mainDoorMaxHp + " ownGuild=" + (castle.ownGuild.isEmpty() ? "(无主)" : castle.ownGuild));
+    }
+
+    /** 加载卷包解包映射（原版 UnbindList.txt）：shape → 拆出的物品名。 */
+    private void loadUnbindList() {
+        try {
+            for (String line : Files.readAllLines(envDir.resolve("UnbindList.txt"), GBK)) {
+                String t = line.trim();
+                if (t.isEmpty() || t.startsWith(";")) {
+                    continue;
+                }
+                String[] p = t.split("\\s+", 2);
+                if (p.length >= 2) {
+                    try {
+                        unbindItems.put(Integer.parseInt(p[0].trim()), p[1].trim());
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[world] cannot read UnbindList.txt: " + e.getMessage());
+        }
+    }
+
+    /** 卷包 shape → 拆出的物品名（原版 GetUnbindItemName）。 */
+    public String unbindItemName(int shape) {
+        return unbindItems.get(shape);
     }
 
     private void loadMapQuests() {

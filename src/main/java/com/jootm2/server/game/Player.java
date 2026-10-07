@@ -76,6 +76,9 @@ public final class Player extends Actor {
     /** magicId -> last-cast timestamp (ms), for cast cooldown. */
     public final Map<Integer, Long> skillCooldown = new LinkedHashMap<>();
 
+    /** 上次使用物品时间戳（ms），限制药水/卷轴等连续使用（对齐原版客户端 EatingItem 串行化）。 */
+    public long lastUseItemAt = 0;
+
     /** 召唤物（宠物）的怪物 id，-1 表示无宠物。 */
     public long summonId = -1;
 

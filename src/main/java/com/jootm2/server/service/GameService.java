@@ -46,6 +46,9 @@ public final class GameService {
 
     public static final int MAX_CHARS_PER_ACCOUNT = 2;
 
+    /** 物品使用间隔（ms）：药品/卷轴等消耗品不可瞬间连点（对齐原版客户端 EatingItem 串行化）。 */
+    private static final long USE_ITEM_INTERVAL_MS = 300;
+
     private final ServerConfig config;
     private final Database database;
     private final AccountDao accountDao;
@@ -780,6 +783,16 @@ public final class GameService {
         if (t == null) {
             return;
         }
+        // 消耗品使用间隔（药品 stdMode 0-2、卷轴/祝福油 stdMode=3、卷包 stdMode=31）：
+        // 防连点瞬间喝药/连开卷包（原版客户端 EatingItem 占用串行化），装备/技能书不受限
+        boolean consumable = (t.stdMode >= 0 && t.stdMode <= 3) || t.stdMode == 31;
+        if (consumable) {
+            long now = System.currentTimeMillis();
+            if (now - p.lastUseItemAt < USE_ITEM_INTERVAL_MS) {
+                return;   // 冷却中，静默忽略
+            }
+            p.lastUseItemAt = now;
+        }
         if (t.stdMode == 4) {
             learnSkillBook(p, t, found);
         } else if (t.stdMode >= 0 && t.stdMode <= 2) {
@@ -791,6 +804,8 @@ public final class GameService {
             } else {
                 useBlessOil(p, t, found);
             }
+        } else if (t.stdMode == 31) {
+            unbundleItem(p, t, found);
         } else if (Player.slotFor(t) >= 0) {
             equip(p, t, found);
         } else {
@@ -885,6 +900,28 @@ public final class GameService {
         } else {
             world.sendSystem(p, "现在无法使用该物品。");
         }
+    }
+
+    /** 卷包解包（stdMode=31）：拆出 6 个对应物品（原版 UnbindPotionUnit），空间不足提示。 */
+    private void unbundleItem(Player p, ItemTemplate t, ItemInstance it) {
+        String itemName = world.unbindItemName(t.shape);
+        ItemTemplate target = itemName != null ? world.itemTemplateByName(itemName) : null;
+        if (target == null) {
+            world.sendSystem(p, "无法使用该物品。");
+            return;
+        }
+        final int unbundleCount = 6;
+        // 原版 ServerGetEatItem：ItemList.Count + 6 - 1 <= MAXBAGITEM（拆 6 个需 5 个额外空格）
+        if (p.bag.size() + unbundleCount - 1 > GameWorld.BAG_SIZE) {
+            world.sendSystem(p, "背包空间不足，无法解包。");
+            return;
+        }
+        p.bag.remove(it);
+        for (int i = 0; i < unbundleCount; i++) {
+            p.bag.add(new ItemInstance(world.nextItemMakeIndex(), target.index, target.duraMax, target.duraMax));
+        }
+        world.sendSystem(p, "解开了 " + itemName + " x" + unbundleCount + "。");
+        sendBagUpdate(p);
     }
 
     /** 使用祝福油（stdMode=3）提升/诅咒武器幸运。 */

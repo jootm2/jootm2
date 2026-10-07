@@ -50,6 +50,8 @@ public final class GameWorld {
     public static final long DOOR_OPEN_MS = 5_000L;
     /** 地面掉落物存活时长（原版 MapItem.DisappearTime：约 60 秒后自动消失）。 */
     public static final long GROUND_ITEM_TTL_MS = 60_000L;
+    /** 背包容量（原版 DItemGrid 8×5 = 40 格），物品不堆叠、每件占一格。 */
+    public static final int BAG_SIZE = 40;
 
     /** 远程怪物 Race（照 ObjAxeMon/ObjMon/ObjMon2：喷毒蜘蛛82/双斧骷髅87/暗黑战士93/闪电僵尸94/弓箭手104/弓箭守卫112/弓箭警察20）。 */
     private static final Set<Integer> RANGED_RACES = Set.of(82, 87, 93, 94, 104, 112, 20);
@@ -626,18 +628,23 @@ public final class GameWorld {
     }
 
     /** Adds {@code count} copies of the named item (or gold) to the player. */
-    public void giveItem(Player p, String name, int count) {
+    /** 发放物品；背包已满放不下时返回 false（金币不受容量限制，始终成功）。 */
+    public boolean giveItem(Player p, String name, int count) {
         if ("金币".equals(name)) {
             p.gold += count;
-            return;
+            return true;
         }
         ItemTemplate t = itemTemplateByName(name);
         if (t == null) {
-            return;
+            return false;
+        }
+        if (p.bag.size() + count > BAG_SIZE) {
+            return false;   // 背包满，放不下（不部分发放，避免钱货不一致）
         }
         for (int i = 0; i < count; i++) {
             p.bag.add(new ItemInstance(nextItemMakeIndex(), t.index, t.duraMax, t.duraMax));
         }
+        return true;
     }
 
     // -- scene access -------------------------------------------------------
@@ -1538,6 +1545,10 @@ public final class GameWorld {
         }
         if (Math.max(Math.abs(p.x - gi.x), Math.abs(p.y - gi.y)) > 1) {
             return false;
+        }
+        if (!gi.isGold() && p.bag.size() >= BAG_SIZE) {
+            sendSystem(p, "背包已满，无法拾取。");
+            return false;   // 地面物品保留，不拾取
         }
         groundItems.remove(itemId);
         if (gi.isGold()) {

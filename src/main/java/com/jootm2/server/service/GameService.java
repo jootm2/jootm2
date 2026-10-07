@@ -684,6 +684,11 @@ public final class GameService {
             world.sendSystem(p, "金币不足。");
             return;
         }
+        // 背包容量检查（原版 DItemGrid 8×5=40 格，不堆叠）——先查满再扣钱，避免满包吞钱
+        if (p.bag.size() + count > GameWorld.BAG_SIZE) {
+            world.sendSystem(p, "背包已满，无法购买。");
+            return;
+        }
         p.gold -= total;
         world.giveItem(p, t.name, count);
         world.sendSystem(p, "购买了 " + t.name + " x" + count + "，花费 " + total + " 金币。");

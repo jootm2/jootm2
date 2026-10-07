@@ -47,6 +47,36 @@ public final class CharacterDao {
         }
     }
 
+    /** 返回所有角色背包+仓库中最大的 makeIndex（用于重启后 makeIndex 序列不重复）。 */
+    public long maxItemMakeIndex() {
+        Connection c = db.connection();
+        synchronized (c) {
+            try (PreparedStatement ps = c.prepareStatement(
+                    "SELECT items, storage FROM characters");
+                 ResultSet rs = ps.executeQuery()) {
+                long max = 0;
+                while (rs.next()) {
+                    max = Math.max(max, maxMakeIndex(rs.getString("items")));
+                    max = Math.max(max, maxMakeIndex(rs.getString("storage")));
+                }
+                return max;
+            } catch (SQLException e) {
+                throw new RuntimeException("max item makeIndex failed", e);
+            }
+        }
+    }
+
+    private static long maxMakeIndex(String json) {
+        long max = 0;
+        List<ItemInstance> list = ItemInstance.GSON.fromJson(json, ITEM_LIST_TYPE);
+        if (list != null) {
+            for (ItemInstance it : list) {
+                max = Math.max(max, it.makeIndex);
+            }
+        }
+        return max;
+    }
+
     public CharacterRecord findByName(String name) {
         Connection c = db.connection();
         synchronized (c) {

@@ -570,6 +570,13 @@ public final class GameWorld {
         return (int) itemIdGen.getAndIncrement();
     }
 
+    /** 重启后把 makeIndex 序列推进到已持久化物品的最大值之后，避免新旧物品 makeIndex 冲突。 */
+    public void setItemSeqStart(long maxPersistedMakeIndex) {
+        if (maxPersistedMakeIndex >= itemIdGen.get()) {
+            itemIdGen.set(maxPersistedMakeIndex + 1);
+        }
+    }
+
     // -- item helpers (used by NPC shop / scripts) --------------------------
 
     public ItemTemplate itemTemplateByName(String name) {
@@ -710,6 +717,65 @@ public final class GameWorld {
         p.y = y;
         target.add(p);
         return target;
+    }
+
+    /**
+     * 使用传送卷（原版 TCreature.UseScroll，stdMode=3 按 Shape 分发）：
+     * 1=地牢逃脱（回城地图随机点） 2=随机传送（当前地图随机点）
+     * 3=回城卷（回城点） 5=行会回城卷（无行会时回城点）。返回是否传送成功。
+     */
+    public boolean useScroll(Player p, int shape) {
+        String mapId;
+        int tx;
+        int ty;
+        switch (shape) {
+            case 1:                       // 地牢逃脱卷：回城地图随机落点
+                mapId = p.homeMap;
+                tx = -1;
+                ty = -1;
+                break;
+            case 2:                       // 随机传送卷：当前地图随机落点
+                mapId = p.map.name;
+                tx = -1;
+                ty = -1;
+                break;
+            case 3:                       // 回城卷：回城点
+                mapId = p.homeMap;
+                tx = p.homeX;
+                ty = p.homeY;
+                break;
+            case 5:                       // 行会回城卷：无行会系统，同回城卷
+                mapId = p.homeMap;
+                tx = p.homeX;
+                ty = p.homeY;
+                break;
+            default:
+                return false;
+        }
+        GameMap target = getOrLoadMap(mapId);
+        if (target == null) {
+            return false;
+        }
+        boolean mapChanged = p.map != target;
+        if (tx < 0 || ty < 0 || !target.canWalk(tx, ty)) {
+            int[] cell = target.randomFreeCell();
+            tx = cell[0];
+            ty = cell[1];
+        }
+        if (mapChanged) {
+            JsonObject remove = new JsonObject();
+            remove.addProperty("type", "entityRemove");
+            remove.addProperty("id", p.id);
+            broadcastAround(p.map, remove, p.x, p.y, SIGHT_RANGE);
+        }
+        changeMap(p, mapId, tx, ty);
+        if (mapChanged) {
+            p.session.sendText(mapSnapshot(p, "changeMap").toString());
+            broadcastEntityAdd(p);
+        } else {
+            broadcastMove(p);
+        }
+        return true;
     }
 
     public Actor actor(long id) {

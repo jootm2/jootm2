@@ -66,6 +66,8 @@ public final class GameService {
         this.accountDao = new AccountDao(database);
         this.characterDao = new CharacterDao(database);
         this.world = new GameWorld(config, database.loadItemTemplates(), database.loadMonsterTemplates(), database.loadMagicTemplates());
+        // 重启后 makeIndex 序列从已持久化物品的最大值之后继续，避免新旧物品 makeIndex 冲突
+        this.world.setItemSeqStart(this.characterDao.maxItemMakeIndex());
         this.npcEngine = new NpcScriptEngine(world);
     }
 
@@ -783,7 +785,12 @@ public final class GameService {
         } else if (t.stdMode >= 0 && t.stdMode <= 2) {
             consume(p, t, found);
         } else if (t.stdMode == 3) {
-            useBlessOil(p, t, found);
+            // stdMode=3 复用：shape 1/2/3/5 = 传送卷（原版 UseScroll），其余 = 祝福油
+            if (t.shape == 1 || t.shape == 2 || t.shape == 3 || t.shape == 5) {
+                useScrollItem(p, t, found);
+            } else {
+                useBlessOil(p, t, found);
+            }
         } else if (Player.slotFor(t) >= 0) {
             equip(p, t, found);
         } else {
@@ -866,6 +873,18 @@ public final class GameService {
         JsonObject extras = new JsonObject();
         extras.add("skills", p.skillsJson(world));
         world.sendStats(p, extras);
+    }
+
+    /** 使用传送卷（stdMode=3，shape 1/2/3/5）：传送成功后消耗（原版 UseScroll）。 */
+    private void useScrollItem(Player p, ItemTemplate t, ItemInstance it) {
+        if (world.useScroll(p, t.shape)) {
+            p.bag.remove(it);
+            world.sendStats(p, null);
+            world.sendSystem(p, "使用了 " + t.name + "。");
+            sendBagUpdate(p);
+        } else {
+            world.sendSystem(p, "现在无法使用该物品。");
+        }
     }
 
     /** 使用祝福油（stdMode=3）提升/诅咒武器幸运。 */

@@ -87,12 +87,12 @@ python3 scripts/smoke_test.py
 ln -s "/你的热血传奇客户端安装目录" resources
 ```
 
-### 2. 服务端地图（`gamedata/Mir200/Map/`）
+### 2. 地图栅格（`gamedata/Mir200/Map/`）
 
-需要 `.map` 可行走栅格文件，来自经典传奇服务端（MirServer）的 `Mir200/Map` 目录：
+需要 `.map` 可行走栅格文件，同样可从热血传奇 1.80 客户端安装目录的 `Map` 目录获得：
 
 ```bash
-ln -s "/你的服务端/Mir200/Map" gamedata/Mir200/Map
+ln -s "/你的热血传奇客户端安装目录/Map" gamedata/Mir200/Map
 ```
 
 ### 已随仓库分发（来源于网络流传的传奇服务端，非原创素材）

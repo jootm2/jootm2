@@ -71,8 +71,8 @@ const FX_FRAMES = {
     boomBflame:   { lib: 'magic',  base: 1660, frames: 10, ft: 80 },   // 爆裂火焰（特例 1660）
     boomIce:      { lib: 'magic',  base: 3850, frames: 10, ft: 80 },   // 冰咆哮（特例 3850）
     boomHoly:     { lib: 'magic',  base: 3930, frames: 10, ft: 80 },   // 圣言术（特例 3930）
-    diyu:         { lib: 'magic',  base: 1090, frames: 6,  ft: 80 },   // 地狱火直线（Effect=7→920+170）
-    jgdy:         { lib: 'magic',  base: 1110, frames: 6,  ft: 80 },   // 疾光电影直线（Effect=8→940+170）
+    diyu:         { lib: 'magic',  base: 930,  frames: 6,  ft: 50 },   // 地狱火火焰团（原版 mtFireGun：930-935，火焰沿施法者→目标喷射）
+    jgdy:         { lib: 'magic',  base: 970,  frames: 6,  ft: 50, dirStride: 10 },  // 疾光电影闪电射线（原版 mtLightingThunder：970+Dir16*10）
     thunder:      { lib: 'magic2', base: 10,   frames: 6,  ft: 50 },   // 雷电（原版 mtThunder：EffectBase=10，帧10-13为贯穿屏幕闪电，帧14尾焰）
     thunderFire:  { lib: 'magic2', base: 140,  frames: 10, ft: 50 },   // 地狱雷光（原版 mtFireThunder：EffectBase=140，10 帧扩散雷爆）
     // 飞行弹道（EffectBase + FLYBASE 10）
@@ -88,8 +88,8 @@ const FX_FRAMES = {
 const MAGIC_VFX = {
     1:  { fly: 'fireball',     hit: 'boomFire' },      // 火球术
     5:  { fly: 'bigfireball',  hit: 'boomBigFire' },   // 大火球
-    9:  { hit: 'diyu' },                               // 地狱火（直线火焰）
-    10: { hit: 'jgdy' },                               // 疾光电影（直线闪电）
+    9:  { firegun: 'diyu' },                           // 地狱火（火焰从角色向前喷射）
+    10: { beam: 'jgdy' },                              // 疾光电影（闪电从角色沿鼠标方向延伸）
     11: { hit: 'thunder' },                            // 雷电术（雷击）
     13: { fly: 'soulfu',       hit: 'boomSoulfu' },    // 灵魂火符
     22: { ground: 'firewall' },                        // 火墙
@@ -523,17 +523,39 @@ export class PlayScene extends Scene {
                 if (c) { c._action = 'spell'; c._actionAt = Date.now(); }
                 // 施法特效：飞行弹道（火球/灵魂火符/雷击飞向目标点）
                 const vfx = MAGIC_VFX[msg.magicId];
+                const tx = msg.targetX ?? (c ? c.x : 0);
+                const ty = msg.targetY ?? (c ? c.y : 0);
                 if (vfx && vfx.fly && c) {
                     this._spawnFx({
                         kind: 'fly',
                         fx: vfx.fly,
                         sx: c.x, sy: c.y,
-                        x: msg.targetX ?? c.x, y: msg.targetY ?? c.y,
+                        x: tx, y: ty,
                         hit: vfx.hit || null,
+                    });
+                } else if (vfx && vfx.firegun && c) {
+                    // 地狱火：火焰从角色向目标方向喷射（原版 TFireGunEffect，火焰团沿连线推进）
+                    this._spawnFx({
+                        kind: 'firegun',
+                        fx: vfx.firegun,
+                        sx: c.x, sy: c.y,
+                        x: tx, y: ty,
+                    });
+                } else if (vfx && vfx.beam && c) {
+                    // 疾光电影：闪电从角色沿方向延伸（原版 TLightingThunder，970+Dir16*10 帧）
+                    const dir16 = this._dir16From(c.x, c.y, tx, ty);
+                    const def = FX_FRAMES[vfx.beam];
+                    this._spawnFx({
+                        kind: 'beam',
+                        lib: def.lib,
+                        base: def.base + dir16 * (def.dirStride || 10),
+                        frames: def.frames,
+                        ft: def.ft,
+                        sx: c.x, sy: c.y,
                     });
                 } else if (vfx && vfx.hit && !vfx.fly) {
                     // 定点命中（爆裂/冰咆哮/圣言/治愈等）：直接在目标点播放
-                    this._spawnFx({ kind: 'hit', fx: vfx.hit, x: msg.targetX ?? c.x, y: msg.targetY ?? c.y });
+                    this._spawnFx({ kind: 'hit', fx: vfx.hit, x: tx, y: ty });
                 }
                 break;
             }
@@ -1693,6 +1715,39 @@ export class PlayScene extends Scene {
 
     // ---- 技能特效渲染系统（飞行/命中/地面火墙 + 伤害飘字）----
 
+    // 16 方向（对齐原版 GetFlyDirection16）：0上 4右 8下 12左，用于疾光电影等射线型特效选帧
+    _dir16From(sx, sy, tx, ty) {
+        const fx = tx - sx, fy = ty - sy;
+        if (fx === 0) return fy < 0 ? 0 : 8;
+        if (fy === 0) return fx < 0 ? 12 : 4;
+        if (fx > 0 && fy < 0) {
+            if (-fy > fx * 4) return 0;
+            if (-fy > fx * 1.4) return 1;
+            if (-fy > fx / 1.9) return 2;
+            if (-fy > fx / 4) return 3;
+            return 4;
+        }
+        if (fx > 0 && fy > 0) {
+            if (fy > fx * 4) return 8;
+            if (fy > fx * 1.4) return 7;
+            if (fy > fx / 1.9) return 6;
+            if (fy > fx / 4) return 5;
+            return 4;
+        }
+        if (fx < 0 && fy > 0) {
+            if (fy > -fx * 4) return 8;
+            if (fy > -fx * 1.4) return 9;
+            if (fy > -fx / 1.9) return 10;
+            if (fy > -fx / 4) return 11;
+            return 12;
+        }
+        if (-fy > -fx * 4) return 0;
+        if (-fy > -fx * 1.4) return 15;
+        if (-fy > -fx / 1.9) return 14;
+        if (-fy > -fx / 4) return 13;
+        return 12;
+    }
+
     _spawnFx(fx) {
         fx.startAt = Date.now();
         this.effects.push(fx);
@@ -1787,6 +1842,45 @@ export class PlayScene extends Scene {
                     if (fx.hit) this._spawnFx({ kind: 'hit', fx: fx.hit, x: fx.x, y: fx.y });
                     continue;   // 飞行结束，转为命中
                 }
+                survivors.push(fx);
+            } else if (fx.kind === 'beam') {
+                // 疾光电影：闪电射线，在施法者位置沿方向播放（base 已含 Dir16*10 偏移）
+                const frame = Math.floor(elapsed / (fx.ft || 80));
+                if (frame >= fx.frames) continue;
+                const tex = this._fxTexture({ lib: fx.lib, base: fx.base }, frame);
+                if (tex) {
+                    const sx = this.mapActor.screenX(fx.sx);
+                    const sy = this.mapActor.screenY(fx.sy);
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.drawImage(tex.canvas, sx + (tex.px || 0), sy + (tex.py || 0));
+                    ctx.restore();
+                }
+                survivors.push(fx);
+            } else if (fx.kind === 'firegun') {
+                // 地狱火：火焰团从施法者向目标喷射（原版 TFireGunEffect，6 团火焰沿线分布，头小尾大）
+                const def = FX_FRAMES[fx.fx];
+                const dist = Math.max(1, Math.abs(fx.x - fx.sx) + Math.abs(fx.y - fx.sy));
+                const dur = dist * 60;   // 火焰喷射时长（每格 60ms）
+                const p = Math.min(1, elapsed / dur);
+                const hx = fx.sx + (fx.x - fx.sx) * p;   // 火焰头
+                const hy = fx.sy + (fx.y - fx.sy) * p;
+                const segX = (fx.x - fx.sx) / 5;
+                const segY = (fx.y - fx.sy) / 5;
+                for (let i = 0; i < 6; i++) {
+                    const nx = hx - segX * i;   // i=0 火焰头，i=5 尾焰（沿反方向往回）
+                    const ny = hy - segY * i;
+                    const tex = this._fxTexture({ lib: def.lib, base: def.base }, i);   // 帧 930+i
+                    if (tex) {
+                        const sx = this.mapActor.screenX(nx);
+                        const sy = this.mapActor.screenY(ny);
+                        ctx.save();
+                        ctx.globalCompositeOperation = 'lighter';
+                        ctx.drawImage(tex.canvas, sx + (tex.px || 0), sy + (tex.py || 0));
+                        ctx.restore();
+                    }
+                }
+                if (p >= 1) continue;   // 火焰到达目标，熄灭
                 survivors.push(fx);
             } else {
                 // hit：一次性播放

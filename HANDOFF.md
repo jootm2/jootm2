@@ -440,12 +440,12 @@ jootm2/
 
 ## 6. 数据依赖（重要，不在 git 里）
 
-两处是**软链接**，指向你机器上的真实数据，接手机器上必须存在（或改成 Docker 挂载）。资源文件因版权原因**不分发**，需自行从「热血传奇 1.80 客户端」安装目录获得：
+两处是**软链接**，指向你机器上的真实数据，接手机器上必须存在（或改成 Docker 挂载）。资源文件因版权原因**不分发**：
 
 | 软链 | 指向 | 用途 |
 |------|------|------|
 | `resources/` | 热血传奇 1.80 客户端安装目录（`Data`/`Map`/`Wav`） | 客户端渲染资源（Data 图片库 / Map / Wav），`resources.json` 也生成到这里 |
-| `gamedata/Mir200/Map/` | 客户端安装目录的 `Map` 子目录 | `.map`（可行走栅格，同样从客户端提取） |
+| `gamedata/Mir200/Map/` | 火炬服务端（MirServer）的 `Mir200/Map` 目录 | `.map`（可行走栅格）——本地实际用火炬服务端；对外 README 告知网友也可从客户端安装文件提取 |
 
 - `gamedata/mud2/DB/*.csv`（StdItems/Monster/Magic，UTF-8 带表头）是**可直接编辑的模板数据**，已拷入 git（由 `scripts/paradox_to_csv.py` 从旧 `.DB` 导出，`.DB` 已删除）。
 - `gamedata/Mir200/Envir/`（MapInfo/MonGen/Npcs/MerChant/MapQuest/MonItems/Npc_Def/Market_Def…）是**真实文件**，已拷入。

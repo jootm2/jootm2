@@ -50,8 +50,8 @@ public final class GameWorld {
     public static final long DOOR_OPEN_MS = 5_000L;
     /** 地面掉落物存活时长（原版 MapItem.DisappearTime：约 60 秒后自动消失）。 */
     public static final long GROUND_ITEM_TTL_MS = 60_000L;
-    /** 背包容量（原版 DItemGrid 8×5 = 40 格），物品不堆叠、每件占一格。 */
-    public static final int BAG_SIZE = 40;
+    /** 背包容量（原版 MAXBAGITEM=46：客户端 DItemGrid 8×5=40 网格 + ItemArr[46..51] 6 格溢出区），物品不堆叠、每件占一格。 */
+    public static final int BAG_SIZE = 46;
 
     /** 远程怪物 Race（照 ObjAxeMon/ObjMon/ObjMon2：喷毒蜘蛛82/双斧骷髅87/暗黑战士93/闪电僵尸94/弓箭手104/弓箭守卫112/弓箭警察20）。 */
     private static final Set<Integer> RANGED_RACES = Set.of(82, 87, 93, 94, 104, 112, 20);

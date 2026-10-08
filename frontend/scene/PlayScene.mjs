@@ -1148,7 +1148,10 @@ export class PlayScene extends Scene {
         this.bagGridEl.innerHTML = '';
         this._clearPicked();   // 同时清 pickedItem：解包/买卖等刷新后，避免残留旧引用触发误换位
         const bagItems = items.filter(x => x.slot === undefined);
-        for (const it of bagItems) {
+        // 网格只显示 8×5=40 格（原版 ItemArr[6..45]），第 41-46 个在溢出区（ItemArr[46..51]，
+        // 原版 DItemGrid 不渲染）——服务端容量 MAXBAGITEM=46，用完网格物品后溢出区自动前移
+        const visibleItems = bagItems.slice(0, 40);
+        for (const it of visibleItems) {
             const cell = document.createElement('div');
             // 格子显式固定尺寸（36×32，对齐原版 TDGrid ColWidth=36/RowHeight=32）；grid place-items 居中
             cell.style.cssText = 'display:grid;place-items:center;overflow:hidden;cursor:pointer;'

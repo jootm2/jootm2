@@ -373,6 +373,7 @@ jootm2/
     - 服务端：`Skill` 加 `key`(0=无,1-8=F1-F8)；`Player.skillsJson` 返回 key；`magicKeyChange` 设置快捷键（同键互斥顶替）后 `sendStats` 塞 `skills` 推送。
     - 前端：F11 → `_openSkillSetup`(statePage=2)；`_buildStateWin` 加 `stateSkillWrap/stateSkillListEl`；`_refreshSkillPage` 渲染技能行（名/Lv/key）；点行弹 F1-F8 选择框，选后发 `magicKeyChange`；翻页箭头改 `(statePage±1+3)%3` 循环 3 页。
     - `_castFromSlot` 改按 `sk.key===fkey` 查找技能施法（原按插入顺序）。
+    - 快捷键持久化：`toRecord`/`loadSkills` 序列化 skills 补 `key` 字段（对齐原版 `DBUseMagic.Key`），随定时保存 `saveAllPlayers()` / 登出 `persist(p)` 落库（不立即写库，对齐原版 `ServerGetMagicKeyChange`）。
     - 验证：F11 打开技能页、点技能弹框、选 F1 后 skills.key=1 并刷新显示 [F1]。
 78. **被动技能不可设置快捷键**：
     - Magic.csv 里 `EffectType=0` 是被动技能（Power/Spell/Delay 均 0）：基本剑术(3)、精神力战法(4)、攻杀剑术(7)、刺杀剑术(12)、半月弯刀(25)、烈火剑法(26)。
@@ -390,6 +391,28 @@ jootm2/
     - 魔法盾(31)：减伤30%持续 buff（`shieldUntil`，`attackPlayer` 里减伤，`tick` 过期）。
     - 困魔咒(16)：定身目标；圣言术(32)：3倍魔法伤害；心灵启示(28)：显示目标血量。
 
+81. **技能朝鼠标位置释放 + 战士/法/道技能机制精细化**（对齐原版 `UseMagic`/`SpellNow`）：
+    - 施法不再需要先点选目标：朝鼠标位置释放（原版 `MagicTarget=FocusCret`，无则取鼠标格子坐标），按技能类型 + 鼠标位置对象类型执行不同操作（雷电术/冰咆哮可砸空地，无对象也放动画；灵魂火符无对象则穿越目标点飞远）。
+    - 战士主动技能改开关/蓄力（原版 EffectType=0 分支）：攻杀(7)/刺杀(12)/半月(25)=攻击模式开关，烈火(26)=蓄力（下次攻击 +40%~160%），野蛮(27)=冲撞；此前「未开放」提示已修。
+
+82. **技能前端特效渲染系统**（`FX_FRAMES` + `MAGIC_VFX` 表 + `_spawnFx`/`_renderEffects`）：
+    - 飞行弹道（火球/大火球/灵魂火符飞向目标点，命中转爆炸）、定点命中（爆裂/冰咆哮/圣言/治愈）、火墙地面持续（被踩消失）、魔法盾泡泡、中毒绿光、隐身、伤害飘字。
+    - 特效帧号对齐原版 `EffectBase` 查表（Effect 字段→EffectBase 表，飞行=+10、命中爆炸=+170）。
+    - blend 混合（lighter 光效）+ 魔法盾多帧动画跟随人物偏移。
+    - 施法动作改 **spell 段**（原版 `Actor.pas ActSpell`：start 392、6 帧×60ms），与普通攻击 hit 段（start 200）区分，不再复用攻击动作。
+    - 雷电术特效改 magic2 base 10（贯穿屏幕闪电，958~997px 高大图，原版 `TThuderEffect.Create(10)`）；地狱雷光独立用 magic2 140（10 帧扩散雷爆，原版 `mtFireThunder`）。
+
+83. **背包容量对齐原版 MAXBAGITEM=46（40 网格 + 6 溢出区）**：
+    - 原版服务端 `Grobal2.pas MAXBAGITEM=46`，客户端 `ItemArr[6..45]=网格 40 格` + `ItemArr[46..51]=溢出区 6 格`（`ArrangeItemBag` 网格有空位时自动前移）。
+    - `GameWorld.BAG_SIZE=46`，`buyItem/pickup/giveItem` 满包拦截（「背包已满」）；前端 `_refreshBag` 只渲染前 40 格（对齐原版 `DItemGrid` 只画 `ItemArr[6..45]`），第 41-46 个在溢出区不渲染。
+
+84. **传送卷 + 卷包解包 + 消耗品使用间隔**：
+    - 传送卷（stdMode=3 按 shape 分发，对齐原版 `UseScroll`）：shape 1=地牢逃脱、2=随机传送、3=回城卷、5=行会回城；`GameWorld.useScroll` 瞬移（changeMap 快照，非 move 过渡）。
+    - makeIndex 序列持久化：`CharacterDao.maxItemMakeIndex` + `GameWorld.setItemSeqStart`，重启后从数据库最大值+1 续（避免新旧物品 makeIndex 冲突）。
+    - 卷包解包（stdMode=31，原版 `UnbindPotionUnit`）：加载 `UnbindList.txt`（shape→物品名），拆 6 个，空间不足提示「背包空间不足」。
+    - 消耗品使用间隔 300ms（对齐原版客户端 `EatingItem` 串行化语义）。
+    - 修 bug：解包/使用卷后物品错位（`_refreshBag` 只清 `_pickedCell` 不清 `pickedItem` 残留 + `useScrollItem` 先 useScroll 后 remove 卷导致 changeMap 快照含卷）。
+
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
 ## 4. 未完成 / 待办（就是「移植整个 M2Server」剩下的部分）
@@ -406,11 +429,12 @@ jootm2/
 
 **后端（M2Server 移植）已 100% 完成**（§3 第 1-22 条覆盖全部核心玩法子系统），`mvn package` + smoke test 通过，无待办。
 
-**前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）+ **实体真实 sprite**（§3 第 26 条）+ **行走/攻击动画 + 点击交互**（§3 第 27 条）+ **背包/装备/NPC 对话框 GUI**（§3 第 28 条）。**前端阶段 2 主线已全部完成**，游戏可玩闭环打通（登录→选角→进图→移动/点击→战斗→拾取→使用物品→NPC 对话/买卖）。
+**前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）+ **实体真实 sprite**（§3 第 26 条）+ **行走/攻击动画 + 点击交互**（§3 第 27 条）+ **背包/装备/NPC 对话框 GUI**（§3 第 28 条）+ **技能系统**（施法朝鼠标位置/战士开关蓄力/技能特效渲染/施法动作，§3 第 81-82 条）+ **背包容量对齐原版 46 格**（§3 第 83 条）+ **传送卷/卷包解包/消耗品使用间隔**（§3 第 84 条）。**前端阶段 2 主线已全部完成**，游戏可玩闭环打通（登录→选角→进图→移动/点击→战斗→施法→拾取→使用物品/传送→NPC 对话/买卖）。
 
 **下一步主线**（按序，进入「打磨/进阶」阶段）：
-1. **卖出去重/数量**：NPC 出售目前单件点击；可加数量选择（sellItem 协议已支持 makeIndex 单件）。
-2. **音效系统**（§14）、**优化项**（§14：血条重叠/点墙就近寻路/宠物死亡残留/其他玩家装备变化同步）。
+1. **底部快捷栏**（原版 `ItemArr[0..5]`，数字键 1-6 快捷使用消耗品，`DBottom`/`DBelt`）：目前未做，消耗品直接双击使用。
+2. **卖出去重/数量**：NPC 出售目前单件点击；可加数量选择（sellItem 协议已支持 makeIndex 单件）。
+3. **音效系统**（§14）、**优化项**（§14：血条重叠/点墙就近寻路/宠物死亡残留/其他玩家装备变化同步）。
 
 详细待办与优化项见 §14。
 
@@ -429,9 +453,9 @@ jootm2/
 
 ## 7. WebSocket JSON 协议
 
-客户端 → 服务端：`login{username,password}` `register` `listCharacters` `createCharacter{name,sex,hair,job}` `deleteCharacter{name}` `enterGame{name}` `move{dir}` `say{text}` `attack{targetId}` `npcTalk{npcId}` `npcSelect{npcId,value}` `buyItem{npcId,index,count}` `sellItem{npcId,makeIndex}` `pickup{itemId}` `useItem{makeIndex}` `logout` `ping`
+客户端 → 服务端：`login{username,password}` `register` `listCharacters` `createCharacter{name,sex,hair,job}` `deleteCharacter{name}` `enterGame{name}` `noticeOk{name}` `move{dir}` `say{text}` `attack{targetId}` `castMagic{magicId,targetX,targetY,targetId}` `magicKeyChange{magicId,key}` `npcTalk{npcId}` `npcSelect{npcId,value}` `buyItem{npcId,index,count}` `sellItem{npcId,makeIndex}` `pickup{itemId}` `useItem{makeIndex}` `drop{makeIndex,x,y}` `moveItem{makeIndex,targetIndex}` `storageOpen` `storageStore{makeIndex}` `storageTake{makeIndex}` `tradeRequest{targetId}` `tradeAccept{fromId}` `tradeAddItem{makeIndex}` `tradeAddGold{gold}` `tradeConfirm` `tradeCancel` `logout` `ping`
 
-服务端 → 客户端：`loginResult` `registerResult` `characterList` `createCharacterResult` `deleteCharacterResult` `enterGameResult` `enterGame{map,player,nearby,groundItems}` `changeMap{map,player,nearby,groundItems}` `entityAdd` `entityRemove` `move` `stats` `attack` `death` `chat` `systemMessage` `itemDrop{id,name,looks,x,y,gold}` `itemRemove{id}` `bagUpdate{items,gold}` `npcSay{npcId,name,text,options[{label,value}],shop?,goods[{index,name,price,stock}]}` `npcClose{npcId}` `pong`
+服务端 → 客户端：`loginResult` `registerResult` `characterList` `createCharacterResult` `deleteCharacterResult` `enterGameResult` `notice{text}` `enterGame{map,player,nearby,groundItems}` `changeMap{map,player,nearby,groundItems}` `entityAdd` `entityRemove` `move` `stats` `attack` `spellCast{casterId,magicId,effect,targetX,targetY}` `fireWall{x,y,duration}` `doorState{x,y,open}` `death` `chat` `systemMessage` `itemDrop{id,name,looks,x,y,gold}` `itemRemove{id}` `bagUpdate{items,gold}` `npcSay{npcId,name,text,options[{label,value}],shop?,goods[{index,name,price,stock}]}` `npcClose{npcId}` `pong`
 
 方向常量 0..7（`game/common/Direction.java`）：0上 1右上 2右 3右下 4下 5左下 6左 7左上。
 
@@ -484,7 +508,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 
 ## 13. 一句总结
 
-**后端 M2Server 移植已全部完成**（账号角色/多地图/NPC 脚本商店/掉落拾取/技能魔法/战斗 buff 宠物/任务/装备套装/行会攻城/组队仓库交易，§3 第 1-22 条），`mvn package` + smoke test 通过。**前端重写进行中**：已完成 GUI 框架 + 登录/选角/游戏场景（真实等距地图渲染 + 移动/聊天/战斗闭环 + **实体真实 sprite**，§3 第 23-26 条）；下一步是**行走/攻击动画 → 点击交互 → 背包/NPC GUI**（§5）。接手先读 §2 目录、§5 方向、§10 关键点、§11 坑、§14 待办。
+**后端 M2Server 移植已全部完成**（账号角色/多地图/NPC 脚本商店/掉落拾取/技能魔法/战斗 buff 宠物/任务/装备套装/行会攻城/组队仓库交易，§3 第 1-22 条），`mvn package` + smoke test 通过。**前端重写进行中**：已完成 GUI 框架 + 登录/选角/游戏场景（真实等距地图渲染 + 移动/聊天/战斗闭环 + **实体真实 sprite**，§3 第 23-26 条）+ 行走/攻击动画 + 点击交互 + 背包/NPC GUI（§3 第 27-28 条）+ 技能系统/特效/施法动作（§3 第 81-82 条）+ 背包容量 46 格 + 传送卷/卷包解包（§3 第 83-84 条）。**前端阶段 2 主线已全部完成**，下一步进入「打磨/进阶」（底部快捷栏、卖出数量、音效，§5）。接手先读 §2 目录、§5 方向、§10 关键点、§11 坑、§14 待办。
 
 ### 里程碑：前端移动/动画系统已完整打磨对齐原版（§3 第 37-45 条）
 

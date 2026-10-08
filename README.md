@@ -26,8 +26,8 @@ jootm2/
 │       └── ws/WebSocketFrameHandler.java  # WebSocket 帧 <-> GameService
 ├── frontend/                          # 前端（原生 canvas 2d，ES Module）
 │   ├── index.html
-│   ├── pixi.mjs / *.mjs
-│   └── scene/ actor/ image/ map/
+│   ├── main.mjs                       # 入口（loadResources → WS → LoginScene → 主循环）
+│   └── scene/ actor/ map/ gfx/ net/ gui/ ui/ core/ util/ image/
 ├── resources/                         # 客户端渲染资源（Data/Map/Wav/resources.json）——Docker 挂载
 ├── gamedata/                          # 服务端游戏数据（mud2 数据库 + Mir200/Envir 脚本）
 │   ├── mud2/DB/                       # 游戏模板数据（CSV，可直接编辑）：StdItems/Magic/Monster.csv
@@ -103,10 +103,10 @@ docker compose up --build
 
 ## 协议
 
-客户端与服务端通过 WebSocket 发送 JSON 文本帧（同旧版 HTML5 客户端协议）：
+客户端与服务端通过 WebSocket 发送 JSON 文本帧（详见 `HANDOFF.md` §7）：
 
-- 客户端 → 服务端：`login` / `register` / `listCharacters` / `createCharacter` / `deleteCharacter` / `enterGame` / `move` / `say` / `attack` / `logout`
-- 服务端 → 客户端：`loginResult` / `registerResult` / `characterList` / `createCharacterResult` / `deleteCharacterResult` / `enterGameResult` / `enterGame` / `entityAdd` / `entityRemove` / `move` / `stats` / `attack` / `death` / `chat` / `systemMessage`
+- 客户端 → 服务端：`login` / `register` / `listCharacters` / `createCharacter` / `deleteCharacter` / `enterGame` / `noticeOk` / `move` / `say` / `attack` / `castMagic` / `magicKeyChange` / `npcTalk` / `npcSelect` / `buyItem` / `sellItem` / `pickup` / `useItem` / `drop` / `moveItem` / `storageOpen` / `storageStore` / `storageTake` / `tradeRequest` / `tradeAccept` / `tradeAddItem` / `tradeAddGold` / `tradeConfirm` / `tradeCancel` / `logout` / `ping`
+- 服务端 → 客户端：`loginResult` / `registerResult` / `characterList` / `createCharacterResult` / `deleteCharacterResult` / `enterGameResult` / `notice` / `enterGame` / `changeMap` / `entityAdd` / `entityRemove` / `move` / `stats` / `attack` / `spellCast` / `fireWall` / `doorState` / `death` / `chat` / `systemMessage` / `itemDrop` / `itemRemove` / `bagUpdate` / `npcSay` / `npcClose` / `pong`
 
 ## 测试
 

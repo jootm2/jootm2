@@ -1291,6 +1291,16 @@ public final class GameService {
             return;   // 冷却中
         }
 
+        // 施法朝向调整（原版 UseMagic 的 GetNextDirection：朝目标/鼠标方向；战士开关/蓄力/冲撞不涉及）
+        if (magicId != 7 && magicId != 12 && magicId != 25 && magicId != 26 && magicId != 27
+                && targetX >= 0 && targetY >= 0) {
+            int castDir = directionFrom(p.x, p.y, targetX, targetY);
+            if (castDir != p.dir) {
+                p.dir = castDir;
+                world.broadcastMove(p);
+            }
+        }
+
         // 广播施法动画
         JsonObject cast = new JsonObject();
         cast.addProperty("type", "spellCast");

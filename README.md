@@ -64,15 +64,6 @@ java -jar target/jootm2.jar
 
 > 建议在项目根目录运行。若从其他目录运行，程序会自动向上定位 `frontend` / `gamedata` / `resources`；`config/server.properties` 缺失时回退到内置默认值。
 
-### 端到端测试
-
-```bash
-# 先启动服务端
-java -jar target/jootm2.jar
-# 另开终端运行（覆盖 注册→登录→建角色→进游戏→移动→聊天→战斗→登出）
-python3 scripts/smoke_test.py
-```
-
 ---
 
 ## 资源准备（重要）

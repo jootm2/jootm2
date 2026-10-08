@@ -892,12 +892,15 @@ public final class GameService {
 
     /** 使用传送卷（stdMode=3，shape 1/2/3/5）：传送成功后消耗（原版 UseScroll）。 */
     private void useScrollItem(Player p, ItemTemplate t, ItemInstance it) {
+        // 先移除卷：useScroll 内部发 changeMap 快照（含完整 items）时背包已不含卷，
+        // 避免客户端瞬移后短暂看到「卷还在」的旧背包状态
+        p.bag.remove(it);
         if (world.useScroll(p, t.shape)) {
-            p.bag.remove(it);
             world.sendStats(p, null);
             world.sendSystem(p, "使用了 " + t.name + "。");
             sendBagUpdate(p);
         } else {
+            p.bag.add(it);   // 传送失败，卷放回
             world.sendSystem(p, "现在无法使用该物品。");
         }
     }

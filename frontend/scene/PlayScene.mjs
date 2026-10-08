@@ -1146,7 +1146,7 @@ export class PlayScene extends Scene {
 
         // 背包物品（8 列网格，图标居中）：双击使用、单击拿起（原版 GetItemCursor 交互）
         this.bagGridEl.innerHTML = '';
-        this._pickedCell = null;
+        this._clearPicked();   // 同时清 pickedItem：解包/买卖等刷新后，避免残留旧引用触发误换位
         const bagItems = items.filter(x => x.slot === undefined);
         for (const it of bagItems) {
             const cell = document.createElement('div');

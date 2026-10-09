@@ -1086,18 +1086,18 @@ public final class GameWorld {
         int[][] cells = {{tx, ty - 1}, {tx - 1, ty}, {tx, ty}, {tx + 1, ty}, {tx, ty + 1}};
         int made = 0;
         for (int[] c : cells) {
-            if (p.map.inside(c[0], c[1])) {
-                fireWalls.add(new FireWall(p.map, c[0], c[1], expire, damage, p.id));
-                made++;
+            if (!p.map.inside(c[0], c[1])) {
+                continue;
             }
-        }
-        if (made > 0) {
+            fireWalls.add(new FireWall(p.map, c[0], c[1], expire, damage, p.id));
+            made++;
+            // 每个火墙单元独立广播（十字 5 格各自渲染，与原版 MagMakeFireCross 一致）
             JsonObject o = new JsonObject();
             o.addProperty("type", "fireWall");
-            o.addProperty("x", tx);
-            o.addProperty("y", ty);
+            o.addProperty("x", c[0]);
+            o.addProperty("y", c[1]);
             o.addProperty("duration", durationSec);
-            broadcastAround(p.map, o, tx, ty, SIGHT_RANGE);
+            broadcastAround(p.map, o, c[0], c[1], SIGHT_RANGE);
         }
         return made;
     }

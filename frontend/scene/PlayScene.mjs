@@ -68,20 +68,23 @@ const FX_FRAMES = {
     boomFire:     { lib: 'magic',  base: 170,  frames: 10, ft: 80 },   // 火球（Effect=1→0+170）
     boomBigFire:  { lib: 'magic',  base: 570,  frames: 10, ft: 80 },   // 大火球（Effect=3→400+170）
     boomSoulfu:   { lib: 'magic',  base: 1110, frames: 6,  ft: 80 },   // 灵魂火符命中（Effect=10→940+170）
-    boomBflame:   { lib: 'magic',  base: 1660, frames: 10, ft: 80 },   // 爆裂火焰（特例 1660）
-    boomIce:      { lib: 'magic',  base: 3850, frames: 10, ft: 80 },   // 冰咆哮（特例 3850）
-    boomHoly:     { lib: 'magic',  base: 3930, frames: 10, ft: 80 },   // 圣言术（特例 3930）
+    boomBflame:   { lib: 'magic',  base: 1660, frames: 20, ft: 80 },   // 爆裂火焰（原版 MagExplosionBase=1660, ExplosionFrame=20）
+    boomIce:      { lib: 'magic',  base: 3850, frames: 20, ft: 80 },   // 冰咆哮（原版 MagExplosionBase=3850, ExplosionFrame=20）
+    boomHoly:     { lib: 'magic',  base: 3930, frames: 16, ft: 80 },   // 圣言术（原版 MagExplosionBase=3930, ExplosionFrame=16）
     diyu:         { lib: 'magic',  base: 930,  frames: 6,  ft: 50 },   // 地狱火火焰团（原版 mtFireGun：930-935，火焰沿施法者→目标喷射）
     jgdy:         { lib: 'magic',  base: 970,  frames: 6,  ft: 50, dirStride: 10 },  // 疾光电影闪电射线（原版 mtLightingThunder：970+Dir16*10）
     thunder:      { lib: 'magic2', base: 10,   frames: 6,  ft: 50 },   // 雷电（原版 mtThunder：EffectBase=10，帧10-13为贯穿屏幕闪电，帧14尾焰）
-    thunderFire:  { lib: 'magic2', base: 140,  frames: 10, ft: 50 },   // 地狱雷光（原版 mtFireThunder：EffectBase=140，10 帧扩散雷爆）
+    thunderElec:  { lib: 'magic',  base: 1680, frames: 10, ft: 80 },   // 地狱雷光（原版 EffectBase[21]=1680，10 帧白色闪电扩散）
+    fireRing:     { lib: 'magic',  base: 900,  frames: 6,  ft: 80 },   // 抗拒火环（原版 EffectBase[5]=900，6 帧金色光环）
+    spaceMove:    { lib: 'magic',  base: 1600, frames: 10, ft: 60 },   // 瞬息移动传送现身（原版 SPACEMOVE_SHOW2=1600）
     // 飞行弹道（EffectBase + FLYBASE 10）
     fireball:     { lib: 'magic',  base: 10,   frames: 6,  ft: 80 },   // 火球飞行（0+10）
     bigfireball:  { lib: 'magic',  base: 410,  frames: 6,  ft: 80 },   // 大火球飞行（400+10）
     soulfu:       { lib: 'magic',  base: 950,  frames: 6,  ft: 80 },   // 灵魂火符飞行（940+10）
     // 治疗/持续
     heal:         { lib: 'magic',  base: 200,  frames: 8,  ft: 90 },   // 治愈（Effect=2→200）
-    firewall:     { lib: 'magic',  base: 1600, frames: 10, ft: 120 },  // 火墙火焰
+    temptation:   { lib: 'magic',  base: 1570, frames: 10, ft: 80 },   // 诱惑之光（原版 MagExplosionBase=1570，10 帧目标头顶特效）
+    firewall:     { lib: 'magic',  base: 1630, frames: 6,  ft: 40 },   // 火墙火焰（原版 clEvent.pas FIREBURNBASE=1630，6 帧循环）
     shield:       { lib: 'magic',  base: 3880, frames: 12, ft: 100 },  // 魔法盾泡泡（Effect=29→3880）
 };
 // 每个技能 → 特效（fly=飞行弹道, hit=命中爆炸/雷击, ground=地面持续）
@@ -94,11 +97,13 @@ const MAGIC_VFX = {
     13: { fly: 'soulfu',       hit: 'boomSoulfu' },    // 灵魂火符
     22: { ground: 'firewall' },                        // 火墙
     23: { hit: 'boomBflame' },                         // 爆裂火焰
-    24: { hit: 'thunderFire' },                        // 地狱雷光（原版 mtFireThunder 扩散雷爆）
+    8:  { self: 'fireRing' },                          // 抗拒火环（自身金色光环）
+    24: { self: 'thunderElec' },                       // 地狱雷光（自身白色闪电扩散）
     32: { hit: 'boomHoly' },                           // 圣言术
     33: { hit: 'boomIce' },                            // 冰咆哮
     2:  { hit: 'heal' },                               // 治愈术
     6:  { hit: 'heal' },                               // 施毒术（命中绿光）
+    20: { hit: 'temptation' },                         // 诱惑之光（目标头顶特效）
 };
 
 export class PlayScene extends Scene {
@@ -553,6 +558,9 @@ export class PlayScene extends Scene {
                         ft: def.ft,
                         sx: c.x, sy: c.y,
                     });
+                } else if (vfx && vfx.self && c) {
+                    // 自身特效（抗拒火环/地狱雷光）：在施法者位置播放
+                    this._spawnFx({ kind: 'hit', fx: vfx.self, x: c.x, y: c.y });
                 } else if (vfx && vfx.hit && !vfx.fly) {
                     // 定点命中（爆裂/冰咆哮/圣言/治愈等）：直接在目标点播放
                     this._spawnFx({ kind: 'hit', fx: vfx.hit, x: tx, y: ty });
@@ -560,9 +568,14 @@ export class PlayScene extends Scene {
                 break;
             }
             case 'fireWall': {
-                // 火墙地面特效（持续，超时或被踩消失）
+                // 火墙地面特效（持续到时限）
                 const dur = (msg.duration || 8) * 1000;
                 this._spawnFx({ kind: 'ground', fx: 'firewall', x: msg.x, y: msg.y, dur });
+                break;
+            }
+            case 'spaceMove': {
+                // 传送现身特效（瞬息移动）：在目标位置播放传送漩涡（原版 SPACEMOVE_SHOW2）
+                this._spawnFx({ kind: 'hit', fx: 'spaceMove', x: msg.x, y: msg.y });
                 break;
             }
             case 'chat':
@@ -1822,13 +1835,10 @@ export class PlayScene extends Scene {
         for (const fx of this.effects) {
             const elapsed = now - fx.startAt;
             if (fx.kind === 'ground') {
-                // 火墙：被怪物/玩家踩到即消失（原版火墙被踩加速熄灭）
-                const stepped = [...this.entities.values()].some(e =>
-                    (e.type === 'monster' || e.type === 'player') && e.x === fx.x && e.y === fx.y);
-                if (stepped) continue;
+                // 火墙地面火焰：烧满时限（原版 TFireBurnEvent/ET_FIRE 不因被踩而消失，踩踏伤害由服务端 tick 处理）
                 const def = FX_FRAMES[fx.fx];
                 if (elapsed > (fx.dur || 8000)) continue;   // 持续到时限
-                this._drawFx(ctx, def, Math.floor(elapsed / (def.ft || 120)) % def.frames, fx.x, fx.y);
+                this._drawFx(ctx, def, Math.floor(elapsed / (def.ft || 40)) % def.frames, fx.x, fx.y);
                 survivors.push(fx);
             } else if (fx.kind === 'fly') {
                 const def = FX_FRAMES[fx.fx];

@@ -1372,6 +1372,12 @@ public final class GameService {
             int hit = passThroughMagic(p, ndir, range, pwr, magicId == 10, magicId, now);
             world.sendSystem(p, hit > 0 ? t.name + " 击中了 " + hit + " 个目标。" : "没有命中目标。");
             success = true;
+        } else if (magicId == 24) {
+            // 地狱雷光：以施法者为中心范围 2 格雷击（原版 MagElecBlizzard：不死系全额、非不死系 1/10，无需目标）
+            int pwr = magicPower(p, t, lv);
+            int hit = elecBlizzard(p, pwr, now);
+            world.sendSystem(p, hit > 0 ? t.name + " 击中了 " + hit + " 个目标。" : "没有命中目标。");
+            success = true;
         } else if (isProjectileMagic(magicId)) {
             // 投掷/范围魔法：朝坐标释放，命中对象才伤害，无对象仅动画（雷电/火球砸空地、灵魂火符飞远）
             if (target instanceof Monster && target.alive) {
@@ -1593,12 +1599,12 @@ public final class GameService {
      *  地狱火(9)/疾光电影(10) 是直线穿透，单独处理。 */
     private boolean isProjectileMagic(int magicId) {
         return magicId == 1 || magicId == 5 || magicId == 11
-                || magicId == 13 || magicId == 23 || magicId == 24 || magicId == 33;
+                || magicId == 13 || magicId == 23 || magicId == 33;
     }
 
     /** 范围伤害魔法（爆裂火焰/地狱雷光/冰咆哮）：命中后溅射周围 1 格。 */
     private boolean isAreaMagic(int magicId) {
-        return magicId == 23 || magicId == 24 || magicId == 33;
+        return magicId == 23 || magicId == 33;
     }
 
     /** 坐标处查找对象（怪物优先，其次玩家）。 */
@@ -1644,6 +1650,26 @@ public final class GameService {
                 grantExp(p, other);
             }
         }
+    }
+
+    /** 地狱雷光（原版 MagElecBlizzard）：施法者周围 2 格内所有怪物受雷击，不死系全额、非不死系 1/10。 */
+    private int elecBlizzard(Player p, int pwr, long now) {
+        int hit = 0;
+        for (Actor a : world.nearby(p.map, p.x, p.y, 2)) {
+            if (!(a instanceof Monster) || !a.alive) {
+                continue;
+            }
+            Monster m = (Monster) a;
+            int dmg = (m.template.undead == 1) ? pwr : Math.max(1, pwr / 10);
+            m.hp = Math.max(0, m.hp - dmg);
+            broadcastMagicHit(p, m, dmg, 24);
+            if (m.hp <= 0) {
+                world.killMonster(m, now, p);
+                grantExp(p, m);
+            }
+            hit++;
+        }
+        return hit;
     }
 
     /** 半月弯刀：前方扇形 3 方向物理攻击。 */
@@ -1756,17 +1782,28 @@ public final class GameService {
         return pushed;
     }
 
-    /** 瞬息移动：随机传送到附近可走、无人的格子。 */
+    /** 瞬息移动：随机瞬移到附近可走、无人的格子（对齐原版 MagLightingSpaceMove：瞬移 + SPACEMOVE_SHOW2 现身特效）。 */
     private void randomTeleport(Player p) {
         for (int attempt = 0; attempt < 100; attempt++) {
             int nx = p.x + (int) (Math.random() * 9) - 4;
             int ny = p.y + (int) (Math.random() * 9) - 4;
             if (p.map.canWalk(nx, ny) && !p.map.isOccupied(nx, ny)) {
+                // 瞬移（对齐原版 SpaceMove）：旧位置广播移除 → 改坐标 → changeMap 快照 → 新位置广播出现 + 现身特效
+                JsonObject remove = new JsonObject();
+                remove.addProperty("type", "entityRemove");
+                remove.addProperty("id", p.id);
+                world.broadcastAround(p.map, remove, p.x, p.y, GameWorld.SIGHT_RANGE);
                 p.map.remove(p.id);
                 p.x = nx;
                 p.y = ny;
                 p.map.add(p);
-                world.broadcastMove(p);
+                p.session.sendText(world.mapSnapshot(p, "changeMap").toString());
+                world.broadcastEntityAdd(p);
+                JsonObject sm = new JsonObject();
+                sm.addProperty("type", "spaceMove");
+                sm.addProperty("x", p.x);
+                sm.addProperty("y", p.y);
+                world.broadcastAround(p.map, sm, p.x, p.y, GameWorld.SIGHT_RANGE);
                 return;
             }
         }

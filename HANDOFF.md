@@ -1,6 +1,7 @@
 # jootm2 交接文档（给下一位 agent）
 
 > 项目根目录：`/Volumes/未命名/jootm2/`
+> ★ 原版 Delphi 源码：`/Volumes/未命名/fire/Source/`（客户端 `Client/`、服务端 `M2Server/`）——改特效/技能/渲染/协议前先查这里，特效帧号一律查表（`Client/magiceff.pas` `EffectBase`/`HitEffectBase`、`Client/clEvent.pas` `FIREBURNBASE`、`Client/PlayScn.pas` 各 EffectType 分支的 `MagExplosionBase`），勿靠 WIL 文件猜帧号。
 > 这是一份「已做 / 未做」的移交说明，含精确路径、技术要点与坑。接手后先读这里。
 
 ## 1. 项目是什么
@@ -412,6 +413,15 @@ jootm2/
     - 卷包解包（stdMode=31，原版 `UnbindPotionUnit`）：加载 `UnbindList.txt`（shape→物品名），拆 6 个，空间不足提示「背包空间不足」。
     - 消耗品使用间隔 300ms（对齐原版客户端 `EatingItem` 串行化语义）。
     - 修 bug：解包/使用卷后物品错位（`_refreshBag` 只清 `_pickedCell` 不清 `pickedItem` 残留 + `useScrollItem` 先 useScroll 后 remove 卷导致 changeMap 快照含卷）。
+
+85. **法师全部技能特效 + 伤害对齐原版**（帧号一律查 `Client/magiceff.pas`/`PlayScn.pas`/`clEvent.pas`，见文档顶部「★ 原版 Delphi 源码」）：
+    - 命中爆炸帧号修正：爆裂火焰 `MagExplosionBase=1660`（20 帧）、冰咆哮 `3850`（20 帧）、圣言术 `3930`（16 帧）。
+    - 火墙（22）：地面火焰 `clEvent.pas FIREBURNBASE=1630`（6 帧循环，原 1600 是蓝色冰焰错帧）；删除「被踩即消失」改烧满时限；`makeFireWallAt` 每格独立广播（十字 5 格）。
+    - 抗拒火环（8）：自身金色光环 `EffectBase[5]=900`（6 帧）。
+    - 瞬息移动（21）：改为瞬移（`entityRemove`+`changeMap`+`entityAdd`，非 move 平滑）+ 现身漩涡 `SPACEMOVE_SHOW2=1600`（10 帧）。
+    - 地狱雷光（24）：白色闪电 `EffectBase[21]=1680`（10 帧）+ 范围伤害 `elecBlizzard`（施法者周围 2 格，不死系全额、非不死系 1/10，对齐 `MagElecBlizzard`；不再走单目标投射）。
+    - 诱惑之光（20）：目标头顶光柱 `MagExplosionBase=1570`（10 帧）。
+    - 前端 `MAGIC_VFX` 新增 `self`（自身特效，施法者位置播放）与 `spaceMove`（传送现身）两种类型。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 

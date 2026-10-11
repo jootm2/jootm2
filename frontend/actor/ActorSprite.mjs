@@ -7,7 +7,8 @@ import * as A from './actorData.mjs';
 
 // 动作名 → 动作表段名（玩家用 HA，怪物/NPC 用 MA）
 // 施法（spell）映射到 HA.spell 段（start 392, 6 帧×60ms），与普通攻击 hit 段不同（原版 ActSpell）
-const PLAYER_SEG = { stand: 'stand', walk: 'walk', run: 'run', attack: 'hit', spell: 'spell', struck: 'struck', die: 'die' };
+// 冲撞（rush）映射到 run 段（原版 ActRushLeft/Right 即 run 段 128 起的 3 帧子段，见 Actor.pas）
+const PLAYER_SEG = { stand: 'stand', walk: 'walk', run: 'run', rush: 'run', attack: 'hit', spell: 'spell', struck: 'struck', die: 'die' };
 const MON_SEG = { stand: 'stand', walk: 'walk', attack: 'attack', struck: 'struck', die: 'die' };
 
 export class ActorSprite {

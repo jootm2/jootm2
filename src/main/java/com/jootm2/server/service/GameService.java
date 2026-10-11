@@ -126,6 +126,9 @@ public final class GameService {
                 case "attack":
                     attack(session, msg);
                     break;
+                case "dirAttack":
+                    dirAttack(session, msg);
+                    break;
                 case "castMagic":
                     castMagic(session, msg);
                     break;
@@ -515,6 +518,11 @@ public final class GameService {
         p.hp = rec.hp;
         p.mp = rec.mp;
         loadSkills(p, rec.skills);
+        // 刺杀剑术(12)：学了即默认开启（原版 ObjBase.pas:8786-8790 登录时自动 BoAllowLongHit:=TRUE 并发 '+LNG'；
+        // 半月弯刀的自动开启在原版被注释掉，默认不开启，需手动开关）
+        if (p.skills.containsKey(12)) {
+            p.longHitOn = true;
+        }
         p.bag.addAll(rec.items);
         p.storage.addAll(rec.storage);
         p.distributeItems(world);
@@ -531,6 +539,7 @@ public final class GameService {
         session.sendJson(r);
 
         session.sendText(world.mapSnapshot(p, "enterGame").toString());
+        world.sendStats(p, null);   // 下发 longHit/wideHit/fireHit 等开关状态（刺杀默认开启，前端据此同步 self._longHit）
 
         world.broadcastEntityAdd(p);
     }
@@ -868,9 +877,9 @@ public final class GameService {
         if (s == null) {
             return;
         }
-        // 纯被动技能（基本剑术3/精神力战法4）不可设置快捷键。
-        // 攻杀7/刺杀12/半月25/烈火26/野蛮27 虽 effectType=0 但为「开关/蓄力」主动技能，可设置。
-        if (key != 0 && (magicId == 3 || magicId == 4)) {
+        // 纯被动技能（基本剑术3/精神力战法4/攻杀7）不可设置快捷键。
+        // 刺杀12/半月25/烈火26/野蛮27 虽 effectType=0 但为「开关/蓄力」主动技能，可设置。
+        if (key != 0 && (magicId == 3 || magicId == 4 || magicId == 7)) {
             world.sendSystem(p, "被动技能无法设置快捷键。");
             return;
         }
@@ -1087,13 +1096,30 @@ public final class GameService {
         }
         // 玩家目标：攻击模式分支（默认全体，后续单独做和平/行会判定）
         if (a instanceof Player) {
-            attackPlayer(p, (Player) a);
+            Player target = (Player) a;
+            int pd = p.distanceTo(target);
+            if (pd <= 1) {
+                attackPlayer(p, target);
+            } else if (pd == 2 && p.longHitOn) {
+                swordLongHitPlayer(p, target);
+            }
             return;
         }
         if (!(a instanceof Monster)) {
             return;
         }
         Monster m = (Monster) a;
+        int dist = p.distanceTo(m);
+        if (dist <= 1) {
+            attackMonster(p, m);
+        } else if (dist == 2 && p.longHitOn) {
+            // 2 格距离：刺杀剑术隔位攻击（原版 SwordLongAttack 直接结算，忽视防御）
+            swordLongHitMonster(p, m);
+        }
+    }
+
+    /** 攻击怪物：点目标攻击，含战士技能（烈火/攻杀/半月/刺杀）结算。 */
+    private void attackMonster(Player p, Monster m) {
         if (p.distanceTo(m) > 1) {
             return;
         }
@@ -1112,35 +1138,46 @@ public final class GameService {
             world.sendSystem(p, "攻击未命中。");
             return;
         }
-        int raw = rollDcWithLuck(p);
-        int dmg = Math.max(1, raw - m.template.ac);
+        // 原始攻击力（未减 AC，对齐原版 _Attack 的 dam := GetAttackPower(...)）
+        int dam = rollDcWithLuck(p);
 
-        // 烈火剑法（蓄力）：开启后下次攻击伤害 +40%~160%，一次性用完关闭；超时（20 秒）则失效
+        // 战士技能（对齐原版客户端 AttackTarget 的 hitmsg 优先级：烈火 > 攻杀 > 半月 > 刺杀，
+        // 一次攻击只触发一种模式；swordHit 记录本次触发的技能 magicId，用于前端打击光效）
+        int swordHit = 0;
+
+        // 1) 烈火剑法（蓄力）：下次攻击伤害 +40%~160%，一次性用完（原版 BoAllowFireHit，无超时失效）
         if (p.fireHitOn) {
-            if (System.currentTimeMillis() > p.fireHitUntil) {
-                p.fireHitOn = false;
-                p.fireHitUntil = 0;
-            } else {
-                int lv = skillLevel(p, 26);
-                dmg += dmg * (4 + lv * 4) / 10;
-                p.fireHitOn = false;
-                p.fireHitUntil = 0;
-                world.sendSystem(p, "烈火！");
-            }
+            int lv = skillLevel(p, 26);
+            dam += dam * (4 + lv * 4) / 10;
+            p.fireHitOn = false;
+            swordHit = 26;
+            world.sendSystem(p, "烈火！");
         }
-        // 攻杀剑术（开关开启时）：概率触发，伤害 +5+Level（原版 HM_CROSSHIT）
-        if (p.crossHitOn) {
-            int lv = skillLevel(p, 7);
-            if (Math.random() < 1.0 / Math.max(1, 7 - lv)) {
-                dmg += 5 + lv;
+
+        // 2) 攻杀剑术(7)：纯被动，计数触发强力攻击 +5+Level（原版 PPowerHitSkill + HM_POWERHIT）
+        if (swordHit == 0 && hasSkill(p, 7)) {
+            if (p.powerHitCount <= 0) {
+                int lv = skillLevel(p, 7);
+                p.powerHitCount = 7 - lv;                       // 计数周期 7-Level
+                p.powerHitPoint = (int) (Math.random() * p.powerHitCount);   // 随机触发点 0..count-1
+            }
+            p.powerHitCount--;
+            if (p.powerHitCount == p.powerHitPoint) {
+                dam += 5 + skillLevel(p, 7);                    // HitPowerPlus = 5+Level
+                p.powerHitCount = 0;                            // 触发后重置，下次重新初始化
+                swordHit = 7;
                 world.sendSystem(p, "攻杀！");
             }
         }
-        // 刺杀剑术（开关开启时）：隔位刺杀额外伤害 +2+Level（原版 HM_LONGHIT）
-        if (p.longHitOn) {
-            dmg += 2 + skillLevel(p, 12);
+
+        // 3) 半月(25)/刺杀(12) 开关：半月优先（原版 hitmsg 顺序：烈火 > 攻杀 > 半月 > 刺杀）
+        if (swordHit == 0) {
+            if (p.wideHitOn) swordHit = 25;
+            else if (p.longHitOn) swordHit = 12;
         }
 
+        // 主目标：减目标 AC（原版 GetHitStruckDamage）
+        int dmg = Math.max(1, dam - m.template.ac);
         m.hp = Math.max(0, m.hp - dmg);
 
         // 吸血：按伤害回血
@@ -1163,27 +1200,20 @@ public final class GameService {
         o.addProperty("damage", dmg);
         o.addProperty("x", m.x);
         o.addProperty("y", m.y);
+        if (swordHit != 0) {
+            o.addProperty("swordHit", swordHit);   // 战士技能光效标记（7攻杀/12刺杀/25半月/26烈火）
+        }
         world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
         world.sendStats(m, null);
 
-        // 半月弯刀（开关开启时）：扇形范围攻击，额外打前方左右方向（原版 SwordWideAttack）
-        if (p.wideHitOn) {
-            int splash = dmg / 2;
-            int[] dirs = { (p.dir + 7) % 8, (p.dir + 1) % 8 };
-            for (int d : dirs) {
-                int tx = p.x + Direction.dx(d);
-                int ty = p.y + Direction.dy(d);
-                Actor nb = findTargetAt(p.map, tx, ty);
-                if (nb instanceof Monster && nb != m && nb.alive) {
-                    Monster other = (Monster) nb;
-                    other.hp = Math.max(0, other.hp - splash);
-                    broadcastMagicHit(p, other, splash, 25);
-                    if (other.hp <= 0) {
-                        world.killMonster(other, System.currentTimeMillis(), p);
-                        grantExp(p, other);
-                    }
-                }
-            }
+        // 刺杀剑术：隔位攻击前方第 2 格目标（原版 SwordLongAttack，seconddam = Round(dam/5*(Level+2))，忽视防御）
+        if (swordHit == 12) {
+            swordLongAttack(p, swordSecondDam(p, dam, 12, 5), m);
+        }
+
+        // 半月弯刀：前方 3 方向扇形（原版 SwordWideAttack valarr=(7,1,2)，seconddam = Round(dam/13*(Level+2))）
+        if (swordHit == 25) {
+            swordWideAttack(p, swordSecondDam(p, dam, 25, 13), m);
         }
 
         if (m.hp <= 0) {
@@ -1208,27 +1238,33 @@ public final class GameService {
         int raw = rollDcWithLuck(p);
         int dmg = Math.max(1, raw - target.combat.acMax);
 
-        // 战士开关效果（与怪物攻击一致）
+        // 战士技能（与怪物攻击一致：烈火 > 攻杀 > 半月 > 刺杀，一次攻击只触发一种）
+        int swordHit = 0;
         if (p.fireHitOn) {
-            if (System.currentTimeMillis() > p.fireHitUntil) {
-                p.fireHitOn = false;
-                p.fireHitUntil = 0;
-            } else {
-                int lv = skillLevel(p, 26);
-                dmg += dmg * (4 + lv * 4) / 10;
-                p.fireHitOn = false;
-                p.fireHitUntil = 0;
-                world.sendSystem(p, "烈火！");
+            int lv = skillLevel(p, 26);
+            dmg += dmg * (4 + lv * 4) / 10;
+            p.fireHitOn = false;
+            swordHit = 26;
+            world.sendSystem(p, "烈火！");
+        }
+        // 攻杀：被动计数触发强力攻击（与 attackMonster 对称，优先级：烈火 > 攻杀 > 半月 > 刺杀）
+        if (swordHit == 0 && hasSkill(p, 7)) {
+            if (p.powerHitCount <= 0) {
+                int lv = skillLevel(p, 7);
+                p.powerHitCount = 7 - lv;
+                p.powerHitPoint = (int) (Math.random() * p.powerHitCount);
+            }
+            p.powerHitCount--;
+            if (p.powerHitCount == p.powerHitPoint) {
+                dmg += 5 + skillLevel(p, 7);
+                p.powerHitCount = 0;
+                swordHit = 7;
+                world.sendSystem(p, "攻杀！");
             }
         }
-        if (p.crossHitOn) {
-            int lv = skillLevel(p, 7);
-            if (Math.random() < 1.0 / Math.max(1, 7 - lv)) {
-                dmg += 5 + lv;
-            }
-        }
-        if (p.longHitOn) {
-            dmg += 2 + skillLevel(p, 12);
+        if (swordHit == 0) {
+            if (p.wideHitOn) swordHit = 25;
+            else if (p.longHitOn) swordHit = 12;
         }
 
         target.hp = Math.max(0, target.hp - dmg);
@@ -1239,11 +1275,257 @@ public final class GameService {
         o.addProperty("damage", dmg);
         o.addProperty("x", target.x);
         o.addProperty("y", target.y);
+        if (swordHit != 0) {
+            o.addProperty("swordHit", swordHit);
+        }
         world.broadcastAround(target.map, o, target.x, target.y, GameWorld.SIGHT_RANGE);
         world.sendStats(target, null);
 
         if (target.hp <= 0) {
             world.killPlayer(target);
+        }
+
+        // 刺杀/半月贯穿（PVP 副目标，对齐 PVE attackMonster 的贯穿：刺杀打前方第 2 格、半月打前方扇形）
+        if (swordHit == 12) {
+            swordLongAttack(p, swordSecondDam(p, raw, 12, 5), target);
+        } else if (swordHit == 25) {
+            swordWideAttack(p, swordSecondDam(p, raw, 25, 13), target);
+        }
+    }
+
+    /**
+     * 2 格隔位刺杀（点中 2 格距离目标）：朝方向隔位攻击，忽视防御。
+     * 对齐原版 _Attack(HM_LONGHIT)：两个目标都打——
+     *   - 前方 1 格目标（若有）：主伤害 dam（减 AC，走 GetHitStruckDamage）
+     *   - 前方 2 格目标（点中的目标）：seconddam = dam/(MaxTrainLevel+2)*(Level+2)，DirectAttack 直接结算，不减 AC（忽视防御）
+     */
+    private void swordLongHitMonster(Player p, Monster m) {
+        int dir = directionFrom(p.x, p.y, m.x, m.y);
+        // 目标必须精确位于 dir 方向第 2 格（直线距离 2，隔位）
+        if (p.x + Direction.dx(dir) * 2 != m.x || p.y + Direction.dy(dir) * 2 != m.y) {
+            return;
+        }
+        p.dir = dir;
+        world.broadcastMove(p);
+
+        // 命中加成（与 attackMonster 一致）
+        int hitBonus = 0;
+        if (hasSkill(p, 3)) hitBonus += 3 * skillLevel(p, 3);
+        if (hasSkill(p, 4)) hitBonus += 8 * skillLevel(p, 4) / 3;
+        if (hasSkill(p, 7)) hitBonus += skillLevel(p, 7);
+
+        // 原始攻击力（未减 AC）
+        int dam = rollDcWithLuck(p);
+
+        // 1) 前方 1 格目标（主目标，若有）：主伤害 dam，减 AC（原版 GetHitStruckDamage）
+        int fx = p.x + Direction.dx(dir);
+        int fy = p.y + Direction.dy(dir);
+        Actor front = findTargetAt(p.map, fx, fy);
+        if (front instanceof Monster && front.alive) {
+            Monster f = (Monster) front;
+            f.lastHiterId = p.id;
+            if (hitCheck(p, f, hitBonus)) {
+                int dmg = Math.max(1, dam - f.template.ac);
+                f.hp = Math.max(0, f.hp - dmg);
+                broadcastPhysicalHit(p, f, dmg);
+                if (f.hp <= 0) {
+                    world.killMonster(f, System.currentTimeMillis(), p);
+                    grantExp(p, f);
+                }
+            }
+        }
+
+        // 2) 前方 2 格目标（隔位，点中的目标）：seconddam，忽视防御（不减 AC）
+        m.lastHiterId = p.id;
+        if (!hitCheck(p, m, hitBonus)) {
+            world.sendSystem(p, "攻击未命中。");
+            return;
+        }
+        int seconddam = swordSecondDam(p, dam, 12, 5);
+        m.hp = Math.max(0, m.hp - seconddam);
+
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "attack");
+        o.addProperty("attackerId", p.id);
+        o.addProperty("targetId", m.id);
+        o.addProperty("damage", seconddam);
+        o.addProperty("x", m.x);
+        o.addProperty("y", m.y);
+        o.addProperty("swordHit", 12);   // 刺杀光效
+        world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
+        world.sendStats(m, null);
+
+        if (m.hp <= 0) {
+            world.killMonster(m, System.currentTimeMillis(), p);
+            grantExp(p, m);
+        }
+    }
+
+    /** 2 格隔位刺杀（PVP）：同 swordLongHitMonster，前方 1 格主伤害减防御、前方 2 格忽视防御。 */
+    private void swordLongHitPlayer(Player p, Player target) {
+        if (p.attackMode == 0) {
+            world.sendSystem(p, "和平模式下无法攻击玩家。");
+            return;
+        }
+        int dir = directionFrom(p.x, p.y, target.x, target.y);
+        if (p.x + Direction.dx(dir) * 2 != target.x || p.y + Direction.dy(dir) * 2 != target.y) {
+            return;
+        }
+        p.dir = dir;
+        world.broadcastMove(p);
+
+        int dam = rollDcWithLuck(p);
+
+        // 1) 前方 1 格目标（主目标，若有）：主伤害 dam，减 AC
+        int fx = p.x + Direction.dx(dir);
+        int fy = p.y + Direction.dy(dir);
+        Actor front = findTargetAt(p.map, fx, fy);
+        if (front instanceof Player && front.alive) {
+            Player f = (Player) front;
+            int dmg = Math.max(1, dam - f.combat.acMax);
+            f.hp = Math.max(0, f.hp - dmg);
+            JsonObject fo = new JsonObject();
+            fo.addProperty("type", "attack");
+            fo.addProperty("attackerId", p.id);
+            fo.addProperty("targetId", f.id);
+            fo.addProperty("damage", dmg);
+            fo.addProperty("x", f.x);
+            fo.addProperty("y", f.y);
+            world.broadcastAround(f.map, fo, f.x, f.y, GameWorld.SIGHT_RANGE);
+            world.sendStats(f, null);
+            if (f.hp <= 0) {
+                world.killPlayer(f);
+            }
+        }
+
+        // 2) 前方 2 格目标（隔位）：seconddam，忽视防御
+        int seconddam = swordSecondDam(p, dam, 12, 5);
+        target.hp = Math.max(0, target.hp - seconddam);
+
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "attack");
+        o.addProperty("attackerId", p.id);
+        o.addProperty("targetId", target.id);
+        o.addProperty("damage", seconddam);
+        o.addProperty("x", target.x);
+        o.addProperty("y", target.y);
+        o.addProperty("swordHit", 12);   // 刺杀光效
+        world.broadcastAround(target.map, o, target.x, target.y, GameWorld.SIGHT_RANGE);
+        world.sendStats(target, null);
+
+        if (target.hp <= 0) {
+            world.killPlayer(target);
+        }
+    }
+
+    /**
+     * 方向攻击（原版 ClMain.pas:2545-2592 的 ssShift+左键 强制攻击）：朝 dir 方向挥刀，不依赖点中目标。
+     * 前方 1 格有目标 → 普通攻击；刺杀开关开启且前方 2 格有目标 → 隔位刺杀；半月开关开启且扇形有目标 → 半月。
+     * 前方无目标则空挥（广播攻击动作，无伤害）。
+     */
+    private void dirAttack(PlayerSession session, JsonObject msg) {
+        Player p = findBySession(session);
+        if (p == null) {
+            return;
+        }
+        int dir = integer(msg, "dir", -1);
+        if (dir < 0 || dir > 7) {
+            return;
+        }
+        p.dir = dir;
+        world.broadcastMove(p);
+
+        int fx = p.x + Direction.dx(dir);
+        int fy = p.y + Direction.dy(dir);
+        Actor front = findTargetAt(p.map, fx, fy);
+
+        // 前方 1 格有目标：复用点目标攻击（内部会重新转身，方向一致）
+        if (front instanceof Monster && front.alive) {
+            attackMonster(p, (Monster) front);
+            return;
+        }
+        if (front instanceof Player && front.alive) {
+            attackPlayer(p, (Player) front);
+            return;
+        }
+
+        // 前方无目标：空挥。刺杀/半月开关开启时仍可隔位/扇形打中更远目标（原版 _Attack 在 targ=nil 时也执行 SwordLongAttack/SwordWideAttack）
+        int raw = rollDcWithLuck(p);
+        int swordHit = 0;
+        if (p.wideHitOn) swordHit = 25;
+        else if (p.longHitOn) swordHit = 12;
+
+        if (swordHit == 12) {
+            swordLongAttack(p, swordSecondDam(p, raw, 12, 5), null);
+        } else if (swordHit == 25) {
+            swordWideAttack(p, swordSecondDam(p, raw, 25, 13), null);
+        }
+
+        // 广播攻击动作（空挥也播动画，前端据此播 attack 动作 + 打击光效）
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "attack");
+        o.addProperty("attackerId", p.id);
+        o.addProperty("targetId", 0);
+        o.addProperty("damage", 0);
+        o.addProperty("x", fx);
+        o.addProperty("y", fy);
+        if (swordHit != 0) {
+            o.addProperty("swordHit", swordHit);
+        }
+        world.broadcastAround(p.map, o, p.x, p.y, GameWorld.SIGHT_RANGE);
+    }
+
+    /** 刺杀隔位攻击：前方第 2 格目标受 seconddam（原版 SwordLongAttack）。exclude 用于排除主目标。 */
+    private void swordLongAttack(Player p, int seconddam, Actor exclude) {
+        int tx = p.x + Direction.dx(p.dir) * 2;
+        int ty = p.y + Direction.dy(p.dir) * 2;
+        Actor nb = findTargetAt(p.map, tx, ty);
+        if (nb != null && nb != exclude && nb.alive) {
+            applySwordHit(p, nb, seconddam);
+        }
+    }
+
+    /** 半月扇形攻击：前方 3 方向各 1 格（原版 SwordWideAttack valarr=(7,1,2)）。exclude 用于排除主目标。 */
+    private void swordWideAttack(Player p, int seconddam, Actor exclude) {
+        int[] dirs = { (p.dir + 7) % 8, (p.dir + 1) % 8, (p.dir + 2) % 8 };
+        for (int d : dirs) {
+            int tx = p.x + Direction.dx(d);
+            int ty = p.y + Direction.dy(d);
+            Actor nb = findTargetAt(p.map, tx, ty);
+            if (nb != null && nb != exclude && nb.alive) {
+                applySwordHit(p, nb, seconddam);
+            }
+        }
+    }
+
+    /** 战士副目标伤害（刺杀/半月贯穿/溅射，PVE 或 PVP）：怪物直接结算 + 经验，玩家走 PVP 伤害。 */
+    private void applySwordHit(Player p, Actor target, int seconddam) {
+        if (target instanceof Monster) {
+            Monster other = (Monster) target;
+            other.hp = Math.max(0, other.hp - seconddam);
+            broadcastPhysicalHit(p, other, seconddam);
+            if (other.hp <= 0) {
+                world.killMonster(other, System.currentTimeMillis(), p);
+                grantExp(p, other);
+            }
+        } else if (target instanceof Player) {
+            Player other = (Player) target;
+            if (p.attackMode == 0) {
+                return;   // 和平模式不伤玩家
+            }
+            other.hp = Math.max(0, other.hp - seconddam);
+            JsonObject o = new JsonObject();
+            o.addProperty("type", "attack");
+            o.addProperty("attackerId", p.id);
+            o.addProperty("targetId", other.id);
+            o.addProperty("damage", seconddam);
+            o.addProperty("x", other.x);
+            o.addProperty("y", other.y);
+            world.broadcastAround(other.map, o, other.x, other.y, GameWorld.SIGHT_RANGE);
+            world.sendStats(other, null);
+            if (other.hp <= 0) {
+                world.killPlayer(other);
+            }
         }
     }
 
@@ -1260,6 +1542,13 @@ public final class GameService {
         return min + (int) (Math.random() * (max - min + 1));
     }
 
+    /** 战士技能副目标伤害（刺杀/半月）：对齐原版 Round(dam/(MaxTrainLevel+X)*(Level+2))。
+     *  必须浮点除法，否则整数除法在 dam 小于除数时截断为 0 → 第二格/扇形永远无伤害。 */
+    private int swordSecondDam(Player p, int dam, int magicId, int divisor) {
+        int level = skillLevel(p, magicId);
+        return Math.max(1, Math.round((float) dam / divisor * (level + 2)));
+    }
+
     /** Casts a learned magic (single-target damage, healing or a utility magic). */
     private void castMagic(PlayerSession session, JsonObject msg) {
         Player p = findBySession(session);
@@ -1272,6 +1561,12 @@ public final class GameService {
         long targetId = longVal(msg, "targetId", -1);
         MagicTemplate t = world.magicTemplates.get(magicId);
         if (t == null) {
+            return;
+        }
+        // 纯被动技能（基本剑术3/精神力战法4/攻杀7）不可主动施放（原版 IsSwordSkill + 无 UseMagic 分支）。
+        // 刺杀(12) 也默认生效（登录自动开启，见 doEnter），不可主动施放。
+        if (magicId == 3 || magicId == 4 || magicId == 7 || magicId == 12) {
+            world.sendSystem(p, "被动技能无法主动施放。");
             return;
         }
         Skill skill = p.skills.get(magicId);
@@ -1301,7 +1596,43 @@ public final class GameService {
             }
         }
 
-        // 广播施法动画
+        boolean success = false;
+
+        // 战士主动技能（对齐原版 UseMagic 的 case：半月/刺杀是「攻击模式开关」（原版互不排斥，
+        // 只有半月与狂风斩互斥，本作无狂风斩），烈火是「蓄力」，野蛮冲撞朝方向冲撞。
+        // 攻杀剑术(7) 是被动技能 PPowerHitSkill，原版不可主动施放，故这里无 7 号分支）
+        // 注意：开关/蓄力/冲撞都「不播施法动画」（原版 SM_POWERHIT/SM_LONGHIT 等不触发 SM_SPELL）
+        if (magicId == 25) {
+            p.wideHitOn = !p.wideHitOn;
+            world.sendSystem(p, p.wideHitOn ? "半月弯刀开启。" : "半月弯刀关闭。");
+            finishCast(p, t, skill, lv, now, spellCost, true);
+            return;
+        }
+        if (magicId == 26) {
+            // 烈火剑法（蓄力，原版 SetAllowFireHit）：10 秒冷却，蓄力后一直保持到下次攻击触发，无超时失效
+            if (now - p.lastFireHitAt < 10 * 1000) {
+                world.sendSystem(p, "凝聚内力失败。");
+                return;   // 冷却中，不扣 MP
+            }
+            p.lastFireHitAt = now;
+            p.fireHitOn = true;
+            world.sendSystem(p, "你的武器因精神火焰而炙热。");
+            finishCast(p, t, skill, lv, now, spellCost, true);
+            return;
+        }
+        if (magicId == 27) {
+            // 野蛮冲撞（原版 LatestRushRushTime）：3 秒冷却，冷却中直接结束（不扣 MP）
+            if (now - p.lastRushRushAt < 3000) {
+                world.sendSystem(p, "冲撞需要休息。");
+                return;
+            }
+            p.lastRushRushAt = now;
+            success = rushRush(p, targetX, lv);
+            finishCast(p, t, skill, lv, now, spellCost, success);
+            return;
+        }
+
+        // 广播施法动画（仅法师/道士施法类技能，战士开关/蓄力/冲撞已在上面 return）
         JsonObject cast = new JsonObject();
         cast.addProperty("type", "spellCast");
         cast.addProperty("casterId", p.id);
@@ -1310,44 +1641,6 @@ public final class GameService {
         cast.addProperty("targetX", targetX);
         cast.addProperty("targetY", targetY);
         world.broadcastAround(p.map, cast, p.x, p.y, GameWorld.SIGHT_RANGE);
-
-        boolean success = false;
-
-        // 战士主动技能（原版 SpellXY：半月/攻杀/刺杀是「攻击模式开关」，烈火是「蓄力」，
-        // 野蛮冲撞朝方向冲撞。这些不产生即时伤害，切换开关后由普通攻击附加效果）
-        if (magicId == 25) {
-            p.wideHitOn = !p.wideHitOn;
-            if (p.wideHitOn) { p.crossHitOn = false; p.longHitOn = false; }
-            world.sendSystem(p, p.wideHitOn ? "半月弯刀开启。" : "半月弯刀关闭。");
-            finishCast(p, t, skill, lv, now, spellCost, true);
-            return;
-        }
-        if (magicId == 7) {
-            p.crossHitOn = !p.crossHitOn;
-            if (p.crossHitOn) { p.wideHitOn = false; p.longHitOn = false; }
-            world.sendSystem(p, p.crossHitOn ? "攻杀剑术开启。" : "攻杀剑术关闭。");
-            finishCast(p, t, skill, lv, now, spellCost, true);
-            return;
-        }
-        if (magicId == 12) {
-            p.longHitOn = !p.longHitOn;
-            if (p.longHitOn) { p.wideHitOn = false; p.crossHitOn = false; }
-            world.sendSystem(p, p.longHitOn ? "刺杀剑术开启。" : "刺杀剑术关闭。");
-            finishCast(p, t, skill, lv, now, spellCost, true);
-            return;
-        }
-        if (magicId == 26) {
-            p.fireHitOn = true;
-            p.fireHitUntil = now + 20 * 1000;   // 20 秒内未攻击则蓄力失效
-            world.sendSystem(p, "烈火剑法蓄力完成，下次攻击威力大增。");
-            finishCast(p, t, skill, lv, now, spellCost, true);
-            return;
-        }
-        if (magicId == 27) {
-            success = rushRush(p, targetX, lv);
-            finishCast(p, t, skill, lv, now, spellCost, success);
-            return;
-        }
 
         // 目标查找：targetId 优先，否则按坐标（朝鼠标位置释放，无对象也可施放）
         Actor target = targetId > 0 ? world.actor(targetId) : null;
@@ -1435,8 +1728,8 @@ public final class GameService {
             } else {
                 world.sendSystem(p, "召唤失败。");
             }
-        } else if (magicId == 8 || magicId == 37) {
-            // 抗拒火环 / 气功波：推开周围怪物
+        } else if (magicId == 8) {
+            // 抗拒火环：推开周围怪物（37 气功波在 Magic.csv 中不存在，已移除）
             int pushed = pushAround(p, lv);
             world.sendSystem(p, pushed > 0 ? "推开了 " + pushed + " 个敌人。" : "周围没有可推开的敌人。");
             success = true;
@@ -1623,6 +1916,9 @@ public final class GameService {
 
     /** 广播魔法命中伤害。 */
     private void broadcastMagicHit(Player p, Monster m, int damage, int magicId) {
+        if (damage > 0) {
+            m.lastHiterId = p.id;   // 记录仇恨（守卫据此反击魔法攻击，对齐原版 StruckDamage 里 SetLastHiter）
+        }
         JsonObject o = new JsonObject();
         o.addProperty("type", "attack");
         o.addProperty("attackerId", p.id);
@@ -1631,6 +1927,40 @@ public final class GameService {
         o.addProperty("magicId", magicId);
         o.addProperty("x", m.x);
         o.addProperty("y", m.y);
+        world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
+        world.sendStats(m, null);
+    }
+
+    /** 物理命中广播（战士半月/刺杀溅射等，不带 magicId，飘字保持白色、无魔法特效）。 */
+    private void broadcastPhysicalHit(Player p, Monster m, int damage) {
+        if (damage > 0) {
+            m.lastHiterId = p.id;   // 溅射/冲撞等物理伤害也记录仇恨（守卫据此反击）
+        }
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "attack");
+        o.addProperty("attackerId", p.id);
+        o.addProperty("targetId", m.id);
+        o.addProperty("damage", damage);
+        o.addProperty("x", m.x);
+        o.addProperty("y", m.y);
+        world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
+        world.sendStats(m, null);
+    }
+
+    /** 冲撞受击广播（野蛮冲撞撞到怪）：只播目标受击动画，不播攻击者攻击动作
+     *  （原版 CharRushRush 冲撞伤害广播 RM_STRUCK，而非触发攻击动作的 RM_HIT）。 */
+    private void broadcastStruck(Player p, Monster m, int damage) {
+        if (damage > 0) {
+            m.lastHiterId = p.id;
+        }
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "attack");
+        o.addProperty("attackerId", p.id);
+        o.addProperty("targetId", m.id);
+        o.addProperty("damage", damage);
+        o.addProperty("x", m.x);
+        o.addProperty("y", m.y);
+        o.addProperty("noAttackAnim", true);   // 前端据此不播攻击者攻击动作
         world.broadcastAround(m.map, o, m.x, m.y, GameWorld.SIGHT_RANGE);
         world.sendStats(m, null);
     }
@@ -1673,26 +2003,75 @@ public final class GameService {
     }
 
     /** 半月弯刀：前方扇形 3 方向物理攻击。 */
-    /** 野蛮冲撞：朝方向冲撞，推开路径上怪物并前进 1 格。 */
+    /** 野蛮冲撞（原版 CharRushRush）：朝方向冲撞，推开路径上怪物并前进，对被撞目标造成冲撞伤害。
+     *  3 秒冷却在 castMagic 用 lastRushRushAt 判定；撞墙自伤（原版 mydamagelevel）按需求取消。
+     *  移动结束时广播单条 rush 移动（原版每个 SM_RUSH 移动 1 格、客户端队列逐个播 rush 动画；
+     *  这里合并为一条到终点，客户端按冲撞速度 + rush 动画平滑过渡，避免「走两步再平移」）。 */
     private boolean rushRush(Player p, int dir, int lv) {
         int ndir = (dir >= 0 && dir <= 7) ? dir : p.dir;
         p.dir = ndir;
+        int damagelevel = lv + 1;         // 原版 damagelevel = rushlevel + 1，每撞退一格递减
+        Monster attackcret = null;        // 被撞目标（原版 attackcret）
         int pushed = 0;
-        for (int step = 1; step <= 2; step++) {
-            int cx = p.x + Direction.dx(ndir) * step;
-            int cy = p.y + Direction.dy(ndir) * step;
+        int maxSteps = Math.max(2, lv + 1);
+
+        // 前方有怪：推怪前进（CanPush 判定：等级高于目标 + 概率）
+        for (int i = 0; i < maxSteps; i++) {
+            int cx = p.x + Direction.dx(ndir);
+            int cy = p.y + Direction.dy(ndir);
             Actor a = findTargetAt(p.map, cx, cy);
-            if (a instanceof Monster && a.alive) {
-                Monster m = (Monster) a;
-                if (m.level <= p.level) {
-                    pushCreature(m, ndir, 2);
-                    pushed++;
-                }
+            if (!(a instanceof Monster) || !a.alive) {
+                break;
+            }
+            Monster m = (Monster) a;
+            if (p.level <= m.level) {
+                break;
+            }
+            int levelgap = p.level - m.level;
+            if (Math.random() * 20 >= 6 + lv * 3 + levelgap) {
+                break;
+            }
+            attackcret = m;
+            if (!pushCreature(m, ndir, 1)) {
+                break;
+            }
+            // 自己前进一格（怪物已由 pushCreature 广播，玩家位置最后统一广播一条 rush）
+            if (world.tryMove(p, ndir)) {
+                pushed++;
+                damagelevel--;
+            } else {
+                break;
             }
         }
-        world.tryMove(p, ndir);
-        world.broadcastMove(p);
-        world.sendSystem(p, pushed > 0 ? "野蛮冲撞击退了 " + pushed + " 个敌人。" : "你向前冲撞。");
+
+        // 前方无怪：直接冲 maxSteps 格
+        if (attackcret == null) {
+            for (int i = 0; i < maxSteps; i++) {
+                if (!world.tryMove(p, ndir)) {
+                    break;
+                }
+                pushed++;
+            }
+        }
+
+        // 单条 rush 移动广播（走到终点；pushed=0 时仍广播以同步转向）
+        world.broadcastRush(p, Math.max(1, pushed));
+
+        // 冲撞伤害（原版：damage = (1+damagelevel)*4 + Random((1+damagelevel)*5)，减目标 AC）
+        if (attackcret != null) {
+            if (damagelevel < 0) damagelevel = 0;
+            int damage = (1 + damagelevel) * 4 + (int) (Math.random() * ((1 + damagelevel) * 5));
+            damage = Math.max(1, damage - attackcret.template.ac);
+            attackcret.hp = Math.max(0, attackcret.hp - damage);
+            broadcastStruck(p, attackcret, damage);   // 只播受击，不播攻击者攻击动作（原版 RM_STRUCK）
+            if (attackcret.hp <= 0) {
+                world.killMonster(attackcret, System.currentTimeMillis(), p);
+                grantExp(p, attackcret);
+            }
+        }
+
+        // 系统消息：有怪被击退时报击退格数（pushed=撞退格数），无怪只是前进
+        world.sendSystem(p, attackcret != null ? "野蛮冲撞击退了 " + pushed + " 格。" : "你向前冲撞。");
         return true;
     }
 
@@ -1810,8 +2189,8 @@ public final class GameService {
         world.sendSystem(p, "传送失败。");
     }
 
-    /** 沿方向把怪物推若干格（遇到阻挡/占位停止）。 */
-    private void pushCreature(Monster m, int dir, int push) {
+    /** 沿方向把怪物推若干格（遇到阻挡/占位停止）。返回是否实际推动了。 */
+    private boolean pushCreature(Monster m, int dir, int push) {
         int dx = Direction.dx(dir);
         int dy = Direction.dy(dir);
         int x = m.x;
@@ -1831,7 +2210,9 @@ public final class GameService {
             m.y = y;
             m.map.add(m);
             world.broadcastMove(m);
+            return true;
         }
+        return false;
     }
 
     /** 8 方向：从 (fx,fy) 指向 (tx,ty)。 */

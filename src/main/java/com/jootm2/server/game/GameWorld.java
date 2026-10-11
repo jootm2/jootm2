@@ -71,6 +71,8 @@ public final class GameWorld {
     private final Map<String, Player> playersByName = new HashMap<>();
     private final AtomicLong idGen = new AtomicLong(1L);
     private final AtomicLong itemIdGen = new AtomicLong(10_000_000L);
+    /** 远程怪飞矢延迟结算队列（照原版 SendDelayMsg(RM_STRUCK, 600+距离*50)）：箭矢飞行期间不扣血，到达后结算。 */
+    private final List<PendingRangedHit> pendingRangedHits = new ArrayList<>();
 
     public GameMap defaultMap;
     public int startX;
@@ -1036,8 +1038,35 @@ public final class GameWorld {
         closeTimedOutDoors(now);
         tickFireWalls(now);
         tickGroundItems(now);
+        tickPendingRangedHits(now);
         tickSiege(now);
         respawnDead(now);
+    }
+
+    /** 结算到期的远程怪飞矢伤害（箭矢飞行到位后扣血，照原版 SendDelayMsg 延迟）。 */
+    private void tickPendingRangedHits(long now) {
+        if (pendingRangedHits.isEmpty()) {
+            return;
+        }
+        Iterator<PendingRangedHit> it = pendingRangedHits.iterator();
+        while (it.hasNext()) {
+            PendingRangedHit ph = it.next();
+            if (now < ph.atTime) {
+                continue;
+            }
+            it.remove();
+            Actor a = actor(ph.monsterId);
+            Actor t = actor(ph.targetId);
+            if (!(a instanceof Monster) || !(t instanceof Player)) {
+                continue;
+            }
+            Monster m = (Monster) a;
+            Player target = (Player) t;
+            if (!m.alive || !target.alive || m.map != target.map) {
+                continue;
+            }
+            applyHitToPlayer(m, target, ph.damage);
+        }
     }
 
     /** 清理超时地面掉落物并广播移除（原版 MapItem 定时消失）。 */
@@ -1217,25 +1246,27 @@ public final class GameWorld {
         }
         Player target = resolveTarget(m);
         m.targetId = target == null ? -1 : target.id;
+        boolean isGuard = m.template != null && GUARD_RACES.contains(m.template.race);
 
         if (target != null) {
-            // 远程怪（照 ObjAxeMon TDualAxeMonster）：±7 站定攻击，≤4 后撤保持距离，≤11 才追
+            // 远程怪（照 ObjAxeMon TDualAxeMonster）：±7 站定攻击，≤4 后撤保持距离，≤11 才追。
+            // 守卫（TArcherGuard/TArcherPolice）照 ObjMon2.pas TArcherGuard.Run：站桩射箭，不后撤不追。
             if (m.template != null && RANGED_RACES.contains(m.template.race)) {
                 int d = m.distanceTo(target);
                 if (d <= RANGED_ATTACK_RANGE) {
                     if (now >= m.nextAttackAt) {
                         m.nextAttackAt = now + m.template.attackSpeed;
                         m.dir = dirTowards(m, target);
-                        attackPlayer(m, target);   // 飞斧/吐物伤害同近战公式，attack 广播给前端（飞斧特效待做）
+                        rangedAttack(m, target, now);   // 飞矢特效 + 延迟结算（照 ShotArrow/FlyAxeAttack）
                     }
-                    if (d <= RANGED_KEEP_AWAY && now >= m.nextMoveAt && Math.random() < 0.33) {
+                    if (!isGuard && d <= RANGED_KEEP_AWAY && now >= m.nextMoveAt && Math.random() < 0.33) {
                         m.nextMoveAt = now + m.template.walkSpeed;
                         int back = (m.dir + 4) % 8;   // 往反方向逃（GetBackPosition）
                         if (tryMove(m, back)) {
                             broadcastMove(m);
                         }
                     }
-                } else if (d <= RANGED_CHASE_RANGE && now >= m.nextMoveAt) {
+                } else if (!isGuard && d <= RANGED_CHASE_RANGE && now >= m.nextMoveAt) {
                     m.nextMoveAt = now + m.template.walkSpeed;
                     m.dir = dirTowards(m, target);
                     if (tryMove(m, m.dir)) {
@@ -1257,7 +1288,8 @@ public final class GameWorld {
                     broadcastMove(m);
                 }
             }
-        } else if (now >= m.nextMoveAt) {
+        } else if (!isGuard && now >= m.nextMoveAt) {
+            // 无目标随机游走（守卫除外：照 TArcherGuard.Run 无目标静止不动）
             m.nextMoveAt = now + m.template.walkSpeed;
             if (Math.random() < 0.35) {
                 m.dir = (int) (Math.random() * 8);
@@ -1371,8 +1403,35 @@ public final class GameWorld {
     }
 
     private void attackPlayer(Monster m, Player target) {
+        int dmg = rangedDamage(m, target);
+        applyHitToPlayer(m, target, dmg);
+    }
+
+    /** 远程怪攻击：先广播飞矢（客户端播攻击动画 + 箭矢飞行），延迟后结算伤害（照原版 ShotArrow/FlyAxeAttack）。 */
+    private void rangedAttack(Monster m, Player target, long now) {
+        int dmg = rangedDamage(m, target);
+        // 广播飞矢（守卫/远程怪射箭/投斧）
+        JsonObject fly = new JsonObject();
+        fly.addProperty("type", "flyAxe");
+        fly.addProperty("attackerId", m.id);
+        fly.addProperty("targetId", target.id);
+        fly.addProperty("dir", m.dir);
+        fly.addProperty("x", target.x);
+        fly.addProperty("y", target.y);
+        broadcastAround(m.map, fly, m.x, m.y, SIGHT_RANGE);
+        // 延迟结算：原版 SendDelayMsg(RM_STRUCK, 600 + Max(dx,dy)*50)
+        int delay = 600 + Math.max(Math.abs(m.x - target.x), Math.abs(m.y - target.y)) * 50;
+        pendingRangedHits.add(new PendingRangedHit(now + delay, m.id, target.id, dmg));
+    }
+
+    /** 远程怪基础伤害（与近战 attackPlayer 同公式，魔法盾减伤在结算时应用）。 */
+    private int rangedDamage(Monster m, Player target) {
         int raw = m.rollAttack();
-        int dmg = Math.max(1, raw - target.combat.acMax);
+        return Math.max(1, raw - target.combat.acMax);
+    }
+
+    /** 对玩家结算一次怪物伤害（近战立即、远程延迟后调用）：魔法盾/护身减伤 + 扣血 + 广播受击。 */
+    private void applyHitToPlayer(Monster m, Player target, int dmg) {
         // 魔法盾：减伤 30%
         if (target.shieldUntil > System.currentTimeMillis()) {
             dmg = dmg * 7 / 10;
@@ -1719,6 +1778,20 @@ public final class GameWorld {
         broadcastAround(a.map, o, a.x, a.y, SIGHT_RANGE);
     }
 
+    /** 野蛮冲撞移动广播：单条 move + rush 标志（原版 SM_RUSH）。
+     *  客户端据此播冲撞(rush)动画并按冲撞速度过渡，而非 walk/run。 */
+    public void broadcastRush(Actor a, int steps) {
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "move");
+        o.addProperty("id", a.id);
+        o.addProperty("x", a.x);
+        o.addProperty("y", a.y);
+        o.addProperty("dir", a.dir);
+        o.addProperty("rush", true);
+        o.addProperty("rushSteps", steps);
+        broadcastAround(a.map, o, a.x, a.y, SIGHT_RANGE);
+    }
+
     /** Notifies everyone in sight that an actor appeared. */
     public void broadcastEntityAdd(Actor a) {
         JsonObject o = new JsonObject();
@@ -1756,7 +1829,6 @@ public final class GameWorld {
             o.addProperty("shield", pl.shieldUntil > now);   // 魔法盾
             o.addProperty("hidden", pl.hideUntil > now);     // 隐身术
             o.addProperty("wideHit", pl.wideHitOn);          // 半月弯刀开关
-            o.addProperty("crossHit", pl.crossHitOn);        // 攻杀剑术开关
             o.addProperty("longHit", pl.longHitOn);          // 刺杀剑术开关
             o.addProperty("fireHit", pl.fireHitOn);          // 烈火剑法蓄力
         }
@@ -1781,5 +1853,20 @@ public final class GameWorld {
         o.addProperty("type", "systemMessage");
         o.addProperty("text", text);
         p.session.sendText(o.toString());
+    }
+
+    /** 远程怪飞矢延迟伤害（箭矢飞行到位后结算）。 */
+    private static final class PendingRangedHit {
+        final long atTime;
+        final long monsterId;
+        final long targetId;
+        final int damage;
+
+        PendingRangedHit(long atTime, long monsterId, long targetId, int damage) {
+            this.atTime = atTime;
+            this.monsterId = monsterId;
+            this.targetId = targetId;
+            this.damage = damage;
+        }
     }
 }

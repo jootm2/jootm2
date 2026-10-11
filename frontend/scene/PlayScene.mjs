@@ -17,6 +17,7 @@ const DIRMAP = {
 // 对齐动画周期：walk 动画 6 帧×90ms=540ms；run 动画 6 帧×120ms=720ms 覆盖 2 格 → 360ms/格
 const WALK_INTERVAL = 540;   // 走（左键）
 const RUN_INTERVAL = 360;    // 跑（右键）
+const RUSH_INTERVAL = 360;   // 冲撞（野蛮冲撞）：对齐原版 ActRushLeft/Right 3 帧×120ms=360ms/格
 
 // 玩家攻击动画时长（HA.hit：6 帧 × 85ms = 510ms），动作完成才允许下一次攻击
 const ATTACK_ANIM_MS = 510;
@@ -53,11 +54,12 @@ const ATTR_ROWS = [
 ];
 
 // 战士主动技能（EffectType=0 但为「开关/蓄力/冲撞」主动技能）：
-// 攻杀(7)/刺杀(12)/半月(25) = 攻击模式开关，烈火(26) = 蓄力，野蛮(27) = 冲撞
-const SWORD_SKILLS = new Set([7, 12, 25, 26, 27]);
+// 半月(25) = 攻击模式开关，烈火(26) = 蓄力，野蛮(27) = 冲撞
+const SWORD_SKILLS = new Set([25, 26, 27]);
 
-// 纯被动技能（无法主动施放）：基本剑术(3)/精神力战法(4)
-const PASSIVE_MAGICS = new Set([3, 4]);
+// 纯被动技能（无法主动施放）：基本剑术(3)/精神力战法(4)/攻杀(7)/刺杀(12)
+// 刺杀默认生效（服务端登录自动开启 longHitOn，见 doEnter），不占快捷键位
+const PASSIVE_MAGICS = new Set([3, 4, 7, 12]);
 
 // ---- 技能特效帧（magic/magic2 库，对齐原版 EffectBase + EXPLOSIONBASE 简化映射）----
 // 每项 = 起始帧 + 连续帧数，动画帧间隔约 80ms（原版 NextFrameTime）。
@@ -81,12 +83,23 @@ const FX_FRAMES = {
     fireball:     { lib: 'magic',  base: 10,   frames: 6,  ft: 80 },   // 火球飞行（0+10）
     bigfireball:  { lib: 'magic',  base: 410,  frames: 6,  ft: 80 },   // 大火球飞行（400+10）
     soulfu:       { lib: 'magic',  base: 950,  frames: 6,  ft: 80 },   // 灵魂火符飞行（940+10）
+    // 远程怪飞矢（射箭/投斧）：mon5 库箭矢帧 = 2609 + Dir16*10（16 方向，原版 magiceff.pas ARCHERBASE 段，ImgLib=WMon5）
+    flyAxe:       { lib: 'mon5',   base: 2609, frames: 1,  dirStride: 10 },
     // 治疗/持续
     heal:         { lib: 'magic',  base: 200,  frames: 8,  ft: 90 },   // 治愈（Effect=2→200）
     temptation:   { lib: 'magic',  base: 1570, frames: 10, ft: 80 },   // 诱惑之光（原版 MagExplosionBase=1570，10 帧目标头顶特效）
     firewall:     { lib: 'magic',  base: 1630, frames: 6,  ft: 40 },   // 火墙火焰（原版 clEvent.pas FIREBURNBASE=1630，6 帧循环）
     shield:       { lib: 'magic',  base: 3880, frames: 12, ft: 100 },  // 魔法盾泡泡（Effect=29→3880）
 };
+// 战士打击光效（原版 Actor.pas 的 BoHitEffect：绘制在攻击者身上，帧 = HitEffectBase[n-1] + Dir*10 + 相对帧）
+// HitEffectNumber → HitEffectBase（magiceff.pas）：1攻杀=800 2刺杀=1410 3半月=1700 4烈火=3480 6狂风=40
+const SWORD_HIT_FX = {
+    7:  { base: 800,  dirStride: 10 },   // 攻杀剑术（SM_POWERHIT → HitEffectNumber 1）
+    12: { base: 1410, dirStride: 10 },   // 刺杀剑术（SM_LONGHIT → HitEffectNumber 2）
+    25: { base: 1700, dirStride: 10 },   // 半月弯刀（SM_WIDEHIT → HitEffectNumber 3）
+    26: { base: 3480, dirStride: 10 },   // 烈火剑法（SM_FIREHIT → HitEffectNumber 4）
+};
+
 // 每个技能 → 特效（fly=飞行弹道, hit=命中爆炸/雷击, ground=地面持续）
 const MAGIC_VFX = {
     1:  { fly: 'fireball',     hit: 'boomFire' },      // 火球术
@@ -119,6 +132,9 @@ export class PlayScene extends Scene {
         this._mouseDir = -1;         // 当前移动方向（鼠标相对人物，0-7）
         this._lastMoveAt = 0;        // 上次移动时间戳
         this._lastHitTime = 0;       // 上次攻击时间戳（CanNextHit 攻速控制）
+        this._dirAttackHolding = false;  // shift+左键 方向攻击持续状态（按住持续挥刀，松开停止）
+        this._dirAttackDir = -1;         // 方向攻击方向（鼠标相对人物，0-7）
+        this._shiftDown = false;         // Shift 键按住状态
         this.magicPage = 0;          // 技能页内部分页页码（每页 5 个技能）
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
@@ -151,10 +167,13 @@ export class PlayScene extends Scene {
 
         this._buildHud();
         this._keyDown = (e) => this._onKeyDown(e);
+        this._keyUp = (e) => this._onKeyUp(e);
         document.addEventListener('keydown', this._keyDown);
+        document.addEventListener('keyup', this._keyUp);
         this._mdHandler = (e) => this._onMouseDown(e);
         this._muHandler = () => {
-            this._holding = false;   // 松开停止移动
+            this._holding = false;          // 松开停止移动
+            this._dirAttackHolding = false; // 松开停止方向攻击
         };
         this._mmHandler = (e) => this._onMouseMove(e);   // 按住时实时更新方向
         this._canvas.addEventListener('mousedown', this._mdHandler);
@@ -210,6 +229,8 @@ export class PlayScene extends Scene {
     }
 
     _castMagic(magicId) {
+        // 纯被动技能（基本剑术3/精神力战法4/攻杀7）不可施放
+        if (PASSIVE_MAGICS.has(magicId)) return;
         // 战士主动技能（半月/烈火/野蛮）：朝面向方向施放，不选目标（原版 EffectType=0 分支）
         if (SWORD_SKILLS.has(magicId)) {
             this.conn.send('castMagic', { magicId, targetX: this.self.dir, targetY: 0, targetId: 0 });
@@ -248,6 +269,7 @@ export class PlayScene extends Scene {
 
     _onKeyDown(e) {
         if (e.target === this.chatInput) return;
+        if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { this._shiftDown = true; return; }
         if (e.code === 'Space') { e.preventDefault(); this._attackNearest(); }
         if (e.code === 'F9') { e.preventDefault(); this._toggleBag(); }          // 原版 VK_F9 = 背包
         if (e.code === 'F10') { e.preventDefault(); this._toggleStateWin(); }    // 原版 VK_F10 = 状态/装备属性
@@ -255,6 +277,14 @@ export class PlayScene extends Scene {
         if (e.code >= 'F1' && e.code <= 'F8') {
             e.preventDefault();
             this._castFromSlot(Number(e.code.substring(1)));
+        }
+    }
+
+    _onKeyUp(e) {
+        if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+            this._shiftDown = false;
+            // 松开 Shift：停止方向攻击（即使左键仍按住）
+            this._dirAttackHolding = false;
         }
     }
 
@@ -282,6 +312,19 @@ export class PlayScene extends Scene {
             this.self._actionAt = Date.now();
         }
         this.conn.send('attack', { targetId });
+    }
+
+    // 方向攻击（原版 ssShift+左键 强制攻击）：朝方向挥刀，不依赖点中目标
+    _dirAttack(dir) {
+        if (!this._isIdle()) return;
+        if (!this._canNextHit()) return;
+        this._lastHitTime = Date.now();
+        if (this.self) {
+            this.self.dir = dir;
+            this.self._action = 'attack';
+            this.self._actionAt = Date.now();
+        }
+        this.conn.send('dirAttack', { dir });
     }
 
     // 角色是否空闲（动作已完成）：self 无动作或已回到 stand
@@ -316,14 +359,31 @@ export class PlayScene extends Scene {
         const run = e.button === 2;   // 左键走、右键跑
         const { mx, my } = this._mouseXY(e);
 
+        // 按住 Shift + 左键：进入方向攻击持续状态（原版 ClMain.pas:2546 `(target<>nil) or (ssShift in Shift)`，
+        // 按 shift 时无论点中怪/NPC/空地都朝方向挥刀，不对话不移动不拾取）。
+        // 不要求前方有目标（空挥也持续）；主循环按攻速间隔持续触发，松开左键或 Shift 即停。
+        if (e.button === 0 && (e.shiftKey || this._shiftDown)) {
+            const dir = this._dirFromMouse(e);
+            if (dir >= 0) {
+                this._dirAttackHolding = true;
+                this._dirAttackDir = dir;
+                this._dirAttack(dir);   // 立即先打一次
+                return;
+            }
+        }
+
         // 贴图区域判定（原版 GetAttackFocusCharacter）：仅左键触发怪物攻击/NPC 对话/玩家攻击/拾取；
         // 右键只用于「跑」，点 NPC/怪不对话不攻击
         if (e.button === 0) {
             const monster = this._actorAtScreen(mx, my, 'monster');
-            if (monster && monster.hp > 0 && this._dist(this.self, monster) <= 1) {
-                this.castTarget = monster.id;   // 红框高亮
-                this._tryAttack(monster.id);
-                return;
+            if (monster && monster.hp > 0) {
+                const d = this._dist(this.self, monster);
+                // 1 格正常攻击；2 格且刺杀开关开启 → 隔位刺杀（忽视防御）
+                if (d <= 1 || (d === 2 && this.self._longHit)) {
+                    this.castTarget = monster.id;   // 红框高亮
+                    this._tryAttack(monster.id);
+                    return;
+                }
             }
             const npc = this._actorAtScreen(mx, my, 'npc');
             if (npc) {
@@ -333,10 +393,13 @@ export class PlayScene extends Scene {
             }
             // 其他玩家（原版：点击玩家 = 攻击，与怪物同；排除自己，原版 IsSelectMyself 判断）
             const player = this._actorAtScreen(mx, my, 'player');
-            if (player && player.id !== this.self.id && this._dist(this.self, player) <= 1) {
-                this.castTarget = player.id;   // 红框高亮
-                this._tryAttack(player.id);
-                return;
+            if (player && player.id !== this.self.id) {
+                const pd = this._dist(this.self, player);
+                if (pd <= 1 || (pd === 2 && this.self._longHit)) {
+                    this.castTarget = player.id;   // 红框高亮
+                    this._tryAttack(player.id);
+                    return;
+                }
             }
             const { tx, ty } = this._gridFromMouse(e);
             const gi = this._groundAt(tx, ty);
@@ -364,6 +427,12 @@ export class PlayScene extends Scene {
         const mon = this._actorAtScreen(mx, my, 'monster');
         const pl = this._actorAtScreen(mx, my, 'player');
         this.magicTarget = (mon && mon.hp > 0) ? mon : (pl && pl.id !== this.self.id ? pl : null);
+        if (this._dirAttackHolding) {
+            // 方向攻击持续中：实时更新朝向
+            const dir = this._dirFromMouse(e);
+            if (dir >= 0) this._dirAttackDir = dir;
+            return;
+        }
         if (!this._holding) return;
         const dir = this._dirFromMouse(e);
         if (dir >= 0) this._mouseDir = dir;
@@ -457,7 +526,8 @@ export class PlayScene extends Scene {
                     e._fromX = e.x; e._fromY = e.y;
                     e.x = msg.x; e.y = msg.y; e.dir = msg.dir;
                     if (moved) {
-                        const action = msg.run ? 'run' : 'walk';
+                        // 冲撞（野蛮冲撞）用 rush 动画，普通移动用 run/walk
+                        const action = msg.rush ? 'rush' : (msg.run ? 'run' : 'walk');
                         // 动作切换才重置动画相位；连续同动作保持相位连续（避免每步重播前几帧）
                         if (e._action !== action) {
                             e._action = action;
@@ -490,7 +560,6 @@ export class PlayScene extends Scene {
                     if (msg.poison !== undefined) e._poison = msg.poison;
                     if (msg.paralyzed !== undefined) e._paralyzed = msg.paralyzed;
                     if (msg.wideHit !== undefined) e._wideHit = msg.wideHit;
-                    if (msg.crossHit !== undefined) e._crossHit = msg.crossHit;
                     if (msg.longHit !== undefined) e._longHit = msg.longHit;
                     if (msg.fireHit !== undefined) e._fireHit = msg.fireHit;
                 }
@@ -502,7 +571,14 @@ export class PlayScene extends Scene {
             }
             case 'attack': {
                 const a = this.entities.get(msg.attackerId);
-                if (a) { a._action = 'attack'; a._actionAt = Date.now(); }
+                // noAttackAnim：冲撞等不触发攻击者攻击动作（只播目标受击，对齐原版 RM_STRUCK）
+                if (a && !msg.noAttackAnim) {
+                    a._action = 'attack'; a._actionAt = Date.now();
+                    // 战士打击光效（攻杀/刺杀/半月/烈火，叠加在攻击者身上，与原版 BoHitEffect 一致）
+                    if (msg.swordHit && SWORD_HIT_FX[msg.swordHit]) {
+                        a._swordHit = msg.swordHit; a._swordHitAt = Date.now();
+                    }
+                }
                 const t = this.entities.get(msg.targetId);
                 if (t) {
                     t._action = 'struck'; t._actionAt = Date.now();
@@ -512,6 +588,16 @@ export class PlayScene extends Scene {
                     if (msg.magicId && MAGIC_VFX[msg.magicId] && MAGIC_VFX[msg.magicId].hit) {
                         this._spawnFx({ kind: 'hit', fx: MAGIC_VFX[msg.magicId].hit, x: t.x, y: t.y });
                     }
+                }
+                break;
+            }
+            case 'flyAxe': {
+                // 远程怪射箭/投斧：攻击者播攻击动画 + 箭矢从攻击者飞向目标（延迟伤害由服务端结算）
+                const a = this.entities.get(msg.attackerId);
+                if (a) {
+                    a._action = 'attack'; a._actionAt = Date.now();
+                    const dir16 = this._dir16From(a.x, a.y, msg.x, msg.y);
+                    this._spawnFx({ kind: 'flyAxe', sx: a.x, sy: a.y, x: msg.x, y: msg.y, dir16 });
                 }
                 break;
             }
@@ -880,7 +966,7 @@ export class PlayScene extends Scene {
         const page = entries.slice(this.magicPage * 5, this.magicPage * 5 + 5);
         for (const [magicId, sk] of page) {
             const mid = Number(magicId);
-            const passive = PASSIVE_MAGICS.has(mid);   // 被动技能白名单（基本剑术/精神力战法/攻杀/刺杀）
+            const passive = PASSIVE_MAGICS.has(mid);   // 被动技能白名单（基本剑术/精神力战法/攻杀）
             const row = document.createElement('div');
             row.style.cssText = 'position:relative;height:37px;overflow:hidden;'
                 + (passive ? 'color:#888;' : '');
@@ -1648,6 +1734,10 @@ export class PlayScene extends Scene {
                 this._lastMoveAt = now;
             }
         }
+        // 方向攻击持续（shift+左键按住）：每完成一次攻击动作 + 攻速间隔到，就继续挥刀（空挥也持续）
+        if (this._dirAttackHolding && this.self && this._dirAttackDir >= 0) {
+            this._dirAttack(this._dirAttackDir);
+        }
         // NPC 对话框走远自动关闭（原版：离开打开时的位置 >= 8 格即 CloseMDlg）
         if (this.npcDlg && this._npcDlgX != null) {
             if (Math.abs(this.self.x - this._npcDlgX) >= 8
@@ -1661,12 +1751,18 @@ export class PlayScene extends Scene {
         if (this._viewX == null) { this._viewX = this.self.x; this._viewY = this.self.y; this._lastFrame = now; }
         const dt = now - this._lastFrame;
         this._lastFrame = now;
-        const stepDur = this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL;   // 每格耗时 ms
+        // 冲撞(rush)用冲撞速度，其余用走/跑速度（每格耗时 ms）
+        const selfRushing = this.self._action === 'rush';
+        const stepDur = selfRushing ? RUSH_INTERVAL : (this._mouseRun ? RUN_INTERVAL : WALK_INTERVAL);
         const maxStep = dt / stepDur;                                    // 本帧最大卷动（格）
         const dx = this.self.x - this._viewX;
         const dy = this.self.y - this._viewY;
         this._viewX += dx > maxStep ? maxStep : (dx < -maxStep ? -maxStep : dx);
         this._viewY += dy > maxStep ? maxStep : (dy < -maxStep ? -maxStep : dy);
+        // 冲撞到位后回站立：rush 动画覆盖整个冲撞过程，而不是 600ms 超时提前结束（消除「走两步再平移」）
+        if (selfRushing && Math.abs(this.self.x - this._viewX) < 0.001 && Math.abs(this.self.y - this._viewY) < 0.001) {
+            this.self._action = 'stand';
+        }
         const vcx = Math.floor(this._viewX);
         const vcy = Math.floor(this._viewY);
         const shiftX = Math.round((this._viewX - vcx) * 48);
@@ -1831,6 +1927,39 @@ export class PlayScene extends Scene {
             }
             this._drawFx(ctx, def, frame, e.x, e.y, ox, oy);
         }
+        // 战士打击光效（攻杀/刺杀/半月/烈火）：叠加在攻击者身上，帧 = HitEffectBase + Dir*10 + 相对帧
+        // 相对帧随攻击动画推进（原版 currentframe-startframe，ActHit 6 帧 × 85ms）
+        for (const e of this.entities.values()) {
+            if (!e._swordHit) continue;
+            const def = SWORD_HIT_FX[e._swordHit];
+            if (!def) continue;
+            const elapsed = now - (e._swordHitAt || now);
+            const ft = 85;   // 与攻击动画帧时一致（HA.hit ftime）
+            const frames = 6;
+            if (elapsed >= frames * ft) { e._swordHit = 0; continue; }
+            const rel = Math.floor(elapsed / ft);
+            const frame = def.base + (e.dir || 0) * def.dirStride + rel;
+            let ox = 0, oy = 0;
+            if (e.id === this.self.id) {
+                ox = (this._viewX - e.x) * 48;
+                oy = (this._viewY - e.y) * 32;
+            } else if (e._moveAt != null && e._fromX != null) {
+                const t = (now - e._moveAt) / MONSTER_MOVE_DUR;
+                if (t < 1) {
+                    ox = (e._fromX - e.x) * 48 * (1 - t);
+                    oy = (e._fromY - e.y) * 32 * (1 - t);
+                }
+            }
+            const tex = this._fxTexture({ lib: 'magic', base: frame }, 0);
+            if (tex) {
+                const sx = this.mapActor.screenX(e.x) + ox;
+                const sy = this.mapActor.screenY(e.y) + oy;
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.drawImage(tex.canvas, sx + (tex.px || 0), sy + (tex.py || 0));
+                ctx.restore();
+            }
+        }
         const survivors = [];
         for (const fx of this.effects) {
             const elapsed = now - fx.startAt;
@@ -1852,6 +1981,23 @@ export class PlayScene extends Scene {
                     if (fx.hit) this._spawnFx({ kind: 'hit', fx: fx.hit, x: fx.x, y: fx.y });
                     continue;   // 飞行结束，转为命中
                 }
+                survivors.push(fx);
+            } else if (fx.kind === 'flyAxe') {
+                // 远程怪飞矢（箭矢/飞斧）：普通混合（非光效），从攻击者飞向目标，时长对齐服务端延迟
+                const def = FX_FRAMES.flyAxe;
+                const dist = Math.max(1, Math.abs(fx.x - fx.sx) + Math.abs(fx.y - fx.sy));
+                const dur = 600 + dist * 50;   // 对齐原版 SendDelayMsg(600 + Max(dx,dy)*50)
+                const p = Math.min(1, elapsed / dur);
+                const cx = fx.sx + (fx.x - fx.sx) * p;
+                const cy = fx.sy + (fx.y - fx.sy) * p;
+                const frame = (fx.dir16 || 0) * (def.dirStride || 10);   // 帧 = 2609 + Dir16*10
+                const tex = this._fxTexture(def, frame);
+                if (tex) {
+                    const sx = this.mapActor.screenX(cx);
+                    const sy = this.mapActor.screenY(cy);
+                    ctx.drawImage(tex.canvas, sx + (tex.px || 0), sy + (tex.py || 0));
+                }
+                if (p >= 1) continue;   // 箭矢到达，伤害由服务端延迟 attack 结算
                 survivors.push(fx);
             } else if (fx.kind === 'beam') {
                 // 疾光电影：闪电射线，在施法者位置沿方向播放（base 已含 Dir16*10 偏移）
@@ -1981,6 +2127,7 @@ export class PlayScene extends Scene {
 
     onExit() {
         document.removeEventListener('keydown', this._keyDown);
+        if (this._keyUp) document.removeEventListener('keyup', this._keyUp);
         if (this._mdHandler) this._canvas.removeEventListener('mousedown', this._mdHandler);
         if (this._muHandler) document.removeEventListener('mouseup', this._muHandler);
         if (this._mmHandler) document.removeEventListener('mousemove', this._mmHandler);
@@ -1988,6 +2135,8 @@ export class PlayScene extends Scene {
         for (const fn of this._dragCleaners) fn();
         this._dragCleaners = [];
         this._holding = false;
+        this._dirAttackHolding = false;
+        this._shiftDown = false;
         this.bagPanel = null;
         this.stateWin = null;
         this.npcDlg = null;

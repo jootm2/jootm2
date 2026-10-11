@@ -58,7 +58,7 @@ jootm2/
 ├── gamedata/                       # ★ 服务端数据（mud2 数据库 + Mir200 配置/脚本/地图）
 ├── resources/                      # ★ 客户端渲染资源（软链 → 见 §6）
 ├── config/server.properties        # 运行配置
-├── scripts/smoke_test.py           # 端到端测试（注册→登录→建角→进游戏→移动→聊天→登出→战斗）
+├── scripts/fx_*.py                 # Playwright 前端测试（抓帧/特效/动画，见 §8）
 ├── Dockerfile / docker-compose.yml / .dockerignore / .gitignore
 └── target/jootm2.jar               # 构建产物（19MB）
 ```
@@ -113,7 +113,7 @@ jootm2/
     - `Castle`（game 包）：城门 + 3 段城墙 HP、攻城状态；`WorldData.loadCastle` 解析 `Envir/Castle/Sabuk.txt`（沙巴克 map=3 城门 HP10000）。
     - 攻城：`declareSiege`（攻城 5 分钟）、`attackCastleDoor`（靠近城门才有效）、`tickSiege` 结束时城门+城墙全破则攻城行会 `ownsCastle=true`。
     - 协议：`GameService` 加 `createGuild/joinGuild/leaveGuild/guildInfo/guildChat/siege`；行会聊天按成员列表定向发送 `guildChat`。
-    - 说明：`GuildBase/` 目录为空（无行会持久化文件），行会仅存内存（未做 DB 落盘）；测试脚本 `scripts/guild_test.py`。
+    - 说明：`GuildBase/` 目录为空（无行会持久化文件），行会仅存内存（未做 DB 落盘）。
 22. **社会系统补全**（组队/仓库/交易/行会持久化/祝福油/行会战）：
     - 组队：`Party`（game 包）+ `partyOf` 映射，`createParty/joinParty/leaveParty`；`grantExp` 组队共享经验（附近 10 格平分）；协议 `partyInvite/partyLeave/partyChat`。
     - 仓库：`Player.storage`（独立于背包）+ `CharacterRecord.storage` + `characters.storage` 列（含 ALTER 迁移）；协议 `storageOpen/storageStore/storageTake`（容量 45）。
@@ -169,7 +169,7 @@ jootm2/
     - **entityRemove 广播**：`GameWorld.removeActor` 补广播 `entityRemove`（宠物死亡 `removeSummon`/玩家登出 `removePlayer` 后其他玩家能立即看到实体消失，修复尸体残留）。
     - **点墙就近寻路**：`PlayScene._walkTo` 目标不可站时在 ±2 格内就近找可站格（曼哈顿距离最小），修复点墙不响应。
     - **血条/名字位置**：血条从格顶 `sy-4` 上移到 `sy-18`、名字从 `sy+4` 上移到 `sy-34`（sprite 头顶上方），施法目标高亮框同步调整，消除与 sprite 重叠。
-    - 验证：smoke test 通过；点墙格 (292,615)→就近移动到 (291,615)。
+    - 验证：点墙格 (292,615)→就近移动到 (291,615)。
 32. **Paradox `.DB` → CSV + 配置/路径健壮性**（数据可维护性 + 部署）：
     - 删除 `resource/ParadoxDb.java` 与 `gamedata/mud2/DB/*.DB`（二进制），改为 UTF-8 CSV（带表头，可直接编辑）；`scripts/paradox_to_csv.py` 为一次性导出脚本（已运行生成 3 个 csv）。
     - `Database.importParadox` → `importCsv`：`importCsvTable` 流式逐行读 CSV（`splitCsv` 处理引号），导入 SQLite 后释放，不常驻内存。
@@ -197,12 +197,12 @@ jootm2/
     - **平滑卷动**：玩家 `move` 时记录 `_selfFrom/_selfMoveAt`，render 按 280ms 插值算 `shiftX/shiftY` 传给 `MapActor.render`（照原版 ShiftX/Y），地图从瞬跳变为滑动（Playwright 连续采样 screenX 平滑过渡）。
     - **坐标收口**：`MapActor` 暴露 `screenX/screenY`（含 shift），血条/名字/**施法目标高亮**移入 `MapActor` 实体绘制循环并**贴 sprite 头顶**（取各层最小 py 估算顶部），地面物品改用收口坐标（照原版格子中心对齐）；删除 `PlayScene._renderHpBars`。
     - **远程怪 AI**（对齐 `ObjAxeMon.pas TDualAxeMonster/TArcherMonster`）：`GameWorld` 加 `RANGED_RACES = {82 喷毒蜘蛛, 87 双斧骷髅, 93 暗黑战士, 94 闪电僵尸, 104 弓箭手}`；距离 ≤7 **站定攻击**（不走近）、≤4 1/3 概率**后撤保持距离**（`GetBackPosition`）、≤11 才追、>11 丢失。出生点附近「暗黑战士(93)/僵尸(94)」即远程怪——这是原版行为（需走位/技能打）。
-    - 验证：smoke test 通过；卷动采样平滑、5 秒内受击 4 次、无 console/page 错误。
+    - 验证：卷动采样平滑、5 秒内受击 4 次、无 console/page 错误。
 36. **守卫仇恨修正（弓箭守卫不主动打白名）**：
     - 主城「弓箭护卫」race=**112**（`RC_ARCHERGUARD` 守卫，非野怪 104）——地图 0 刷 24 个。守卫照 `ObjMon2.pas TGuardUnit.IsProperTarget`（非城堡分支）**只打 PK 玩家**：`target.PKLevel >= 2` 红名才主动攻击，或反击 `LastHiter`。
     - `GameWorld` 加 `GUARD_RACES = {20 弓箭警察, 112 弓箭守卫}` + `guardHostile(m,p)`：`p.id==m.lastHiterId`（反击）或 `p.pkPoint > 0`（红名/灰名）；`resolveTarget` 对守卫过滤白名（pkPoint=0 且非反击者不当目标）。
     - `Monster.lastHiterId`（`GameService.attack` 玩家攻击时记录，守卫据此反击）；守卫也加入 `RANGED_RACES`（`TArcherGuard.ShotArrow` 远程）。
-    - 验证：smoke test 通过；白名玩家在守卫区 8 秒无守卫攻击。
+    - 验证：白名玩家在守卫区 8 秒无守卫攻击。
 37. **实体锚点修正 + 卷动 lerp + 点击走/跑**：
     - **锚点**（照 `PlayScn.pas` DrawChr）：实体图左上 = **格左 + px, 格顶 + py**（hum 站立帧 px≈8-15, py≈-47/-48，脚落在格底上方 ~9px）。此前错用「格子底部中心」锚点导致人物+血条+名字整体偏移 32px。
     - **名字/血条**：原版固定偏移 —— 名字 = 格顶 - 47（照 SayY）、血条 = 格顶 - 30，水平格子中心；不再动态贴 sprite 顶（图框含透明边距，动态顶不可靠）。
@@ -422,6 +422,28 @@ jootm2/
     - 地狱雷光（24）：白色闪电 `EffectBase[21]=1680`（10 帧）+ 范围伤害 `elecBlizzard`（施法者周围 2 格，不死系全额、非不死系 1/10，对齐 `MagElecBlizzard`；不再走单目标投射）。
     - 诱惑之光（20）：目标头顶光柱 `MagExplosionBase=1570`（10 帧）。
     - 前端 `MAGIC_VFX` 新增 `self`（自身特效，施法者位置播放）与 `spaceMove`（传送现身）两种类型。
+86. **野蛮冲撞（27）移动/动画对齐原版 `CharRushRush`**（修复「空旷地释放往前走两步然后平移」）：
+    - 根因：服务端在循环里每格 `broadcastMove`（`run=false`）→ 客户端按 `walk` 动作 + `WALK_INTERVAL`(540ms/格) 过渡；且 `walk` 动作 600ms 超时回 `stand`，但 `_viewX` 卷动仍在慢速追终点 → 人物「走两步→站着平移」。
+    - 修复：服务端 `GameWorld.broadcastRush`（单条 `move` + `rush:true` 标志，对齐原版 `SM_RUSH`）；`rushRush` 结束后只广播一条到终点（不再每格 walk 广播，`pushed` 统计实际推进格数）。
+    - 前端 `PlayScene`：move 消息带 `rush` 时 `_action='rush'`；`RUSH_INTERVAL=360`（对齐原版 `ActRushLeft/Right` 3 帧×120ms）；`render` 里 self 冲撞时用 `RUSH_INTERVAL` 卷动，且 rush 动作直到 `_viewX` 追到 `self.x` 才回 `stand`（不再 600ms 提前结束）。
+    - 前端 `ActorSprite`：`PLAYER_SEG.rush→'run'`（原版 `ActRushLeft/Right` 即 run 段 128 起的 3 帧子段，帧布局与 run 完全一致）。
+    - 验证（Playwright 采样）：空旷地冲撞 `_action==='rush'`（非 walk）、`_viewX` 平滑追到终点后 `_action==='stand'`，无「走→平移」现象。
+87. **守卫反击魔法伤害 + 远程怪飞矢特效**（弓箭守卫/远程怪效果对齐原版）：
+    - **守卫反击魔法伤害**：根因 `lastHiterId` 只在物理 `attack` 里记录，魔法 `castMagic` 伤害不记录 → 守卫只反击物理。修复：`broadcastMagicHit`/`broadcastPhysicalHit` 里 `if(damage>0) m.lastHiterId = p.id`（对齐原版 `StruckDamage` 里 `SetLastHiter`），魔法/溅射/冲撞伤害都会触发守卫反击。
+    - **飞矢特效 + 延迟伤害**（对齐原版 `TArcherGuard.ShotArrow`/`TDualAxeMonster.FlyAxeAttack`）：服务端 `GameWorld.rangedAttack` 广播 `flyAxe` 消息（`{attackerId,targetId,dir,x,y}`）+ 加入 `pendingRangedHits` 延迟队列（`600 + Max(dx,dy)*50` ms，对齐 `SendDelayMsg`），`tick` 里到期经 `applyHitToPlayer` 结算（近战 `attackPlayer` 也复用该方法）。
+    - 前端 `PlayScene`：`flyAxe` 消息 → 守卫播 attack 动画 + `_spawnFx({kind:'flyAxe', dir16})`；`_renderEffects` 渲染飞矢（普通混合非光效），帧 = `mon5` 库 `2609 + Dir16*10`（16 方向箭矢，对齐原版 `ARCHERBASE`/`GetFlyDirection16`，`Dir16`=0上4右8下12左），飞行时长对齐服务端延迟，到达后伤害由延迟 attack 结算。
+    - **守卫固定不动**（照 `ObjMon2.pas TArcherGuard.Run`：有目标 `ShotArrow` 站桩射箭，无目标仅 `Turn(OriginDir)` 转身、非城堡守卫 `OriginDir=-1` 完全静止）：`monsterAi` 里 `GUARD_RACES`（20 弓箭警察/112 弓箭守卫）不参与「后撤保持距离 / 追目标 / 无目标随机游走」，只站定射箭。
+    - 验证（Playwright）：`_dir16From` 对左上→右下返回 6，帧 2669（mon5）为 40×26 箭矢纹理；守卫反击链 `guardHostile` 用 `lastHiterId` 触发。
+88. **刺杀/半月 seconddam 整数除法修复 + PVP 贯穿**（第二格/扇形无伤害）：
+    - 根因：`seconddam = dam / 5 * (Level+2)`（刺杀）和 `dam / 13 * (Level+2)`（半月）用**整数除法**，战士初始 DC 低（2-2）时 `dam/5=0` → `seconddam=0`，`if(seconddam>0)` 拦截 → 第二格/扇形永远无伤害。原版是 `Round(dam/(MaxTrainLevel+2)*(Level+2))`（浮点除法 + 四舍五入）。
+    - 修复：新增 `swordSecondDam(p, dam, magicId, divisor)` = `max(1, round((float)dam/divisor*(level+2)))`，统一替换 `attackMonster`/`swordLongHitMonster`/`swordLongHitPlayer`/`dirAttack` 里所有刺杀(÷5)/半月(÷13) 的 seconddam 计算。
+    - **PVP 贯穿**：`swordLongAttack`/`swordWideAttack` 的 `exclude` 参数由 `Monster` 改为 `Actor`，新增 `applySwordHit(p, Actor, seconddam)`（怪物直接结算 + 经验，玩家走 PVP 扣血广播，和平模式不伤玩家）；`attackPlayer` 主伤害结算后按 `swordHit`（12 刺杀/25 半月）调 `swordLongAttack`/`swordWideAttack` 打前方第 2 格/扇形副目标——对齐原版 `SwordLongAttack`/`SwordWideAttack` 的 `IsProperTarget`（含玩家）。
+89. **野蛮冲撞撞怪：去掉攻击动作 + 消息改击退格数**：
+    - 冲撞伤害原来用 `broadcastPhysicalHit`（广播 attack 消息，前端会播攻击者挥刀动画 + swordHit 光效），但原版 `CharRushRush` 冲撞伤害广播 `RM_STRUCK`（只目标受击，不触发攻击动作）。修复：新增 `broadcastStruck`（attack 消息带 `noAttackAnim:true`），前端 `attack` case 检测 `noAttackAnim` 时不播攻击者动画，只播目标 `struck`。
+    - 系统消息原来 `pushed > 0` 时报「击退了 X 个敌人」（X 其实是前进格数，且无怪前进时也误报「击退敌人」）。修复：按 `attackcret != null` 区分——有怪被撞退时「击退了 X 格」（pushed=撞退格数），无怪仅前进时「你向前冲撞」。
+90. **战士攻击模式优先级对齐原版（烈火 > 攻杀 > 半月 > 刺杀）**：
+    - 对照原版客户端 `ClMain.pas AttackTarget`：`if BoNextTimeFireHit → CM_FIREHIT; else if BoNextTimePowerHit → CM_POWERHIT; else if BoCanWideHit → CM_WIDEHIT; ... else if BoCanLongHit → CM_LONGHIT`。即一次攻击只触发一种模式，优先级 烈火 > 攻杀 > 半月 > 刺杀。
+    - `attackMonster`/`attackPlayer` 的 `swordHit` 判定保持此互斥优先级：烈火蓄力独占；攻杀触发时 `swordHit=7`（`if swordHit==0`），半月/刺杀在 `if(swordHit==0)` 里被跳过（攻杀触发那次不用半月/刺杀的扇形/隔位）。
 
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
@@ -437,7 +459,7 @@ jootm2/
 
 ## 5. 当前阶段 & 下一步（给新 agent）
 
-**后端（M2Server 移植）已 100% 完成**（§3 第 1-22 条覆盖全部核心玩法子系统），`mvn package` + smoke test 通过，无待办。
+**后端（M2Server 移植）已 100% 完成**（§3 第 1-22 条覆盖全部核心玩法子系统），`mvn package` 通过，无待办。
 
 **前端重写进行中**（原生 canvas 2d，替换旧 PixiJS client 副本）。已完成阶段 1（GUI 框架）+ 阶段 2（登录→选角→游戏场景真实地图渲染，§3 第 23-25 条）+ **实体真实 sprite**（§3 第 26 条）+ **行走/攻击动画 + 点击交互**（§3 第 27 条）+ **背包/装备/NPC 对话框 GUI**（§3 第 28 条）+ **技能系统**（施法朝鼠标位置/战士开关蓄力/技能特效渲染/施法动作，§3 第 81-82 条）+ **背包容量对齐原版 46 格**（§3 第 83 条）+ **传送卷/卷包解包/消耗品使用间隔**（§3 第 84 条）。**前端阶段 2 主线已全部完成**，游戏可玩闭环打通（登录→选角→进图→移动/点击→战斗→施法→拾取→使用物品/传送→NPC 对话/买卖）。
 
@@ -479,7 +501,13 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 
 - 启动日志关键行：`[db] imported CSV: items=541, monsters=273, magics=39`、`[resources] generated ...`、`[world] map=0 700x700, spawned monsters=N`、`[main] jootm2 started on port 8080`。
 - 浏览器打开 `http://localhost:8080/` 即可玩（注册→登录→建角→进游戏）。
-- 端到端测试：先起服务，再 `python3 scripts/smoke_test.py`（通过输出 `SMOKE TEST PASSED`）。
+- **前端 Playwright 测试**（浏览器级，验证渲染/动画/sprite/特效，是当前唯一的自动化测试手段）：
+  - 依赖：`pip install playwright && playwright install chromium`；脚本 `scripts/fx_*.py`、`scripts/sword_fx_test.py` 均用 `from playwright.sync_api import sync_playwright`。
+  - 模式：headless chromium 打开 `http://localhost:8080/`，`page.wait_for_function("window.__conn && window.__conn.connected === true")` 等连上后，用 `page.evaluate("window.__conn.send('login', {...})")` 驱动协议，再用 `window.__sceneManager.current.constructor.name` 等待场景切换（`LoginScene`→`SelectCharScene`→`NoticeScene`→`PlayScene`）。
+  - **调试全局**（`frontend/main.mjs` 暴露）：`window.__conn`（发 WS 消息）、`window.__sceneManager`（`current`=当前场景、`current.self`=玩家对象，含 `x/y/dir/_action/_viewX/_viewY`）、`window.__winManager`、`window.__scheduler`、`window.__getLib`。
+  - **抓帧验证动画/特效**：页面内逐帧 `document.getElementById('screen').toDataURL('image/png')`，base64 存 `/tmp/*.png`（见 `scripts/fx_debug.py`）；采样 `PlayScene.self._action`（stand/walk/run/rush/attack/spell/struck/die）与 `_viewX/_viewY` 可断言移动过渡（如验证野蛮冲撞：`_action==='rush'` 且 `_viewX` 平滑追到 `self.x`）。
+  - **完整链路**：注册→登录→建角→进游戏→noticeOk→移动/施法/攻击，逐场景 `wait_for_function` 断言，末了 `browser.close()`。
+  - 服务端改完需 `mvn -DskipTests package` + 重启 8080 后再跑；测试完 `lsof -ti:8080 | xargs kill -9` 清端口。
 - **重新导入数据**：删 `data/jootm2.db*` 后再启动（模板表为空才触发 CSV 导入）。
 - Docker：`docker compose up --build`；`resources/` 与 `data/` 用卷挂载（`gamedata` 未打进镜像，需在镜像内挂载（见 `docker-compose.yml` 与 README）。
 
@@ -503,7 +531,6 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - **怪物/技能名带数字后缀**：源数据（`Monster.csv`/`Magic.csv`）本身就有 `骷髅精灵10`、`驽马精灵0` 这类名字，是源数据如此，非解析 bug（`洞蛆`/`多钩猫`/`火球术` 等均正确）。
 - **.DB 有重复行**：`跳跳蜂1`×7、magId 11/15/20/26/29/30 各×2、idx 476×7，已用 `INSERT OR REPLACE` 去重（后写覆盖）。
 - **之前的手写 NIO 版有 bug**：`addActor` 没把怪物挂到地图导致 `tryMove` 会 NPE；已修（`GameWorld.addActor` 里 `if(a.map==null) a.map=defaultMap`）。
-- **smoke_test 战斗偶发「未击杀」**：怪物池从 3 个变 267 个后，可能随到高 HP 怪，是测试的随机性，非代码错误（`SMOKE TEST PASSED` 仍输出）。
 - **客户端游戏画面**：旧 client 副本（`/Volumes/未命名/client/`）的 PlayScene 是简化网格；新前端（`frontend/`，见 §3 第 23 条）已用真实等距地图渲染 + 实体真实 sprite（§3 第 26 条，站立帧）。
 - **无残留进程**：交接前已停掉我起的服务端/资源服务器，端口 8080/55842 均空闲。
 
@@ -518,7 +545,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 
 ## 13. 一句总结
 
-**后端 M2Server 移植已全部完成**（账号角色/多地图/NPC 脚本商店/掉落拾取/技能魔法/战斗 buff 宠物/任务/装备套装/行会攻城/组队仓库交易，§3 第 1-22 条），`mvn package` + smoke test 通过。**前端重写进行中**：已完成 GUI 框架 + 登录/选角/游戏场景（真实等距地图渲染 + 移动/聊天/战斗闭环 + **实体真实 sprite**，§3 第 23-26 条）+ 行走/攻击动画 + 点击交互 + 背包/NPC GUI（§3 第 27-28 条）+ 技能系统/特效/施法动作（§3 第 81-82 条）+ 背包容量 46 格 + 传送卷/卷包解包（§3 第 83-84 条）。**前端阶段 2 主线已全部完成**，下一步进入「打磨/进阶」（底部快捷栏、卖出数量、音效，§5）。接手先读 §2 目录、§5 方向、§10 关键点、§11 坑、§14 待办。
+**后端 M2Server 移植已全部完成**（账号角色/多地图/NPC 脚本商店/掉落拾取/技能魔法/战斗 buff 宠物/任务/装备套装/行会攻城/组队仓库交易，§3 第 1-22 条），`mvn package` 通过。**前端重写进行中**：已完成 GUI 框架 + 登录/选角/游戏场景（真实等距地图渲染 + 移动/聊天/战斗闭环 + **实体真实 sprite**，§3 第 23-26 条）+ 行走/攻击动画 + 点击交互 + 背包/NPC GUI（§3 第 27-28 条）+ 技能系统/特效/施法动作（§3 第 81-82 条）+ 背包容量 46 格 + 传送卷/卷包解包（§3 第 83-84 条）。**前端阶段 2 主线已全部完成**，下一步进入「打磨/进阶」（底部快捷栏、卖出数量、音效，§5）。接手先读 §2 目录、§5 方向、§10 关键点、§11 坑、§14 待办。
 
 ### 里程碑：前端移动/动画系统已完整打磨对齐原版（§3 第 37-45 条）
 
@@ -547,7 +574,7 @@ java -jar target/jootm2.jar      # 默认读 config/server.properties，监听 8
 - [ ] **chunk 级缓存**：当前是图级缓存（解包后存 canvas）；若解包耗时成瓶颈，改缓存「已解包的 chunk」避免重复解包同一 chunk。
 
 ### 前端渲染（阶段 2 后续）
-- [ ] **飞斧/箭矢飞行特效**：远程怪攻击目前只有 `attack` 广播（受击动画/日志），原版 `RM_FLYAXE` 有投射物飞行动画（`magiceff.pas` 的 `mtFlyAxe`，Effect 库帧 + 飞行插值），属特效系统的一部分。
+- [x] **飞斧/箭矢飞行特效**（已完成，见 §3 第 87 条：远程怪 `flyAxe` 广播 + mon5 库 2609+Dir16*10 箭矢飞行 + 延迟伤害）。
 - [x] **实体真实 sprite**（已完成，见 §3 第 26 条）。
 - [x] **行走/攻击动画**（已完成，见 §3 第 27 条）。
 - [x] **点击交互**（点地走/点怪攻击/点 NPC 对话/点物拾取，已完成，见 §3 第 27 条）。

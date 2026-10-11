@@ -92,13 +92,16 @@ public final class Player extends Actor {
     /** 魔法盾(31) 减伤截止时间戳。 */
     public long shieldUntil = 0;
 
-    /** 战士主动技能开关（原版 BoAllowWideHit/FireHit/CrossHit/LongHit）：
-     *  半月弯刀/攻杀/刺杀 是「攻击模式开关」，烈火剑法 是「蓄力」（下次攻击附带，用完关闭）。 */
-    public boolean wideHitOn = false;    // 半月弯刀：攻击变扇形范围
-    public boolean crossHitOn = false;   // 攻杀剑术：攻击概率附带攻杀
-    public boolean longHitOn = false;    // 刺杀剑术：攻击变隔位刺杀
-    public boolean fireHitOn = false;    // 烈火剑法：蓄力，下次攻击伤害翻倍
-    public long fireHitUntil = 0;        // 烈火蓄力超时时间戳（20 秒未用则失效）
+    /** 战士主动技能（对齐原版 ObjBase.pas：半月/刺杀是开关，烈火是蓄力；
+     *  攻杀剑术(7) 是纯被动 PPowerHitSkill，通过 powerHitCount/Point 计数触发，无开关）。 */
+    public boolean wideHitOn = false;    // 半月弯刀：攻击附带前方扇形（原版 BoAllowWideHit）
+    public boolean longHitOn = false;    // 刺杀剑术：攻击附带隔位刺杀（原版 BoAllowLongHit）
+    public boolean fireHitOn = false;    // 烈火剑法：蓄力，下次攻击伤害翻倍（原版 BoAllowFireHit）
+    public long lastFireHitAt = 0;       // 上次烈火蓄力时间戳（原版 LatestFireHitTime，10 秒冷却）
+    public long lastRushRushAt = 0;      // 上次野蛮冲撞时间戳（原版 LatestRushRushTime，3 秒冷却）
+    // 攻杀剑术(7) 被动触发计数（原版 AttackSkillCount/AttackSkillPointCount）
+    public int powerHitCount = 0;        // 剩余攻击计数（=7-Level，每次攻击递减；<=0 时重新初始化）
+    public int powerHitPoint = 0;        // 触发点（0..count-1 随机，命中即触发强力攻击）
 
     /** 攻击模式：0=和平 1=全体 2=行会。默认全体（后续单独做模式判定）。 */
     public int attackMode = 1;

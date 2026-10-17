@@ -69,7 +69,7 @@ const FX_FRAMES = {
     // 命中爆炸（EffectBase + 170）
     boomFire:     { lib: 'magic',  base: 170,  frames: 10, ft: 80 },   // 火球（Effect=1→0+170）
     boomBigFire:  { lib: 'magic',  base: 570,  frames: 10, ft: 80 },   // 大火球（Effect=3→400+170）
-    boomSoulfu:   { lib: 'magic',  base: 1110, frames: 6,  ft: 80 },   // 灵魂火符命中（Effect=10→940+170）
+    boomSoulfu:   { lib: 'magic',  base: 1360, frames: 10, ft: 50 },   // 灵魂火符命中爆炸（原版 TExploBujaukEffect MagExplosionBase=1360, ExplosionFrame=10）
     boomBflame:   { lib: 'magic',  base: 1660, frames: 20, ft: 80 },   // 爆裂火焰（原版 MagExplosionBase=1660, ExplosionFrame=20）
     boomIce:      { lib: 'magic',  base: 3850, frames: 20, ft: 80 },   // 冰咆哮（原版 MagExplosionBase=3850, ExplosionFrame=20）
     boomHoly:     { lib: 'magic',  base: 3930, frames: 16, ft: 80 },   // 圣言术（原版 MagExplosionBase=3930, ExplosionFrame=16）
@@ -82,14 +82,22 @@ const FX_FRAMES = {
     // 飞行弹道（EffectBase + FLYBASE 10）
     fireball:     { lib: 'magic',  base: 10,   frames: 6,  ft: 80 },   // 火球飞行（0+10）
     bigfireball:  { lib: 'magic',  base: 410,  frames: 6,  ft: 80 },   // 大火球飞行（400+10）
-    soulfu:       { lib: 'magic',  base: 950,  frames: 6,  ft: 80 },   // 灵魂火符飞行（940+10）
+    soulfu:       { lib: 'magic',  base: 1160, frames: 3,  ft: 50, dirStride: 10 },  // 灵魂火符飞行（原版 TExploBujaukEffect base=1160，3 帧×50ms，Dir16*10 方向）
     // 远程怪飞矢（射箭/投斧）：mon5 库箭矢帧 = 2609 + Dir16*10（16 方向，原版 magiceff.pas ARCHERBASE 段，ImgLib=WMon5）
     flyAxe:       { lib: 'mon5',   base: 2609, frames: 1,  dirStride: 10 },
     // 治疗/持续
-    heal:         { lib: 'magic',  base: 200,  frames: 8,  ft: 90 },   // 治愈（Effect=2→200）
+    heal:         { lib: 'magic',  base: 370,  frames: 10, ft: 80 },   // 治愈术（EffectType=2=mtExplosion，MagExplosionBase=EffectBase[1]200+170=370，10 帧）
+    healGroup:    { lib: 'magic',  base: 1800, frames: 10, ft: 80 },   // 群体治疗术（mtExplosion magnumb=27 → MagExplosionBase=1800，10 帧）
     temptation:   { lib: 'magic',  base: 1570, frames: 10, ft: 80 },   // 诱惑之光（原版 MagExplosionBase=1570，10 帧目标头顶特效）
     firewall:     { lib: 'magic',  base: 1630, frames: 6,  ft: 40 },   // 火墙火焰（原版 clEvent.pas FIREBURNBASE=1630，6 帧循环）
     shield:       { lib: 'magic',  base: 3880, frames: 12, ft: 100 },  // 魔法盾泡泡（Effect=29→3880）
+    ghostShield:  { lib: 'magic',  base: 1320, frames: 16, ft: 50 },   // 幽灵盾光环（Effect=11→TBujaukGroundEffect 1160+16*10，16 帧）
+    holyArmor:    { lib: 'magic',  base: 1340, frames: 16, ft: 50 },   // 神圣战甲光环（Effect=12→1160+18*10，16 帧）
+    hideSmoke:    { lib: 'magic',  base: 1540, frames: 10, ft: 80 },   // 隐身烟雾（集体隐身 Effect=17→TExploBujaukEffect MagExplosionBase=1540，10 帧）
+    holyCurtain:  { lib: 'magic',  base: 1380, frames: 20, ft: 80 },   // 困魔咒（原版 mtKyulKai 注释 TKyulKai.Create(1380)，20 帧）
+    // 神兽吐火火焰（原版 AxeMon.pas TWarriorElfMonster.RunFrameAction：攻击第 5 帧触发
+    // TMapEffect.Create(WARRIORELFFIREBASE + 10*Dir + 1, 5帧, 100ms)——帧 = 820+10*Dir+1+rel，固定在神兽位置）
+    elfFire:      { lib: 'mon18',  base: 820,  frames: 5,  ft: 100 },
 };
 // 战士打击光效（原版 Actor.pas 的 BoHitEffect：绘制在攻击者身上，帧 = HitEffectBase[n-1] + Dir*10 + 相对帧）
 // HitEffectNumber → HitEffectBase（magiceff.pas）：1攻杀=800 2刺杀=1410 3半月=1700 4烈火=3480 6狂风=40
@@ -108,6 +116,11 @@ const MAGIC_VFX = {
     10: { beam: 'jgdy' },                              // 疾光电影（闪电从角色沿鼠标方向延伸）
     11: { hit: 'thunder' },                            // 雷电术（雷击）
     13: { fly: 'soulfu',       hit: 'boomSoulfu' },    // 灵魂火符
+    14: { fly: 'soulfu',       hit: 'ghostShield' },   // 幽灵盾（符纸飞向目标展开魔御光环）
+    15: { fly: 'soulfu',       hit: 'holyArmor' },     // 神圣战甲术（符纸飞向目标展开防御光环）
+    18: {},                                            // 隐身术（原版 EffectType=4=mtFireWind 无特效，对齐原版）
+    19: { fly: 'soulfu',       hit: 'hideSmoke' },     // 集体隐身术（符纸飞向目标点展开范围烟雾）
+    16: { hit: 'holyCurtain' },                        // 困魔咒（目标点帷幕定身效果）
     22: { ground: 'firewall' },                        // 火墙
     23: { hit: 'boomBflame' },                         // 爆裂火焰
     8:  { self: 'fireRing' },                          // 抗拒火环（自身金色光环）
@@ -115,7 +128,8 @@ const MAGIC_VFX = {
     32: { hit: 'boomHoly' },                           // 圣言术
     33: { hit: 'boomIce' },                            // 冰咆哮
     2:  { hit: 'heal' },                               // 治愈术
-    6:  { hit: 'heal' },                               // 施毒术（命中绿光）
+    29: { hit: 'healGroup' },                          // 群体治疗术（原版 mtExplosion magnumb=27 → MagExplosionBase=1800）
+    6:  {},                                            // 施毒术（原版 nofire，无命中特效，效果=目标中毒变色）
     20: { hit: 'temptation' },                         // 诱惑之光（目标头顶特效）
 };
 
@@ -551,21 +565,34 @@ export class PlayScene extends Scene {
                     if (msg.exp !== undefined) e.exp = msg.exp;
                     if (msg.gold !== undefined) e.gold = msg.gold;
                     if (msg.skills !== undefined) e.skills = msg.skills;   // 技能快捷键更新
+                    // 战斗属性（幽灵盾/神圣战甲等 buff 改变 AC/MAC，F10 状态页实时刷新）
+                    if (msg.ac !== undefined) e.ac = msg.ac;
+                    if (msg.mac !== undefined) e.mac = msg.mac;
+                    if (msg.dc !== undefined) e.dc = msg.dc;
+                    if (msg.mc !== undefined) e.mc = msg.mc;
+                    if (msg.sc !== undefined) e.sc = msg.sc;
                     // 状态特效：魔法盾 / 隐身 / 中毒 / 定身 / 战士开关
                     if (msg.shield !== undefined) {
                         if (msg.shield && !e._shield) e._shieldAt = Date.now();   // 护盾开启时间（成形动画用）
                         e._shield = msg.shield;
                     }
                     if (msg.hidden !== undefined) e._hidden = msg.hidden;
-                    if (msg.poison !== undefined) e._poison = msg.poison;
-                    if (msg.paralyzed !== undefined) e._paralyzed = msg.paralyzed;
+                    if (msg.poison !== undefined) e._poison = msg.poison;          // 红毒（掉血）
+                    if (msg.poisonArmor !== undefined) e._poisonArmor = msg.poisonArmor;   // 绿毒（减防）
+                    if (msg.nameColor !== undefined) e.nameColor = msg.nameColor;   // 宠物名字颜色随等级
+                    if (msg.raceImg !== undefined) e.raceImg = msg.raceImg;         // 神兽变身（raceImg 54↔55，换动作表）
+                    if (msg.appr !== undefined) e.appr = msg.appr;                  // 神兽变身（appr 170↔171，换图库偏移段）
+                    if (msg.paralyzed !== undefined) {
+                        if (msg.paralyzed && !e._paralyzed) e._paralyzedAt = Date.now();   // 麻痹开始时间（钉住动画用）
+                        e._paralyzed = msg.paralyzed;
+                    }
                     if (msg.wideHit !== undefined) e._wideHit = msg.wideHit;
                     if (msg.longHit !== undefined) e._longHit = msg.longHit;
                     if (msg.fireHit !== undefined) e._fireHit = msg.fireHit;
                 }
-                // 技能页打开时同步刷新（快捷键变更）
-                if (this.stateWin && this.stateWin.style.display === 'block' && this.statePage === 3) {
-                    this._refreshSkillPage();
+                // 状态窗口打开时同步刷新当前页（属性页 AC/MAC 随 buff 变化、技能页快捷键变更）
+                if (this.stateWin && this.stateWin.style.display === 'block') {
+                    this._refreshStateWin();
                 }
                 break;
             }
@@ -574,6 +601,11 @@ export class PlayScene extends Scene {
                 // noAttackAnim：冲撞等不触发攻击者攻击动作（只播目标受击，对齐原版 RM_STRUCK）
                 if (a && !msg.noAttackAnim) {
                     a._action = 'attack'; a._actionAt = Date.now();
+                    // 神兽吐火（变身 raceImg=55）：攻击时在神兽位置喷火焰
+                    // （原版 AxeMon.pas TWarriorElfMonster.RunFrameAction：攻击第 5 帧触发 TMapEffect，帧=820+10*Dir+1 起 5 帧）
+                    if (a.raceImg === 55) {
+                        this._spawnFx({ kind: 'elfFire', dir: a.dir || 0, x: a.x, y: a.y });
+                    }
                     // 战士打击光效（攻杀/刺杀/半月/烈火，叠加在攻击者身上，与原版 BoHitEffect 一致）
                     if (msg.swordHit && SWORD_HIT_FX[msg.swordHit]) {
                         a._swordHit = msg.swordHit; a._swordHitAt = Date.now();
@@ -610,19 +642,23 @@ export class PlayScene extends Scene {
             }
             case 'spellCast': {
                 const c = this.entities.get(msg.casterId);
-                // 施法动作（HA.spell 段，与普通攻击 hit 段不同）
-                if (c) { c._action = 'spell'; c._actionAt = Date.now(); }
+                // 施法动作（HA.spell 段，与普通攻击 hit 段不同）；怪物施法者不覆盖——
+                // 神兽吐火等由 attack 消息设置攻击动画（ActAttack 两足站立喷火），避免被 spell→stand 回退覆盖
+                if (c && c.type === 'player') { c._action = 'spell'; c._actionAt = Date.now(); }
                 // 施法特效：飞行弹道（火球/灵魂火符/雷击飞向目标点）
                 const vfx = MAGIC_VFX[msg.magicId];
                 const tx = msg.targetX ?? (c ? c.x : 0);
                 const ty = msg.targetY ?? (c ? c.y : 0);
                 if (vfx && vfx.fly && c) {
+                    // 服务端已算好符纸飞行终点（撞高墙时中断在墙前，targetX/Y=中断点）；
+                    // blocked 表示撞墙：符纸停在墙前消失，不转命中爆炸
                     this._spawnFx({
                         kind: 'fly',
                         fx: vfx.fly,
                         sx: c.x, sy: c.y,
                         x: tx, y: ty,
-                        hit: vfx.hit || null,
+                        hit: msg.blocked ? null : (vfx.hit || null),
+                        dir16: this._dir16From(c.x, c.y, tx, ty),   // 灵魂火符等按飞行方向选帧
                     });
                 } else if (vfx && vfx.firegun && c) {
                     // 地狱火：火焰从角色向目标方向喷射（原版 TFireGunEffect，火焰团沿连线推进）
@@ -1802,7 +1838,9 @@ export class PlayScene extends Scene {
                 hp: e.hp, maxHp: e.maxHp, type: e.type,
                 isTarget: this.castTarget != null && e.id === this.castTarget,
                 alpha: e._hidden ? 0.5 : undefined,   // 隐身半透明
-                poison: !!e._poison,                  // 中毒绿色调
+                poison: !!e._poison,                  // 红毒（掉血）绿色调
+                poisonArmor: !!e._poisonArmor,        // 绿毒（减防）红色调
+                nameColor: e.nameColor,               // 宠物名字颜色（调色板索引）
                 layers: sp.getLayers(now),
             });
         }
@@ -1927,6 +1965,30 @@ export class PlayScene extends Scene {
             }
             this._drawFx(ctx, def, frame, e.x, e.y, ox, oy);
         }
+        // 困魔咒：定身期间循环播放末尾几帧（钉子效果，把怪物钉在原地；完整展开动画由 spellCast 的 hit 播放）
+        for (const e of this.entities.values()) {
+            if (!e._paralyzed) continue;
+            const def = FX_FRAMES.holyCurtain;
+            const ft = def.ft || 80;
+            const elapsed = now - (e._paralyzedAt || now);
+            const formFrames = def.frames;            // 完整展开动画 20 帧
+            if (elapsed < formFrames * ft) continue;  // 展开动画播放中（hit 特效负责），避免重复
+            const loopStart = formFrames - 4;         // 末尾 4 帧（1396-1399）循环
+            const frame = loopStart + Math.floor((elapsed - formFrames * ft) / ft) % 4;
+            // 跟随实体偏移（self 走动画 / 怪物移动过渡）
+            let ox = 0, oy = 0;
+            if (e.id === this.self.id) {
+                ox = (this._viewX - e.x) * 48;
+                oy = (this._viewY - e.y) * 32;
+            } else if (e._moveAt != null && e._fromX != null) {
+                const t = (now - e._moveAt) / MONSTER_MOVE_DUR;
+                if (t < 1) {
+                    ox = (e._fromX - e.x) * 48 * (1 - t);
+                    oy = (e._fromY - e.y) * 32 * (1 - t);
+                }
+            }
+            this._drawFx(ctx, def, frame, e.x, e.y, ox, oy);
+        }
         // 战士打击光效（攻杀/刺杀/半月/烈火）：叠加在攻击者身上，帧 = HitEffectBase + Dir*10 + 相对帧
         // 相对帧随攻击动画推进（原版 currentframe-startframe，ActHit 6 帧 × 85ms）
         for (const e of this.entities.values()) {
@@ -1969,6 +2031,13 @@ export class PlayScene extends Scene {
                 if (elapsed > (fx.dur || 8000)) continue;   // 持续到时限
                 this._drawFx(ctx, def, Math.floor(elapsed / (def.ft || 40)) % def.frames, fx.x, fx.y);
                 survivors.push(fx);
+            } else if (fx.kind === 'elfFire') {
+                // 神兽吐火火焰：mon18 820+10*Dir+1 起 5 帧（原版 TWarriorElfMonster.RunFrameAction）
+                const def = FX_FRAMES.elfFire;
+                const ft = def.ft || 100;
+                const rel = Math.floor(elapsed / ft) % def.frames;
+                this._drawFx(ctx, def, 1 + (fx.dir || 0) * 10 + rel, fx.x, fx.y);
+                if (elapsed < def.frames * ft) survivors.push(fx);
             } else if (fx.kind === 'fly') {
                 const def = FX_FRAMES[fx.fx];
                 const dist = Math.max(1, Math.abs(fx.x - fx.sx) + Math.abs(fx.y - fx.sy));
@@ -1976,7 +2045,9 @@ export class PlayScene extends Scene {
                 const p = Math.min(1, elapsed / dur);
                 const cx = fx.sx + (fx.x - fx.sx) * p;
                 const cy = fx.sy + (fx.y - fx.sy) * p;
-                this._drawFx(ctx, def, Math.floor(elapsed / (def.ft || 80)) % def.frames, cx, cy);
+                // 灵魂火符等有方向帧：帧 = base + Dir16*10 + 相对帧（对齐 TExploBujaukEffect.DrawEff）
+                const dirOffset = def.dirStride ? (fx.dir16 || 0) * def.dirStride : 0;
+                this._drawFx(ctx, def, dirOffset + Math.floor(elapsed / (def.ft || 80)) % def.frames, cx, cy);
                 if (p >= 1) {
                     if (fx.hit) this._spawnFx({ kind: 'hit', fx: fx.hit, x: fx.x, y: fx.y });
                     continue;   // 飞行结束，转为命中

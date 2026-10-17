@@ -27,10 +27,12 @@ public class Actor {
     public boolean alive = true;
     public GameMap map;
 
-    // 中毒状态（施毒术等）：poisonTicks 为剩余跳数，0 表示未中毒
+    // 红毒（施毒术 POISON_DECHEALTH，持续掉血）：poisonTicks 剩余跳数（每 POISON_INTERVAL_MS 一跳），0 未中毒
     public int poisonTicks;
-    public int poisonDamage;
+    public int poisonDamage;     // 每跳伤害（原版 1 + PoisonLevel）
     public long lastPoisonAt;
+    // 绿毒（施毒术 POISON_DAMAGEARMOR，减防）：截止时间戳，0 = 无绿毒，期间受伤 +20%（原版 StruckDamage）
+    public long poisonArmorUntil = 0;
 
     protected Actor(long id) {
         this.id = id;

@@ -8,6 +8,7 @@
 
 import { loadMap } from './Maps.mjs';
 import { getLib } from '../image/Images.mjs';
+import { PALETTE_RGBA } from '../gfx/palette.mjs';
 
 const TILE_W = 48;
 const TILE_H = 32;
@@ -19,6 +20,7 @@ export class MapActor {
         this.map = null;
         this.mapId = null;
         this._texCache = new Map();   // key -> { canvas, px, py }
+        this._tintCache = new Map();  // 原始 canvas -> (color -> 染色后 canvas)，中毒变色用
         // render 时缓存（供 screenX/screenY 使用）
         this._cx = 0;
         this._cy = 0;
@@ -50,6 +52,30 @@ export class MapActor {
 
     _libKey(base, fileIdx) {
         return fileIdx ? base + fileIdx : base;
+    }
+
+    /** 中毒变色：在 sprite 自己的离屏画布上叠加颜色（source-atop 的 destination 只有 sprite 像素，
+     *  精确跟随实体轮廓）。结果按（原始 canvas, 颜色）缓存，避免每帧重建。 */
+    _tint(canvas, color) {
+        let byColor = this._tintCache.get(canvas);
+        if (!byColor) {
+            byColor = new Map();
+            this._tintCache.set(canvas, byColor);
+        }
+        let tinted = byColor.get(color);
+        if (!tinted) {
+            const c = document.createElement('canvas');
+            c.width = canvas.width;
+            c.height = canvas.height;
+            const cc = c.getContext('2d');
+            cc.drawImage(canvas, 0, 0);
+            cc.globalCompositeOperation = 'source-atop';
+            cc.fillStyle = color;
+            cc.fillRect(0, 0, c.width, c.height);
+            tinted = c;
+            byColor.set(color, c);
+        }
+        return tinted;
     }
 
     // 屏幕坐标（收口：所有叠加物——血条/名字/地面物品/高亮——都用这两个换算）
@@ -156,16 +182,14 @@ export class MapActor {
                         ctx.save();
                         // 隐身术：半透明
                         if (e.alpha != null && e.alpha < 1) ctx.globalAlpha = e.alpha;
+                        // 红毒（掉血）绿色调 / 绿毒（减防）红色调：在每个 sprite 自己的离屏画布上染色
+                        // （source-atop 的 destination 只有 sprite 像素 → 颜色精确跟随实体轮廓，不会盖到地图上）
+                        const tint = e.poison ? 'rgba(60,255,60,0.35)' : (e.poisonArmor ? 'rgba(255,60,60,0.35)' : null);
                         for (const layer of e.layers) {
                             if (layer.canvas) {
-                                ctx.drawImage(layer.canvas, anchorX + layer.px, anchorY + layer.py);
+                                const img = tint ? this._tint(layer.canvas, tint) : layer.canvas;
+                                ctx.drawImage(img, anchorX + layer.px, anchorY + layer.py);
                             }
-                        }
-                        // 中毒：绿色调覆盖（source-atop 仅作用于已绘制的实体像素）
-                        if (e.poison) {
-                            ctx.globalCompositeOperation = 'source-atop';
-                            ctx.fillStyle = 'rgba(60,255,60,0.35)';
-                            ctx.fillRect(anchorX - 8, anchorY - 80, 72, 110);
                         }
                         ctx.restore();
                     } else if (e.tex) {
@@ -199,7 +223,13 @@ export class MapActor {
                         const ny = anchorY - 71;
                         ctx.fillStyle = 'rgba(0,0,0,0.6)';
                         ctx.fillRect(nx - tw / 2 - 3, ny - 11, tw + 6, 13);
-                        ctx.fillStyle = e.isSelf ? '#ffe9b0' : '#e0d0a0';
+                        // 宠物名字颜色随等级（调色板索引取色，原版 GetThisCharColor/SlaveColors）
+                        let nameFill = e.isSelf ? '#ffe9b0' : '#e0d0a0';
+                        if (e.nameColor != null) {
+                            const i = e.nameColor * 4;
+                            nameFill = `rgb(${PALETTE_RGBA[i]},${PALETTE_RGBA[i + 1]},${PALETTE_RGBA[i + 2]})`;
+                        }
+                        ctx.fillStyle = nameFill;
                         ctx.fillText(e.name, nx, ny);
                     }
                 }

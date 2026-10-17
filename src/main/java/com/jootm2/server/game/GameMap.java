@@ -43,6 +43,21 @@ public final class GameMap {
         }
     }
 
+    /** 高墙（原版 MP_HIGHWALL/MoveAttr=2，即 FrImg 0x8000）：阻挡移动 + 阻挡飞行/视线。 */
+    private static final byte HIGH_WALL = 2;
+
+    /** 飞行/视线能否通过该格（原版 Envir.CanFireFly：只有高墙阻挡，普通阻挡不挡）。 */
+    public boolean canFireFly(int x, int y) {
+        return inside(x, y) && cells[y * width + x] != HIGH_WALL;
+    }
+
+    /** 标记高墙（阻挡移动 + 飞行/视线）。 */
+    public void setHighWall(int x, int y) {
+        if (inside(x, y)) {
+            cells[y * width + x] = HIGH_WALL;
+        }
+    }
+
     public boolean isOccupied(int x, int y) {
         for (Actor a : actors.values()) {
             if (a.alive && a.x == x && a.y == y) {

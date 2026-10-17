@@ -41,13 +41,16 @@ public final class MapFileReader {
                     if (off + 12 > all.length) {
                         return map;
                     }
-                    int bng = buf.getShort(off) & 0xFFFF;
-                    int mid = buf.getShort(off + 2) & 0xFFFF;
-                    int obj = buf.getShort(off + 4) & 0xFFFF;
+                    int bng = buf.getShort(off) & 0xFFFF;      // BkImg（背景图）
+                    int mid = buf.getShort(off + 2) & 0xFFFF;  // MidImg（中间图）
+                    int obj = buf.getShort(off + 4) & 0xFFFF;  // FrImg（前景图）
                     int doorIndex = buf.get(off + 6) & 0xFF;   // 第 7 字节：门标志+门号
                     off += 12;
-                    if ((bng & 0x8000) != 0 || (mid & 0x8000) != 0 || (obj & 0x8000) != 0) {
-                        map.setBlocked(x, y, true);
+                    // 原版 Envir.pas：BkImg 0x8000 → MoveAttr=1（普通阻挡），FrImg 0x8000 → MoveAttr=2=MP_HIGHWALL（高墙，阻挡飞行/视线）
+                    if ((obj & 0x8000) != 0) {
+                        map.setHighWall(x, y);   // FrImg 0x8000 → 高墙：阻挡移动 + 飞行/视线
+                    } else if ((bng & 0x8000) != 0 || (mid & 0x8000) != 0) {
+                        map.setBlocked(x, y, true);   // BkImg/MidImg 0x8000 → 普通阻挡：只挡移动，不挡飞行
                     }
                     // 门：0x80 位=门标志，低 7 位=门号
                     if ((doorIndex & 0x80) != 0 && (doorIndex & 0x7F) > 0) {

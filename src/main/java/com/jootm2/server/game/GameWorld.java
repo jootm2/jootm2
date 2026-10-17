@@ -46,7 +46,8 @@ public final class GameWorld {
     public static final int MONSTER_COUNT = 30;
     public static final long RESPAWN_MS = 15_000L;
     public static final long REGEN_INTERVAL_MS = 2_000L;
-    public static final long POISON_INTERVAL_MS = 1_000L;
+    public static final long HEALING_INTERVAL_MS = 500L;    // 治愈术持续回血间隔（原版 inchstime=600-min(400,Level*10) 简化取 500ms）
+    public static final long POISON_INTERVAL_MS = 2_500L;   // 原版红毒每 2500ms 跳一次（GetTickCount - poisontime > 2500）
     public static final long DOOR_OPEN_MS = 5_000L;
     /** 地面掉落物存活时长（原版 MapItem.DisappearTime：约 60 秒后自动消失）。 */
     public static final long GROUND_ITEM_TTL_MS = 60_000L;
@@ -921,6 +922,11 @@ public final class GameWorld {
 
     /** Removes a player from the scene (logout/disconnect). */
     public void removePlayer(Player p) {
+        // 主人下线：宠物死亡消失（原版 Master.BoGhost 超过 1 秒后宠物 HP 归 0）
+        Monster summon = p.summonId >= 0 ? (Monster) actor(p.summonId) : null;
+        if (summon != null && summon.alive) {
+            removeSummon(summon);
+        }
         playersByName.remove(p.name);
         removeActor(p.id);
     }
@@ -1118,6 +1124,9 @@ public final class GameWorld {
             if (!p.map.inside(c[0], c[1])) {
                 continue;
             }
+            if (!p.map.canFireFly(c[0], c[1])) {
+                continue;   // 火墙不能释放在高墙（不可飞行）上
+            }
             fireWalls.add(new FireWall(p.map, c[0], c[1], expire, damage, p.id));
             made++;
             // 每个火墙单元独立广播（十字 5 格各自渲染，与原版 MagMakeFireCross 一致）
@@ -1193,32 +1202,52 @@ public final class GameWorld {
         }
     }
 
-    /** 中毒持续伤害：每 POISON_INTERVAL_MS 跳一次。 */
+    /** 中毒持续伤害：红毒每 POISON_INTERVAL_MS 跳一次（原版 2500ms 掉 1+PoisonLevel）；绿毒到期清除。 */
     private void applyPoison(Actor a, long now) {
-        if (a.poisonTicks <= 0 || !a.alive) {
+        if (!a.alive) {
             return;
         }
-        if (now - a.lastPoisonAt < POISON_INTERVAL_MS) {
-            return;
-        }
-        a.lastPoisonAt = now;
-        a.hp = Math.max(0, a.hp - a.poisonDamage);
-        a.poisonTicks--;
-        sendStats(a, null);
-        if (a.hp <= 0) {
-            if (a instanceof Monster) {
-                killMonster((Monster) a, now, null);
-            } else if (a instanceof Player) {
-                killPlayer((Player) a);
+        // 红毒：持续掉血
+        if (a.poisonTicks > 0 && now - a.lastPoisonAt >= POISON_INTERVAL_MS) {
+            a.lastPoisonAt = now;
+            a.hp = Math.max(0, a.hp - a.poisonDamage);
+            a.poisonTicks--;
+            if (a.poisonTicks <= 0) {
+                a.lastPoisonAt = 0;
             }
+            sendStats(a, null);
+            if (a.hp <= 0) {
+                if (a instanceof Monster) {
+                    killMonster((Monster) a, now, null);
+                } else if (a instanceof Player) {
+                    killPlayer((Player) a);
+                }
+                return;
+            }
+        }
+        // 绿毒：到期清除
+        if (a.poisonArmorUntil > 0 && a.poisonArmorUntil <= now) {
+            a.poisonArmorUntil = 0;
+            sendStats(a, null);
         }
     }
 
     private void regen(Player p, long now) {
+        boolean changed = false;
+        // 治愈术持续回血：每 HEALING_INTERVAL_MS 回 PerHealing=5（原版 IncHealing/PerHealing）
+        if (p.incHealing > 0 && p.hp < p.maxHp && now - p.lastHealingAt >= HEALING_INTERVAL_MS) {
+            int heal = Math.min(5, p.incHealing);
+            p.hp = Math.min(p.maxHp, p.hp + heal);
+            p.incHealing -= heal;
+            p.lastHealingAt = now;
+            changed = true;
+        }
         if (now - lastRegenAt < REGEN_INTERVAL_MS) {
+            if (changed) {
+                sendStats(p, null);
+            }
             return;
         }
-        boolean changed = false;
         if (p.hp < p.maxHp) {
             p.hp++;
             changed = true;
@@ -1236,6 +1265,11 @@ public final class GameWorld {
     private void monsterAi(Monster m, long now) {
         if (m.pendingRespawn || !m.alive) {
             return;
+        }
+        // 麻痹到期：解除定身 + 广播（前端据此去掉钉住特效）
+        if (m.paralyzedUntil > 0 && now >= m.paralyzedUntil) {
+            m.paralyzedUntil = 0;
+            sendStats(m, null);
         }
         if (now < m.paralyzedUntil) {
             return;   // 麻痹定身
@@ -1300,35 +1334,73 @@ public final class GameWorld {
         }
     }
 
-    /** 宠物 AI：跟随主人并协助攻击其附近的怪物。 */
+    /** 宠物 AI：优先协助攻击主人当前攻击的目标，其次主人附近最近的怪；无敌人时跟随主人。 */
     private void summonAi(Monster m, long now) {
         Player master = (Player) actor(m.masterId);
         if (master == null || !master.alive || master.map != m.map) {
             return;
         }
-        Monster enemy = nearestEnemy(master, m);
+        // 原版 TWhiteSkeleton.ResetSkeleton：NextHitTime = 3000 - SlaveMakeLevel*600，NextWalkTime = 1200 - SlaveMakeLevel*250
+        // （Monster.csv 里神兽的 AttackSpeed/WalkSpeed 为 0，直接用会变成无间隔连续攻击）
+        int hitInterval = Math.max(500, 3000 - m.slaveMakeLevel * 600);
+        int walkInterval = Math.max(200, 1200 - m.slaveMakeLevel * 250);
+        // 优先攻击主人正在打的目标（原版 Master.TargetCret），其次主人附近最近怪
+        Monster enemy = null;
+        Actor mt = master.targetId >= 0 ? actor(master.targetId) : null;
+        if (mt instanceof Monster && mt.alive && mt.map == m.map
+                && ((Monster) mt).masterId < 0 && m.distanceTo(mt) <= 11) {
+            enemy = (Monster) mt;
+        }
+        if (enemy == null) {
+            enemy = nearestEnemy(master, m);
+        }
+        // 神兽变身（原版 TElfMonster/TElfWarriorMonster）：有目标 → 两足站立吐火（raceImg 55/MA29），
+        // 失去目标后站立持续 60 秒（changefacetime），超时变回四足（raceImg 54/MA28）。
+        // 变身必须同时换 appr（170↔171）：RaceImg 只选动作表，appr 决定图库偏移——
+        // appr=170 → offset 0（四足趴地段），appr=171 → offset 350（两足站立段：stand 430 / attack 590）
+        if (m.race == 113) {
+            if (enemy != null) {
+                if (!m.transformed) {
+                    m.transformed = true;
+                    m.raceImg = 55;
+                    m.appr = 171;
+                    sendStats(m, null);
+                }
+                m.changeFaceAt = now;
+            } else if (m.transformed && now - m.changeFaceAt > 60_000L) {
+                m.transformed = false;
+                m.raceImg = 54;
+                m.appr = 170;
+                sendStats(m, null);
+            }
+        }
         if (enemy != null) {
-            if (m.distanceTo(enemy) == 1) {
+            int dist = m.distanceTo(enemy);
+            // 神兽变身（两足站立）后吐火：距离 ≤2 格（原版 TSpitSpider.TargetInSpitRange：abs(dx)<=2 and abs(dy)<=2），超出则靠近
+            boolean ranged = m.race == 113 && m.transformed;
+            int attackRange = ranged ? 2 : 1;
+            if (dist <= attackRange) {
                 if (now >= m.nextAttackAt) {
-                    m.nextAttackAt = now + m.template.attackSpeed;
+                    m.nextAttackAt = now + hitInterval;
                     m.dir = dirTowards(m, enemy);
                     int dmg = Math.max(1, m.rollAttack() - enemy.template.ac);
                     enemy.hp = Math.max(0, enemy.hp - dmg);
-                    sendHits(m, enemy, dmg);
+                    sendHits(m, enemy, dmg);   // 攻击动画（两足站立喷火）；火焰特效由前端在 attack 消息里按 raceImg=55 播 mon18 820 起
                     if (enemy.hp <= 0) {
                         killMonster(enemy, now, master);
                         grantExpTo(master, enemy);
+                        gainSlaveExp(m, enemy);   // 宠物获得击杀经验并升级（原版 GainSlaveExp）
                     }
                 }
             } else if (now >= m.nextMoveAt) {
-                m.nextMoveAt = now + m.template.walkSpeed;
+                m.nextMoveAt = now + walkInterval;
                 m.dir = dirTowards(m, enemy);
                 if (tryMove(m, m.dir)) {
                     broadcastMove(m);
                 }
             }
         } else if (m.distanceTo(master) > 2 && now >= m.nextMoveAt) {
-            m.nextMoveAt = now + m.template.walkSpeed;
+            m.nextMoveAt = now + walkInterval;
             m.dir = dirTowards(m, master);
             if (tryMove(m, m.dir)) {
                 broadcastMove(m);
@@ -1365,6 +1437,38 @@ public final class GameWorld {
             sendSystem(p, "恭喜！你升到了 " + newLevel + " 级。");
         }
         sendStats(p, null);
+    }
+
+    /** 宠物获得击杀经验并升级（对齐原版 GainSlaveExp）。 */
+    private void gainSlaveExp(Monster slave, Monster killed) {
+        int[] slaveUpExp = {0, 0, 50, 100, 200, 300, 600};
+        int more = (slave.slaveExpLevel >= 0 && slave.slaveExpLevel <= 6) ? slaveUpExp[slave.slaveExpLevel] : 0;
+        int nextExp = 100 + killed.level * 15 + more;   // 原版 NextExp = 100 + Level*15 + slaveupexp[SlaveExpLevel]
+        slave.slaveExp += killed.level;                  // 原版 exp 参数 = 被杀怪等级（GainSlaveExp(self.Abil.Level)）
+        if (slave.slaveExp > nextExp) {
+            slave.slaveExp -= nextExp;
+            if (slave.slaveExpLevel < slave.slaveMakeLevel * 2 + 1) {
+                slave.slaveExpLevel++;
+                applySlaveLevel(slave);
+            }
+        }
+    }
+
+    /** 宠物升级应用属性（对齐原版 ApplySlaveLevelAbilitys）：骷髅/神兽特殊公式，其他通用。 */
+    private void applySlaveLevel(Monster slave) {
+        int lv = slave.slaveExpLevel;
+        int baseHp = slave.template.hp;
+        if (slave.race == 86 || slave.race == 113) {
+            // 骷髅(86)/神兽(113)：DC += 3*(0.3+Level*0.1)*Level，MaxHP += MaxHP*(0.3+Level*0.1)*Level
+            slave.slaveDcBonus = Math.round(3 * (0.3f + lv * 0.1f) * lv);
+            slave.maxHp = baseHp + Math.round(baseHp * (0.3f + lv * 0.1f) * lv);
+        } else {
+            // 其他宠物：DC += 2*Level，MaxHP += MaxHP*0.15*Level（上限 60*Level）
+            slave.slaveDcBonus = 2 * lv;
+            slave.maxHp = Math.min(baseHp + 60 * lv, baseHp + Math.round(baseHp * 0.15f) * lv);
+        }
+        slave.hp = Math.min(slave.hp, slave.maxHp);
+        sendStats(slave, null);
     }
 
     private Player resolveTarget(Monster m) {
@@ -1432,9 +1536,14 @@ public final class GameWorld {
 
     /** 对玩家结算一次怪物伤害（近战立即、远程延迟后调用）：魔法盾/护身减伤 + 扣血 + 广播受击。 */
     private void applyHitToPlayer(Monster m, Player target, int dmg) {
+        long now = System.currentTimeMillis();
         // 魔法盾：减伤 30%
-        if (target.shieldUntil > System.currentTimeMillis()) {
+        if (target.shieldUntil > now) {
             dmg = dmg * 7 / 10;
+        }
+        // 绿毒（施毒术 POISON_DAMAGEARMOR）：减防，受伤 +20%（原版 StruckDamage）
+        if (target.poisonArmorUntil > now) {
+            dmg = Math.round(dmg * 1.2f);
         }
         // 护身：伤害先由 MP 抵消
         if (target.manaToHealth > 0 && target.mp > 0) {
@@ -1468,6 +1577,12 @@ public final class GameWorld {
         death.addProperty("type", "death");
         death.addProperty("id", p.id);
         broadcastAround(p.map, death, p.x, p.y, SIGHT_RANGE);
+
+        // 主人死亡：宠物死亡消失（原版 Master.Death 超过 1 秒后宠物 HP 归 0）
+        Monster summon = p.summonId >= 0 ? (Monster) actor(p.summonId) : null;
+        if (summon != null && summon.alive) {
+            removeSummon(summon);
+        }
 
         p.hp = p.maxHp;
         p.mp = p.maxMp;
@@ -1831,10 +1946,26 @@ public final class GameWorld {
             o.addProperty("wideHit", pl.wideHitOn);          // 半月弯刀开关
             o.addProperty("longHit", pl.longHitOn);          // 刺杀剑术开关
             o.addProperty("fireHit", pl.fireHitOn);          // 烈火剑法蓄力
+            // 战斗属性（幽灵盾/神圣战甲等 buff 会改变 AC/MAC，需实时推给 F10 状态页）
+            o.addProperty("ac", pl.combat.acMin + "-" + pl.combat.acMax);
+            o.addProperty("mac", pl.combat.macMin + "-" + pl.combat.macMax);
+            o.addProperty("dc", pl.combat.dcMin + "-" + pl.combat.dcMax);
+            o.addProperty("mc", pl.combat.mcMin + "-" + pl.combat.mcMax);
+            o.addProperty("sc", pl.combat.scMin + "-" + pl.combat.scMax);
         }
-        o.addProperty("poison", a.poisonTicks > 0);          // 施毒术中毒
+        o.addProperty("poison", a.poisonTicks > 0);          // 施毒术红毒（掉血）
+        o.addProperty("poisonArmor", a.poisonArmorUntil > now);   // 施毒术绿毒（减防）
         if (a instanceof Monster) {
-            o.addProperty("paralyzed", ((Monster) a).paralyzedUntil > now);   // 困魔咒/麻痹定身
+            Monster mon = (Monster) a;
+            o.addProperty("paralyzed", mon.paralyzedUntil > now);   // 困魔咒/麻痹定身
+            if (mon.race == 113) {
+                o.addProperty("raceImg", mon.raceImg);   // 神兽变身（四足 54 ↔ 两足站立 55，动作表）
+                o.addProperty("appr", mon.appr);         // 神兽变身（图库偏移 170↔171：offset 0 ↔ 350）
+            }
+            int nc = mon.nameColorIndex();
+            if (nc >= 0) {
+                o.addProperty("nameColor", nc);   // 宠物名字颜色随等级（升级时更新）
+            }
         }
         if (extras != null) {
             for (String k : extras.keySet()) {

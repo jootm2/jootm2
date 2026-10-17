@@ -558,6 +558,12 @@ public final class GameService {
         int oldX = p.x;
         int oldY = p.y;
         world.tryMove(p, dir);
+        // 隐身时移动则解除隐身（对齐原版 BoFixedHideMode：移动后 STATE_TRANSPARENT=1 解除）
+        if ((p.x != oldX || p.y != oldY) && p.hideUntil > System.currentTimeMillis()) {
+            p.hideUntil = 0;
+            world.sendStats(p, null);
+            world.sendSystem(p, "你移动了，隐身状态解除。");
+        }
         world.broadcastMove(p);
         if (p.x != oldX || p.y != oldY) {
             world.updateSight(p);   // 增量更新视野：广播新进入/离开的实体
@@ -1125,6 +1131,7 @@ public final class GameService {
         }
         // 转身面对目标（对齐旧版 AttackTarget 的 tdir = GetNextDirection）
         p.dir = directionFrom(p.x, p.y, m.x, m.y);
+        p.targetId = m.id;        // 记录当前攻击目标（宠物据此协助攻击）
         world.broadcastMove(p);   // 广播转向（位置不变，仅 dir 变化）
         m.lastHiterId = p.id;   // 记录仇恨（守卫据此反击）
 
@@ -1178,6 +1185,7 @@ public final class GameService {
 
         // 主目标：减目标 AC（原版 GetHitStruckDamage）
         int dmg = Math.max(1, dam - m.template.ac);
+        dmg = greenPoisonBonus(m, dmg);   // 绿毒：目标受伤 +20%
         m.hp = Math.max(0, m.hp - dmg);
 
         // 吸血：按伤害回血
@@ -1233,6 +1241,7 @@ public final class GameService {
             return;
         }
         p.dir = directionFrom(p.x, p.y, target.x, target.y);
+        p.targetId = target.id;   // 记录当前攻击目标（宠物据此协助攻击）
         world.broadcastMove(p);
 
         int raw = rollDcWithLuck(p);
@@ -1502,6 +1511,7 @@ public final class GameService {
     private void applySwordHit(Player p, Actor target, int seconddam) {
         if (target instanceof Monster) {
             Monster other = (Monster) target;
+            seconddam = greenPoisonBonus(other, seconddam);   // 绿毒：目标受伤 +20%
             other.hp = Math.max(0, other.hp - seconddam);
             broadcastPhysicalHit(p, other, seconddam);
             if (other.hp <= 0) {
@@ -1547,6 +1557,14 @@ public final class GameService {
     private int swordSecondDam(Player p, int dam, int magicId, int divisor) {
         int level = skillLevel(p, magicId);
         return Math.max(1, Math.round((float) dam / divisor * (level + 2)));
+    }
+
+    /** 绿毒（施毒术 POISON_DAMAGEARMOR）：目标受伤 +20%（原版 StruckDamage 里 StatusArr[POISON_DAMAGEARMOR]）。 */
+    private int greenPoisonBonus(Actor target, int dmg) {
+        if (target.poisonArmorUntil > System.currentTimeMillis()) {
+            return Math.round(dmg * 1.2f);
+        }
+        return dmg;
     }
 
     /** Casts a learned magic (single-target damage, healing or a utility magic). */
@@ -1632,27 +1650,46 @@ public final class GameService {
             return;
         }
 
+        // 目标查找（提前到施法动画之前，用于视线检查 + 符纸撞墙中断点）
+        Actor target = targetId > 0 ? world.actor(targetId) : null;
+        if (target == null || !target.alive) {
+            target = findTargetAt(p.map, targetX, targetY);
+        }
+        // 记录当前攻击目标（对齐原版 Master.TargetCret：物理和魔法攻击都算，宠物据此协助攻击/变身）
+        if (target instanceof Monster && target.alive) {
+            p.targetId = target.id;
+        }
+
         // 广播施法动画（仅法师/道士施法类技能，战士开关/蓄力/冲撞已在上面 return）
+        // 治愈术固定在自己身上释放（原版 SpellNow 里 target=nil 时 target=user）；灵魂火符等被高墙挡住则中断在墙前
+        int castTx = isHealMagic(magicId) ? p.x : targetX;
+        int castTy = isHealMagic(magicId) ? p.y : targetY;
+        boolean blocked = false;
+        if ((magicId == 1 || magicId == 5 || magicId == 13) && target instanceof Monster && target.alive) {
+            int[] bp = blockedPoint(p, target);
+            if (bp != null) {
+                castTx = bp[0];
+                castTy = bp[1];
+                blocked = true;
+            }
+        }
         JsonObject cast = new JsonObject();
         cast.addProperty("type", "spellCast");
         cast.addProperty("casterId", p.id);
         cast.addProperty("magicId", magicId);
         cast.addProperty("effect", t.effect);
-        cast.addProperty("targetX", targetX);
-        cast.addProperty("targetY", targetY);
+        cast.addProperty("targetX", castTx);
+        cast.addProperty("targetY", castTy);
+        if (blocked) {
+            cast.addProperty("blocked", true);
+        }
         world.broadcastAround(p.map, cast, p.x, p.y, GameWorld.SIGHT_RANGE);
 
-        // 目标查找：targetId 优先，否则按坐标（朝鼠标位置释放，无对象也可施放）
-        Actor target = targetId > 0 ? world.actor(targetId) : null;
-        if (target == null || !target.alive) {
-            target = findTargetAt(p.map, targetX, targetY);
-        }
-
         if (isHealMagic(magicId)) {
-            // 治愈术：治疗自己（原版 GetPower(MPow) + SC*2 道术加成）
+            // 治愈术：持续回血（原版 RM_MAGHEALING：IncHealing 累计 + 每 tick 回 PerHealing=5，上限 300）
             int heal = Math.max(1, magicPower(p, t, lv) + p.combat.scMax * 2);
-            p.hp = Math.min(p.maxHp, p.hp + heal);
-            world.sendSystem(p, "施展了 " + t.name + "，恢复 " + heal + " 点生命。");
+            p.incHealing = Math.min(300, p.incHealing + heal);
+            world.sendSystem(p, "施展了 " + t.name + "。");
             world.sendStats(p, null);
             success = true;
         } else if (magicId == 9 || magicId == 10) {
@@ -1678,8 +1715,12 @@ public final class GameService {
                 if (p.distanceTo(m) > 8) {
                     return;
                 }
-                // 魔法躲避（AntiMagic）判定
-                if (Math.random() * 10 < 1 + m.template.mac / 5) {
+                // 视线检查（原版 MagCanHitTarget）：火球/大火球/灵魂火符被高墙（MP_HIGHWALL）阻挡；
+                // 雷电从天而降、爆裂/冰咆哮是范围爆炸，原版不检查视线。blocked 已在施法动画广播前算好。
+                if (blocked) {
+                    world.sendSystem(p, "目标被障碍物挡住了。");
+                } else if (Math.random() * 10 < 1 + m.template.mac / 5) {
+                    // 魔法躲避（AntiMagic）判定
                     world.sendSystem(p, "魔法被躲过了。");
                 } else {
                     // 灵魂火符用道术 SC，其余用法师 MC
@@ -1702,16 +1743,48 @@ public final class GameService {
             }
             success = true;   // 无对象也施放成功（动画已广播）
         } else if (magicId == 6) {
-            // 施毒术：目标中毒（持续掉血，原版 POISON_DECHEALTH：GetPower13(30) + 2*SC 道术加成）
-            if (target instanceof Monster && target.alive) {
-                Monster m = (Monster) target;
-                m.poisonTicks = 10;
-                m.poisonDamage = Math.max(1, 30 + 2 * p.combat.scMax);
-                m.lastPoisonAt = now;
-                world.sendSystem(p, "对 " + m.name + " 施放了 " + t.name + "。");
-                success = true;
-            } else {
+            // 施毒术：红毒（掉血）/绿毒（减防），依赖毒药粉（StdMode=25：Shape=1 红毒掉血 / Shape=2 绿毒减防）
+            if (target == null || !target.alive) {
                 world.sendSystem(p, "没有目标。");
+            } else {
+                // 毒药粉判定（原版 StdMode=25：Shape=1 灰色药粉=红毒掉血 / Shape=2 黄色药粉=绿毒减防），红毒优先
+                int poisonShape = 0;
+                for (ItemInstance it : p.bag) {
+                    ItemTemplate itt = world.itemTemplates.get(it.index);
+                    if (itt != null && itt.stdMode == 25 && itt.shape == 1) {
+                        poisonShape = 1;
+                        break;
+                    }
+                }
+                if (poisonShape == 0) {
+                    for (ItemInstance it : p.bag) {
+                        ItemTemplate itt = world.itemTemplates.get(it.index);
+                        if (itt != null && itt.stdMode == 25 && itt.shape == 2) {
+                            poisonShape = 2;
+                            break;
+                        }
+                    }
+                }
+                if (poisonShape == 0) {
+                    world.sendSystem(p, "没有毒药粉。");
+                } else {
+                    int sc = p.combat.scMax;
+                    if (poisonShape == 2) {
+                        // 绿毒：减防（受伤 +20%），持续 GetPower13(40) + 2*SC 秒（原版 POISON_DAMAGEARMOR）
+                        int sec = 13 + 7 * (lv + 1) + 2 * sc;
+                        target.poisonArmorUntil = now + sec * 1000L;
+                        world.sendSystem(p, "对 " + target.name + " 施放了绿毒，防御下降。");
+                    } else {
+                        // 红毒：持续掉血，持续 GetPower13(30) + 2*SC 秒，每 2500ms 掉 1 + 毒等级（原版 POISON_DECHEALTH）
+                        int sec = 10 + 5 * (lv + 1) + 2 * sc;
+                        target.poisonTicks = Math.max(1, (int) Math.round(sec * 1000.0 / GameWorld.POISON_INTERVAL_MS));
+                        target.poisonDamage = 1 + lv;
+                        target.lastPoisonAt = now;
+                        world.sendSystem(p, "对 " + target.name + " 施放了红毒，持续掉血。");
+                    }
+                    world.sendStats(target, null);
+                    success = true;
+                }
             }
         } else if (magicId == 17 || magicId == 30) {
             // 召唤骷髅 / 召唤神兽：创建宠物
@@ -1719,9 +1792,10 @@ public final class GameService {
             if (old != null && old.alive) {
                 world.removeSummon(old);
             }
-            String monName = magicId == 17 ? "骷髅" : "神兽";
+            String monName = magicId == 17 ? "变异骷髅" : "神兽";   // 原版 MakeSlave(__WhiteSkeleton)=race 100 RC_WHITESKELETON，__ShinSu=神兽
             Monster summon = world.spawnSummon(p, monName);
             if (summon != null) {
+                summon.slaveMakeLevel = lv;   // 召唤等级（原版 MakeSlave 的 slevel），决定升级上限
                 p.summonId = summon.id;
                 world.sendSystem(p, "召唤了 " + summon.name + "。");
                 success = true;
@@ -1738,14 +1812,17 @@ public final class GameService {
             randomTeleport(p);
             success = true;
         } else if (magicId == 18 || magicId == 19) {
-            // 隐身术(18)=自身 / 集体隐身术(19)=周围队友（原版 MagMakePrivateTransparent / MagMakeGroupTransparent）
+            // 隐身术(18)=自身 / 集体隐身术(19)=目标点周围 1 格友军（原版 MagMakePrivateTransparent / MagMakeGroupTransparent）
             int dur = (30 + 3 * p.combat.scMax) * 1000;
             int hidden = 0;
             if (magicId == 18) {
                 p.hideUntil = now + dur;
+                world.sendStats(p, null);
                 hidden = 1;
             } else {
-                for (Actor nb : world.nearby(p.map, p.x, p.y, 3)) {
+                // 集体隐身术：以目标点（鼠标位置）为中心 1 格（原版 GetMapCreatures(x,y,1)），
+                // 自身是否隐身取决于是否在生效范围内（不再无条件给自身隐身）
+                for (Actor nb : world.nearby(p.map, targetX, targetY, 1)) {
                     if (nb instanceof Player && nb.alive) {
                         ((Player) nb).hideUntil = now + dur;
                         world.sendStats(nb, null);
@@ -1753,7 +1830,7 @@ public final class GameService {
                     }
                 }
             }
-            world.sendSystem(p, "你进入了隐身状态（" + (dur / 1000) + " 秒）。");
+            world.sendSystem(p, hidden > 0 ? "你进入了隐身状态（" + (dur / 1000) + " 秒）。" : "范围内没有可以隐身的目标。");
             success = true;
         } else if (magicId == 22) {
             // 火墙：朝目标坐标周围十字 5 格持续伤害
@@ -1764,15 +1841,26 @@ public final class GameService {
             world.sendSystem(p, made > 0 ? "释放了火墙。(" + made + " 格)" : "火墙释放失败。");
             success = made > 0;
         } else if (magicId == 20) {
-            // 诱惑之光：迷惑怪物成为宠物 / 定身已有宠物
+            // 诱惑之光（原版 MagLightingShock）：迷惑怪物成宠物 / 定身已有宠物 / 可抢别人宠物（目标 HP div 10）
             if (target instanceof Monster && target.alive) {
                 Monster m = (Monster) target;
                 if (m.masterId == p.id) {
-                    m.paralyzedUntil = now + (10 + lv * 5) * 1000;
+                    m.paralyzedUntil = now + (10 + lv * 5) * 1000;   // 自己的宠物定身（原版 MakeHolySeize）
+                    world.sendStats(m, null);   // 广播麻痹状态（前端据此播放钉住动画）
                     world.sendSystem(p, m.name + " 被定身了。");
                     success = true;
                 } else if (Math.random() < 0.05 + lv * 0.05) {
+                    if (m.masterId >= 0) {
+                        // 抢别人宠物：清原主人召唤引用 + 目标 HP div 10（原版 target.Master <> nil 时 HP div 10）
+                        Player oldMaster = (Player) world.actor(m.masterId);
+                        if (oldMaster != null && oldMaster.summonId == m.id) {
+                            oldMaster.summonId = -1;
+                        }
+                        m.hp = Math.max(1, m.hp / 10);
+                        world.sendSystem(p, "你抢走了 " + m.name + "！");
+                    }
                     m.masterId = p.id;
+                    m.slaveMakeLevel = lv;
                     p.summonId = m.id;
                     world.sendSystem(p, "诱惑了 " + m.name + "！");
                     success = true;
@@ -1782,14 +1870,14 @@ public final class GameService {
                 }
             }
         } else if (magicId == 29) {
-            // 群体治疗术：治疗周围队友（原版 MagBigHealing，SC*2 道术加成）
+            // 群体治疗术：治疗周围队友（原版 MagBigHealing 同样走 RM_MAGHEALING 持续回血）
             int heal = Math.max(1, magicPower(p, t, lv) + p.combat.scMax * 2);
             int healed = 0;
             for (Actor nb : world.nearby(p.map, p.x, p.y, 5)) {
                 if (nb instanceof Player && nb.alive) {
                     Player other = (Player) nb;
                     if (other.hp < other.maxHp) {
-                        other.hp = Math.min(other.maxHp, other.hp + heal);
+                        other.incHealing = Math.min(300, other.incHealing + heal);
                         world.sendStats(other, null);
                         healed++;
                     }
@@ -1798,15 +1886,16 @@ public final class GameService {
             world.sendSystem(p, "施展了 " + t.name + "，治疗了 " + healed + " 个目标。");
             success = true;
         } else if (magicId == 14 || magicId == 15) {
-            // 幽灵盾(14)=范围加魔御 / 神圣战甲(15)=范围加防御（原版 MagMakeDefenceArea）
+            // 幽灵盾(14)=范围加魔御 / 神圣战甲(15)=范围加防御（原版 MagMakeDefenceArea → RecalcAbilitys：上限 +2+等级/7）
             int dur = (30 + lv * 10) * 1000;
             int buffed = 0;
             for (Actor nb : world.nearby(p.map, p.x, p.y, 3)) {
                 if (!(nb instanceof Player) || !nb.alive) continue;
                 Player other = (Player) nb;
                 other.acBuffUntil = now + dur;
-                if (magicId == 15) other.acBuffBonus = 3 + lv * 3;   // 神圣战甲：加防御
-                else other.macBuffBonus = 3 + lv * 3;                // 幽灵盾：加魔御
+                int bonus = 2 + other.level / 7;            // 原版 Hibyte(AC/MAC) + 2 + Level/7
+                if (magicId == 15) other.acBuffBonus = bonus;   // 神圣战甲：加防御上限
+                else other.macBuffBonus = bonus;                // 幽灵盾：加魔御上限
                 other.recompute(world);
                 world.sendStats(other, null);
                 buffed++;
@@ -1820,10 +1909,11 @@ public final class GameService {
             world.sendSystem(p, "魔法盾开启，减伤持续 " + (dur / 1000) + " 秒。");
             success = true;
         } else if (magicId == 16) {
-            // 困魔咒：定身目标怪物
+            // 困魔咒：定身目标怪物（原版 MagMakeHolyCurtain）
             if (target instanceof Monster && target.alive) {
                 Monster m = (Monster) target;
                 m.paralyzedUntil = now + (5 + lv * 3) * 1000;
+                world.sendStats(m, null);   // 广播麻痹状态（前端据此播放钉住动画）
                 world.sendSystem(p, "困住了 " + m.name + "。");
                 success = true;
             } else {
@@ -1912,6 +2002,34 @@ public final class GameService {
             }
         }
         return mon != null ? mon : pl;
+    }
+
+    /** 视线检查（对齐原版 MagCanHitTarget）：施法者到目标逐格走向，遇到高墙（MP_HIGHWALL）则被挡住。 */
+    private boolean magCanHitTarget(Player p, Actor target) {
+        return blockedPoint(p, target) == null;
+    }
+
+    /** 视线中断点：施法者到目标逐格走向，遇高墙（MP_HIGHWALL，不可飞行格）返回墙前一格坐标，无阻挡返回 null。
+     *  对齐原版 MagCanHitTarget：用 canFireFly（只挡高墙 FrImg 0x8000），普通阻挡（BkImg 0x8000，可飞行）不挡。 */
+    private int[] blockedPoint(Player p, Actor target) {
+        if (target == null) {
+            return null;
+        }
+        int sx = p.x, sy = p.y;
+        for (int i = 0; i < 12; i++) {
+            if (sx == target.x && sy == target.y) {
+                return null;
+            }
+            int ndir = directionFrom(sx, sy, target.x, target.y);
+            int nx = sx + Direction.dx(ndir);
+            int ny = sy + Direction.dy(ndir);
+            if (!p.map.inside(nx, ny) || !p.map.canFireFly(nx, ny)) {
+                return new int[]{sx, sy};   // 撞高墙，中断在墙前
+            }
+            sx = nx;
+            sy = ny;
+        }
+        return null;
     }
 
     /** 广播魔法命中伤害。 */

@@ -82,8 +82,16 @@ public final class Player extends Actor {
     /** 召唤物（宠物）的怪物 id，-1 表示无宠物。 */
     public long summonId = -1;
 
+    /** 当前攻击目标 id（宠物据此协助攻击主人正在打的目标），-1 无。 */
+    public long targetId = -1;
+
     /** 隐身术截止时间戳（ms），0 = 未隐身。 */
     public long hideUntil = 0;
+
+    /** 治愈术累计待回血量（原版 IncHealing，每 tick 回 PerHealing=5 点直到用完）。 */
+    public int incHealing = 0;
+    /** 上次治愈回血时间戳（ms）。 */
+    public long lastHealingAt = 0;
 
     /** 增益 buff：幽灵盾(14)/神圣战甲术(15) 加防御/魔御，截止时间戳。 */
     public long acBuffUntil = 0;
@@ -245,12 +253,10 @@ public final class Player extends Actor {
             if (yset[0]) { combat.scMin += 1; combat.scMax += 2; }
         }
 
-        // 增益 buff（幽灵盾/神圣战甲术）：未过期则加防御/魔御
+        // 增益 buff（幽灵盾/神圣战甲术）：未过期则加防御/魔御上限（原版只加 Hibyte(AC/MAC)）
         long now = System.currentTimeMillis();
         if (acBuffUntil > now) {
-            combat.acMin += acBuffBonus;
             combat.acMax += acBuffBonus;
-            combat.macMin += macBuffBonus;
             combat.macMax += macBuffBonus;
         }
 

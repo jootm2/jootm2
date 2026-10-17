@@ -46,6 +46,8 @@ export async function loadMap(mapId) {
                 mid: (mid & 0x7fff) > 0 ? (mid & 0x7fff) - 1 : -1,
                 obj: (obj & 0x7fff) > 0 ? (obj & 0x7fff) - 1 : -1,
                 canStand: (bng & 0x8000) === 0 && (mid & 0x8000) === 0 && (obj & 0x8000) === 0,
+                // 高墙（FrImg 0x8000）：阻挡飞行/视线（灵魂火符等投射魔法撞墙中断，对齐 Envir.CanFireFly）
+                highWall: (obj & 0x8000) !== 0,
                 bngFile: bngFileIdx !== 0 ? bngFileIdx + 1 : 0,
                 midFile: midFileIdx !== 0 ? midFileIdx + 1 : 0,
                 objFile: objFileIdx !== 0 ? objFileIdx + 1 : 0,

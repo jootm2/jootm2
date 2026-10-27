@@ -30,6 +30,16 @@ public final class Ability {
     public int hit;
     public int speed;
 
+    /** 原版 WAbil 的衍生属性（装备 AC/MAC 字段按 StdMode 映射，见 ApplyItemParameters）。 */
+    public int antiMagic = 1;      // 魔法躲避（原版 AntiMagic，基础 1 = 10%）
+    public int antiPoison;         // 毒抗（原版 AntiPoison）
+    public int poisonRecover;      // 解毒恢复（原版 PoisonRecover）
+    public int healthRecover;      // 回血（原版 HealthRecover）
+    public int spellRecover;       // 回蓝（原版 SpellRecover）
+    public int hitSpeed;           // 攻速（原版 HitSpeed，武器 MAC 字段）
+    public int luck;               // 幸运（原版 Luck，武器 AC 下限/项链 MAC 上限）
+    public int unluck;             // 诅咒（原版 UnLuck，武器/项链 MAC 下限）
+
     public long exp;
     public long gold;
 

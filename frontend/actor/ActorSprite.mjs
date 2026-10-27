@@ -75,18 +75,26 @@ export class ActorSprite {
         }
         const cf = af.start + rel;   // 相对帧号（已含方向偏移）
 
-        // 玩家分层：武器→身体→头发（各库 600 帧/外观）
+        // 玩家分层：武器与衣服的前后关系随方向/动作帧变化（原版 Actor.pas THumActor.DrawChr + WORDER[Sex, currentframe]）
+        //   wpord=0：武器先画（在衣服后面）→ 身体 → 头发
+        //   wpord=1：身体 → 头发 → 武器后画（在衣服前面）
         // dress/weapon 由服务端按 Delphi GetRelFeature 算好（shape*2+sex；无装备 = sex）
         if (e.type === 'player') {
             const dress = e.dress != null ? e.dress : e.sex;
             const weapon = e.weapon != null ? e.weapon : 0;
+            const sex = e.sex || 0;
             const layers = [];
-            if (weapon >= 2) {
-                layers.push({ lib: 'weapon', index: A.HUMANFRAME * weapon + cf });
+            const wpord = cf >= 0 && cf < 600 && (A.WORDER[sex] || '')[cf] === '1';
+            const weaponLayer = { lib: 'weapon', index: A.HUMANFRAME * weapon + cf };
+            if (!wpord && weapon >= 2) {
+                layers.push(weaponLayer);
             }
             layers.push({ lib: 'hum', index: A.HUMANFRAME * dress + cf });
             if ((e.hair || 0) >= 1) {
-                layers.push({ lib: 'hair', index: A.HUMANFRAME * (e.hair * 2 + e.sex) + cf });
+                layers.push({ lib: 'hair', index: A.HUMANFRAME * (e.hair * 2 + sex) + cf });
+            }
+            if (wpord && weapon >= 2) {
+                layers.push(weaponLayer);
             }
             return layers;
         }

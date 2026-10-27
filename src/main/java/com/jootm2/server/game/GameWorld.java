@@ -1838,11 +1838,16 @@ public final class GameWorld {
             return false;
         }
         p.bag.remove(found);
-        GroundItem gi = GroundItem.ofItem(newId(), found, p.x, p.y);
+        dropInstance(p, found);
+        return true;
+    }
+
+    /** 把一件已在手上（背包/装备槽已摘出）的物品丢到玩家脚下并广播。 */
+    public void dropInstance(Player p, ItemInstance it) {
+        GroundItem gi = GroundItem.ofItem(newId(), it, p.x, p.y);
         gi.map = p.map;
         groundItems.put(gi.id, gi);
         broadcastItemDrop(gi);
-        return true;
     }
 
     private void respawnDead(long now) {
@@ -1946,12 +1951,14 @@ public final class GameWorld {
             o.addProperty("wideHit", pl.wideHitOn);          // 半月弯刀开关
             o.addProperty("longHit", pl.longHitOn);          // 刺杀剑术开关
             o.addProperty("fireHit", pl.fireHitOn);          // 烈火剑法蓄力
-            // 战斗属性（幽灵盾/神圣战甲等 buff 会改变 AC/MAC，需实时推给 F10 状态页）
+            // 战斗属性（幽灵盾/神圣战甲等 buff 会改变 AC/MAC，装备会改变全部属性，需实时推给 F10 状态页）
             o.addProperty("ac", pl.combat.acMin + "-" + pl.combat.acMax);
             o.addProperty("mac", pl.combat.macMin + "-" + pl.combat.macMax);
             o.addProperty("dc", pl.combat.dcMin + "-" + pl.combat.dcMax);
             o.addProperty("mc", pl.combat.mcMin + "-" + pl.combat.mcMax);
             o.addProperty("sc", pl.combat.scMin + "-" + pl.combat.scMax);
+            o.addProperty("hit", pl.combat.hit);      // 准确（原版 HIT，含武器/手镯 AC 字段）
+            o.addProperty("speed", pl.combat.speed);  // 敏捷（原版 SPEED，含手镯/项链 MAC 字段）
         }
         o.addProperty("poison", a.poisonTicks > 0);          // 施毒术红毒（掉血）
         o.addProperty("poisonArmor", a.poisonArmorUntil > now);   // 施毒术绿毒（减防）

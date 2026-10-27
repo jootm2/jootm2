@@ -176,6 +176,16 @@ public final class Player extends Actor {
         combat.acMax = 0;
         combat.macMin = 0;
         combat.macMax = 0;
+        combat.antiMagic = 1;      // 原版 AntiMagic := 1（基础 10%）
+        combat.antiPoison = 0;
+        combat.poisonRecover = 0;
+        combat.healthRecover = 0;
+        combat.spellRecover = 0;
+        combat.hitSpeed = 0;
+        combat.luck = 0;
+        combat.unluck = 0;
+        combat.hit = 0;            // 准确（每次重算从 0 起，否则重复 recompute 会累加）
+        combat.speed = 0;          // 敏捷
 
         // 重置特殊属性
         luck = 0;
@@ -198,18 +208,64 @@ public final class Player extends Actor {
             if (t == null) {
                 continue;
             }
+            // AC/MAC 字段按 StdMode 映射成不同属性（对齐原版 ObjBase.pas ApplyItemParameters）：
+            //   武器 5/6   : AC=准确/幸运, MAC=攻速/诅咒
+            //   项链 19    : AC=魔躲, MAC=幸运/诅咒
+            //   项链/手镯 20/24 : AC=准确, MAC=敏捷
+            //   项链 21    : AC=回血, MAC=回蓝, 攻速
+            //   戒指 23    : AC=毒抗, MAC=解毒, 攻速
+            //   宝石 53    : HP/MP 加成
+            //   其余(衣服/头盔/腰带/靴子/护身符/戒指22/手套26…) : AC/MAC 即防御
+            switch (t.stdMode) {
+                case 5:
+                case 6:
+                    combat.hit += t.acMax;                 // Hibyte(AC)
+                    combat.luck += t.acMin;                // Lobyte(AC)
+                    combat.unluck += t.macMin;             // Lobyte(MAC)
+                    if (t.macMax > 10) {
+                        combat.hitSpeed += t.macMax - 10;  // 攻速 (+)
+                    } else {
+                        combat.hitSpeed -= t.macMax;       // 攻速 (-)
+                    }
+                    break;
+                case 19:
+                    combat.antiMagic += t.acMax;
+                    combat.unluck += t.macMin;
+                    combat.luck += t.macMax;
+                    break;
+                case 20:
+                case 24:
+                    combat.hit += t.acMax;
+                    combat.speed += t.macMax;
+                    break;
+                case 21:
+                    combat.healthRecover += t.acMax;
+                    combat.spellRecover += t.macMax;
+                    combat.hitSpeed += t.acMin - t.macMin;
+                    break;
+                case 23:
+                    combat.antiPoison += t.acMax;
+                    combat.poisonRecover += t.macMax;
+                    combat.hitSpeed += t.acMin - t.macMin;
+                    break;
+                case 53:
+                    hpAdd += t.hpAdd;
+                    mpAdd += t.mpAdd;
+                    break;
+                default:
+                    combat.acMin += t.acMin;
+                    combat.acMax += t.acMax;
+                    combat.macMin += t.macMin;
+                    combat.macMax += t.macMax;
+                    break;
+            }
+            // DC/MC/SC 所有类型都累加（原版 ApplyItemParameters 末尾统一加）
             combat.dcMin += t.dcMin;
             combat.dcMax += t.dcMax;
             combat.mcMin += t.mcMin;
             combat.mcMax += t.mcMax;
             combat.scMin += t.scMin;
             combat.scMax += t.scMax;
-            combat.acMin += t.acMin;
-            combat.acMax += t.acMax;
-            combat.macMin += t.macMin;
-            combat.macMax += t.macMax;
-            hpAdd += t.hpAdd;
-            mpAdd += t.mpAdd;
 
             // 特殊属性（Shape 值）
             if (t.shape == SHAPE_PARALYSIS_WEAPON) {
@@ -283,14 +339,20 @@ public final class Player extends Actor {
         }
     }
 
-    /** Splits persisted items into equipment slots vs the bag based on stdMode. */
+    /**
+     * Splits persisted items into equipment slots vs the bag.
+     * 只有落盘时带槽位标记（slot >= 0，见 GameService.toRecord）的物品才回到对应装备槽；
+     * 其余一律留在背包，避免"取下装备后重登又被自动穿上"。
+     */
     public void distributeItems(GameWorld world) {
         List<ItemInstance> remain = new ArrayList<>();
         for (ItemInstance it : bag) {
+            int wanted = it.slot;
+            it.slot = -1;
             ItemTemplate t = world.itemTemplates.get(it.index);
-            int slot = t == null ? -1 : slotFor(t);
-            if (slot >= 0 && equipment[slot] == null) {
-                equipment[slot] = it;
+            if (t != null && wanted >= 0 && wanted < equipment.length
+                    && equipment[wanted] == null && slotAccepts(wanted, t.stdMode)) {
+                equipment[wanted] = it;
             } else {
                 remain.add(it);
             }
@@ -299,7 +361,10 @@ public final class Player extends Actor {
         bag.addAll(remain);
     }
 
-    /** Maps a stdMode to an equipment slot, or -1 for non-equippable items. */
+    /**
+     * Maps a stdMode to the equipment slot used by "auto" take-on.
+     * 对齐原版 ClFunc.pas GetTakeOnPosition（戒指先占左、手镯/手套先占右）。
+     */
     public static int slotFor(ItemTemplate t) {
         switch (t.stdMode) {
             case 5:
@@ -316,10 +381,14 @@ public final class Player extends Actor {
                 return MessageIds.U_NECKLACE;
             case 24:
             case 26:
-                return MessageIds.U_ARMRINGL;
+                return MessageIds.U_ARMRINGR;
             case 22:
             case 23:
                 return MessageIds.U_RINGL;
+            case 30:
+                return MessageIds.U_RIGHTHAND;   // 蜡烛/火把/勋章
+            case 25:
+                return MessageIds.U_BUJUK;       // 护身符/符
             case 52:
                 return MessageIds.U_BOOTS;
             case 54:
@@ -329,6 +398,114 @@ public final class Player extends Actor {
             default:
                 return -1;
         }
+    }
+
+    /**
+     * 该装备槽能否收纳此类物品（对齐原版 M2Share.pas IsTakeOnAvailable）。
+     * 注意与原版一致：头盔槽只收 StdMode=15；左手腕槽额外接受 25（护身符）。
+     */
+    public static boolean slotAccepts(int slot, int stdMode) {
+        switch (slot) {
+            case MessageIds.U_DRESS:
+                return stdMode == 10 || stdMode == 11;
+            case MessageIds.U_WEAPON:
+                return stdMode == 5 || stdMode == 6;
+            case MessageIds.U_RIGHTHAND:
+                return stdMode == 30;
+            case MessageIds.U_NECKLACE:
+                return stdMode == 19 || stdMode == 20 || stdMode == 21;
+            case MessageIds.U_HELMET:
+                return stdMode == 15;
+            case MessageIds.U_ARMRINGL:
+                return stdMode == 24 || stdMode == 25 || stdMode == 26;
+            case MessageIds.U_ARMRINGR:
+                return stdMode == 24 || stdMode == 26;
+            case MessageIds.U_RINGL:
+            case MessageIds.U_RINGR:
+                return stdMode == 22 || stdMode == 23;
+            case MessageIds.U_BUJUK:
+                return stdMode == 25;
+            case MessageIds.U_BELT:
+                return stdMode == 54;
+            case MessageIds.U_BOOTS:
+                return stdMode == 52;
+            case MessageIds.U_CHARM:
+                return stdMode == 53;
+            default:
+                return false;
+        }
+    }
+
+    /** 腕力上限（原版 WAbil.MaxHandWeight）：只用于武器/右手槽。 */
+    public int maxHandWeight() {
+        int mhwDiv = job == 0 ? 13 : (job == 1 ? 90 : 42);
+        return Math.min(255, 12 + (level / mhwDiv) * level);
+    }
+
+    /** 已穿装备重量合计（原版 WAbil.WearWeight：武器/右手除外）。 */
+    public int wearWeight() {
+        int w = 0;
+        for (int i = 0; i < equipment.length; i++) {
+            if (i == MessageIds.U_WEAPON || i == MessageIds.U_RIGHTHAND) {
+                continue;
+            }
+            ItemInstance it = equipment[i];
+            if (it == null) {
+                continue;
+            }
+            ItemTemplate t = world != null ? world.itemTemplates.get(it.index) : null;
+            if (t != null) {
+                w += t.weight;
+            }
+        }
+        return w;
+    }
+
+    /** 持在手上的重量（原版 WAbil.HandWeight：武器/右手）。 */
+    public int handWeight() {
+        int w = 0;
+        for (int i : new int[]{MessageIds.U_WEAPON, MessageIds.U_RIGHTHAND}) {
+            ItemInstance it = equipment[i];
+            if (it == null) {
+                continue;
+            }
+            ItemTemplate t = world != null ? world.itemTemplates.get(it.index) : null;
+            if (t != null) {
+                w += t.weight;
+            }
+        }
+        return w;
+    }
+
+    /** 负重上限（原版 WAbil.MaxWearWeight）：武器/右手以外的装备槽。 */
+    public int maxWearWeight() {
+        int mwwDiv = job == 0 ? 20 : (job == 1 ? 100 : 50);
+        return 15 + (level / mwwDiv) * level;
+    }
+
+    /**
+     * 已穿装备的重量合计（原版 TCreature.CalcWearWeightEx）：
+     * 统计时始终排除武器与右手槽，并排除 excludeSlot（本次要换上的槽位）。
+     */
+    public int wearWeightEx(GameWorld world, int excludeSlot) {
+        int w = 0;
+        for (int i = 0; i < equipment.length; i++) {
+            if (i == MessageIds.U_WEAPON || i == MessageIds.U_RIGHTHAND) {
+                continue;
+            }
+            if (excludeSlot >= 0 && i == excludeSlot) {
+                continue;
+            }
+            ItemInstance it = equipment[i];
+            if (it == null) {
+                continue;
+            }
+            ItemTemplate t = world != null ? world.itemTemplates.get(it.index) : null;
+            if (t != null) {
+                w += t.weight;
+            }
+        }
+        return w;
     }
 
     public JsonObject toPlayerJson(GameWorld world) {
@@ -366,28 +543,13 @@ public final class Player extends Actor {
             ItemTemplate t = world != null ? world.itemTemplates.get(it.index) : null;
             if (t != null) bagWeight += t.weight;
         }
-        int wearWeight = 0;
-        for (ItemInstance eq : equipment) {
-            if (eq != null) {
-                ItemTemplate t = world != null ? world.itemTemplates.get(eq.index) : null;
-                if (t != null) wearWeight += t.weight;
-            }
-        }
-        int handWeight = 0;
-        ItemInstance wpn = equipment[MessageIds.U_WEAPON];
-        if (wpn != null) {
-            ItemTemplate t = world != null ? world.itemTemplates.get(wpn.index) : null;
-            if (t != null) handWeight = t.weight;
-        }
         int mwDiv = job == 0 ? 3 : (job == 1 ? 5 : 4);
-        int mwwDiv = job == 0 ? 20 : (job == 1 ? 100 : 50);
-        int mhwDiv = job == 0 ? 13 : (job == 1 ? 90 : 42);
         o.addProperty("weight", bagWeight);
         o.addProperty("maxWeight", 50 + (level / mwDiv) * level);
-        o.addProperty("wearWeight", wearWeight);
-        o.addProperty("maxWearWeight", 15 + (level / mwwDiv) * level);
-        o.addProperty("handWeight", handWeight);
-        o.addProperty("maxHandWeight", Math.min(255, 12 + (level / mhwDiv) * level));
+        o.addProperty("wearWeight", wearWeight());
+        o.addProperty("maxWearWeight", maxWearWeight());
+        o.addProperty("handWeight", handWeight());
+        o.addProperty("maxHandWeight", maxHandWeight());
         o.addProperty("hit", combat.hit);
         o.addProperty("speed", combat.speed);
         o.add("skills", skillsJson(world));

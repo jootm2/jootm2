@@ -47,6 +47,39 @@ const EQUIP_SLOTS = [
     [12, 168, 254, 34,  31],   // 宝石 DSWCharm
 ];
 
+// StdMode → 自动穿戴槽位（原版 ClFunc.pas GetTakeOnPosition：戒指先占左、手镯/手套先占右）
+const TAKEON_POS = {
+    5: 1, 6: 1,        // 武器
+    10: 0, 11: 0,      // 男/女衣服
+    15: 4,             // 头盔
+    19: 3, 20: 3, 21: 3,   // 项链
+    22: 7, 23: 7,      // 戒指
+    24: 6, 26: 6,      // 手镯/手套
+    30: 2,             // 蜡烛/火把/勋章
+    25: 9,             // 护身符/符
+    52: 11, 53: 12, 54: 10,   // 靴子/宝石/腰带
+};
+
+// 槽位能否收纳该 StdMode（原版 M2Share.pas IsTakeOnAvailable；头盔槽只收 15，左手腕额外收 25）
+function slotAccepts(slot, stdMode) {
+    switch (slot) {
+        case 0: return stdMode === 10 || stdMode === 11;
+        case 1: return stdMode === 5 || stdMode === 6;
+        case 2: return stdMode === 30;
+        case 3: return stdMode === 19 || stdMode === 20 || stdMode === 21;
+        case 4: return stdMode === 15;
+        case 5: return stdMode === 24 || stdMode === 25 || stdMode === 26;
+        case 6: return stdMode === 24 || stdMode === 26;
+        case 7:
+        case 8: return stdMode === 22 || stdMode === 23;
+        case 9: return stdMode === 25;
+        case 10: return stdMode === 54;
+        case 11: return stdMode === 52;
+        case 12: return stdMode === 53;
+        default: return false;
+    }
+}
+
 // 属性数值行（原版 DStateWin StatePage 1：x=112，y 每 20px）[字段, y]
 const ATTR_ROWS = [
     ['ac', 99], ['mac', 119], ['dc', 139], ['mc', 159], ['sc', 179],
@@ -226,7 +259,7 @@ export class PlayScene extends Scene {
         chatBox.appendChild(this.chatInput);
         gui.appendChild(chatBox);
 
-        // 状态窗口（F9）/ 背包窗口（F10）—— 原版 DStateWin / DItemBag
+        // 背包窗口（F9）/ 状态窗口（F10）—— 原版 DItemBag / DStateWin
         this._buildStateWin();
         this._buildBag();
     }
@@ -571,6 +604,8 @@ export class PlayScene extends Scene {
                     if (msg.dc !== undefined) e.dc = msg.dc;
                     if (msg.mc !== undefined) e.mc = msg.mc;
                     if (msg.sc !== undefined) e.sc = msg.sc;
+                    if (msg.hit !== undefined) e.hit = msg.hit;     // 准确（装备 AC 字段映射）
+                    if (msg.speed !== undefined) e.speed = msg.speed; // 敏捷（装备 MAC 字段映射）
                     // 状态特效：魔法盾 / 隐身 / 中毒 / 定身 / 战士开关
                     if (msg.shield !== undefined) {
                         if (msg.shield && !e._shield) e._shieldAt = Date.now();   // 护盾开启时间（成形动画用）
@@ -718,6 +753,11 @@ export class PlayScene extends Scene {
                     this.self.items = msg.items || [];
                     if (msg.dress !== undefined) this.self.dress = msg.dress;
                     if (msg.weapon !== undefined) this.self.weapon = msg.weapon;
+                    // 负重/腕力随穿戴变化（F10 第 2 页）
+                    if (msg.wearWeight !== undefined) this.self.wearWeight = msg.wearWeight;
+                    if (msg.handWeight !== undefined) this.self.handWeight = msg.handWeight;
+                    if (msg.maxWearWeight !== undefined) this.self.maxWearWeight = msg.maxWearWeight;
+                    if (msg.maxHandWeight !== undefined) this.self.maxHandWeight = msg.maxHandWeight;
                 }
                 this._refreshBag();
                 this._refreshStateWin();
@@ -763,8 +803,8 @@ export class PlayScene extends Scene {
         while (this.chatLog.children.length > 100) this.chatLog.removeChild(this.chatLog.firstChild);
     }
 
-    // ---- 背包面板（B 键）----
-    // ---- 状态窗口（F9，原版 DStateWin）----
+    // ---- 背包面板（F9，原版 DItemBag）----
+    // ---- 状态窗口（F10，原版 DStateWin）----
 
     // 窗口可拖动 + 点击前置（原版 TDWindow：MouseDown ChangeChildOrder 置顶，MouseMove 拖动）
     _makeWindowDraggable(win) {
@@ -835,11 +875,12 @@ export class PlayScene extends Scene {
         const gui = this.manager.winManager.container;
         const win = document.createElement('div');
         // 用 left 定位（原版右对齐 ≈ 800-232=568），便于拖动
-        win.style.cssText = 'position:absolute;left:568px;top:0;width:232px;height:325px;'
+        // 窗口背景用 Prguse3[207]（232×362）：比 Prguse[370]（232×325）高 37px，
+        // 内页区域 168×234（对应 Prguse3 的 29/30/32/33），底部信息框也更完整。
+        win.style.cssText = 'position:absolute;left:568px;top:0;width:232px;height:362px;'
             + 'pointer-events:auto;font-family:SimSun,serif;color:#e8d9b0;';
         win.style.display = 'none';
-        // 背景 Prguse[370]（标记 win-drag 用于拖动）
-        this._libUrl('prguse', 370).then((url) => {
+        this._libUrl('prguse3', 207).then((url) => {
             if (url && this.stateWin === win) {
                 const bg = document.createElement('img');
                 bg.src = url; bg.draggable = false;
@@ -850,7 +891,7 @@ export class PlayScene extends Scene {
         });
         // 装备页（人物底图 + 13 装备槽）
         this.stateEquipWrap = document.createElement('div');
-        this.stateEquipWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;';
+        this.stateEquipWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:362px;';
         win.appendChild(this.stateEquipWrap);
         this.stateBodyEl = document.createElement('div');
         this.stateBodyEl.style.cssText = 'position:absolute;left:38px;top:52px;';
@@ -858,19 +899,24 @@ export class PlayScene extends Scene {
         this.stateEquipEl = document.createElement('div');
         this.stateEquipEl.style.cssText = 'position:absolute;left:0;top:0;';
         this.stateEquipWrap.appendChild(this.stateEquipEl);
-        // 属性页（数值对齐背景标签）
+        // 装备页底部描述区：Prguse3[207] 底部信息框（约 y=304-354，内页底图到 y=286）
+        this.stateDescEl = document.createElement('div');
+        this.stateDescEl.style.cssText = 'position:absolute;left:34px;top:307px;width:180px;height:44px;'
+            + 'font-size:11px;line-height:12px;color:#e8d9b0;overflow:hidden;pointer-events:none;';
+        this.stateEquipWrap.appendChild(this.stateDescEl);
+        // 属性页（数值对齐背景标签；Prguse3[207] 自带 AC/MAC/DC/MC/SC/HP/MP 标签）
         this.stateAttrWrap = document.createElement('div');
-        this.stateAttrWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
+        this.stateAttrWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:362px;display:none;';
         win.appendChild(this.stateAttrWrap);
         this.stateAttrEl = document.createElement('div');
         this.stateAttrEl.style.cssText = 'position:absolute;left:112px;top:99px;width:96px;'
             + 'font-size:12px;line-height:20px;text-shadow:1px 1px 0 #000;';
         this.stateAttrWrap.appendChild(this.stateAttrEl);
-        // 属性数值页（原版 StatePage=2：经验/重量/负重/腕力/精确度/敏捷度等，背景 Prguse[382]）
+        // 属性数值页（原版 StatePage=2：经验/重量/负重/腕力/精确度/敏捷度等，背景 Prguse3[32] 空白纹理页）
         this.stateAttr2Wrap = document.createElement('div');
-        this.stateAttr2Wrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
+        this.stateAttr2Wrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:362px;display:none;';
         win.appendChild(this.stateAttr2Wrap);
-        this._libUrl('prguse', 382).then((url) => {
+        this._libUrl('prguse3', 32).then((url) => {
             if (url && this.stateWin === win) {
                 const bg = document.createElement('img');
                 bg.src = url; bg.draggable = false;
@@ -882,12 +928,11 @@ export class PlayScene extends Scene {
         this.stateAttr2El.style.cssText = 'position:absolute;left:58px;top:62px;width:150px;'
             + 'font-size:12px;line-height:14px;text-shadow:1px 1px 0 #000;';
         this.stateAttr2Wrap.appendChild(this.stateAttr2El);
-        // 技能页（F12，原版 StatePage=3 魔法页：Prguse[383] 背景 + 5 个技能行 + 内部分页）
+        // 技能页（F12，原版 StatePage=3 魔法页：Prguse3[33] 背景（自带 5 个技能框）+ 5 个技能行 + 内部分页）
         this.stateSkillWrap = document.createElement('div');
-        this.stateSkillWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;display:none;';
+        this.stateSkillWrap.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:362px;display:none;';
         win.appendChild(this.stateSkillWrap);
-        // 技能页背景 Prguse[383]（原版在 38,52；此前缺背景导致沿用装备页 370 底图，界面错乱）
-        this._libUrl('prguse', 383).then((url) => {
+        this._libUrl('prguse3', 33).then((url) => {
             if (url && this.stateWin === win) {
                 const bg = document.createElement('img');
                 bg.src = url; bg.draggable = false;
@@ -1163,37 +1208,143 @@ export class PlayScene extends Scene {
         gui.appendChild(box);
     }
 
-    // 装备页：人物底图（男376/女377）+ 13 槽图标
-    _refreshEquipPage() {
+    // 装备页（对齐原版 FState.pas DStateWinDirectPaint 的 StatePage=0）：
+    //   1) 裸身底图 Prguse[376/377] 画在 (38,52)；
+    //   2) 发型/衣服/武器/头盔画在 (31,96) + 纹理自带偏移，叠在人物身上——衣服才能真正盖住裸身；
+    //   3) 13 个 DSW 槽位在原版只是空按钮（点击热区），不画图标，装备外观由人物形象体现。
+    async _refreshEquipPage() {
         const p = this.self;
         this.stateBodyEl.innerHTML = '';
-        const bodyIdx = p.sex === 1 ? 377 : 376;
-        this._libUrl('prguse', bodyIdx).then((url) => {
+        // 装备页底图用 Prguse3[29]（男）/ [30]（女）：168×234，比 Prguse[376/377]（168×199）高，
+        // 自带底部一排 4 个格子（护身符/腰带/靴子/宝石），装备页才完整。
+        const bodyIdx = p.sex === 1 ? 30 : 29;
+        this._libUrl('prguse3', bodyIdx).then((url) => {
             if (url && this.stateWin && this.stateBodyEl) {
                 const im = document.createElement('img');
                 im.src = url; im.draggable = false;
                 this.stateBodyEl.appendChild(im);
             }
         });
-        this.stateEquipEl.innerHTML = '';
+
+        // 人物身上的装备叠加层（在裸身底图之上、点击热区之下）
+        if (this.stateFigureEl) {
+            this.stateFigureEl.remove();
+            this.stateFigureEl = null;
+        }
+        const figure = document.createElement('div');
+        figure.style.cssText = 'position:absolute;left:0;top:0;width:232px;height:325px;pointer-events:none;';
+        this.stateEquipWrap.insertBefore(figure, this.stateEquipEl);
+        this.stateFigureEl = figure;
+
         const items = p.items || [];
+        const equipped = {};
+        for (const it of items) {
+            if (it.slot != null) equipped[it.slot] = it;
+        }
+        // 原版 bbx := Left+38-7 = 31，bby := Top+52+44 = 96，绘制时再叠加纹理自带 ax/ay
+        const draw = async (libKey, idx) => {
+            if (idx == null || idx < 0) return;
+            const lib = getLib(libKey);
+            if (!lib) return;
+            let tex = null;
+            try {
+                tex = await lib.getTexture(idx);
+            } catch (e) {
+                tex = null;
+            }
+            if (!tex || !figure.isConnected) return;
+            // WIL 解出来的是 OffscreenCanvas（没有 toDataURL），拷到普通 canvas 再挂 DOM
+            const cv = document.createElement('canvas');
+            cv.width = tex.canvas.width;
+            cv.height = tex.canvas.height;
+            cv.getContext('2d').drawImage(tex.canvas, 0, 0);
+            cv.style.cssText = `position:absolute;left:${31 + (tex.px || 0)}px;top:${96 + (tex.py || 0)}px;`;
+            figure.appendChild(cv);
+        };
+        // 顺序同原版：发型 → 衣服 → 武器 → 头盔
+        await draw('prguse', (p.sex === 1 ? 480 : 440) + Math.floor((p.hair || 0) / 2));
+        if (equipped[0]) await draw('stateitem', equipped[0].looks);   // 衣服
+        if (equipped[1]) await draw('stateitem', equipped[1].looks);   // 武器
+        if (equipped[4]) await draw('stateitem', equipped[4].looks);   // 头盔
+
+        // 13 个槽位：点击热区；人物形象上已画衣服/武器/头盔（slot 0/1/4），
+        // 其余槽位（项链/手镯/戒指/护身符/腰带/靴子/宝石/右手）显示图标，否则戴上后 F10 看不到。
+        // 对齐原版：Prguse[376]（裸身底图）自带 8 个格子凹槽（右手/项链/头盔/手镯L/R/戒指L/R），
+        // 只在这些槽位画图标；最后一排（护身符/腰带/靴子/宝石）在原版没有视觉（376 只到 y=251），
+        // 保留 DSW 透明热区（可点击）但不画格子/图标。
+        // Prguse3[29]/[30] 自带 8+4 个格子凹槽；头盔/衣服/武器仍画在人物形象上，其余槽位显示图标
+        const ICON_SLOTS = new Set([2, 3, 5, 6, 7, 8, 9, 10, 11, 12]);
+        this.stateEquipEl.innerHTML = '';
+        this._hideStateItemDesc();
         for (const [slot, x, y, w, h] of EQUIP_SLOTS) {
-            const it = items.find(v => v.slot === slot);
+            const it = equipped[slot];
             const cell = document.createElement('div');
-            cell.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;`
+            cell.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;cursor:pointer;`
                 + 'display:flex;align-items:center;justify-content:center;overflow:hidden;';
+            cell.dataset.slot = String(slot);
             if (it) {
-                cell.title = `${SLOT_NAMES[slot]}：${it.name}`;
-                this._libUrl('stateitem', it.looks).then((url) => {
-                    if (url) {
+                if (ICON_SLOTS.has(slot)) {
+                    this._libUrl('stateitem', it.looks).then((url) => {
+                        if (!url) return;
                         const im = document.createElement('img');
                         im.src = url; im.draggable = false;
                         im.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;';
                         cell.appendChild(im);
-                    }
-                });
+                    });
+                }
+                // 悬停在装备槽上时，描述显示在窗口底部框内（对齐原版把信息放这块区域的用法）
+                cell.addEventListener('mouseenter', () => this._showStateItemDesc(it));
+                cell.addEventListener('mouseleave', () => this._hideStateItemDesc());
             }
+            cell.addEventListener('click', () => this._onEquipSlotClick(slot, it, cell));
             this.stateEquipEl.appendChild(cell);
+        }
+    }
+
+    // 装备页底部描述：显示某件装备的详细信息（与背包描述同一套字段）
+    _showStateItemDesc(it) {
+        if (!this.stateDescEl) return;
+        const d = this._itemDesc(it);
+        this.stateDescEl.innerHTML = '';
+        const l1 = document.createElement('div');
+        const nm = document.createElement('span');
+        nm.style.color = '#ffff00';
+        nm.textContent = d.name + ' ';
+        l1.appendChild(nm);
+        l1.appendChild(document.createTextNode(d.line1));
+        this.stateDescEl.appendChild(l1);
+        if (d.line2) { const l2 = document.createElement('div'); l2.textContent = d.line2; this.stateDescEl.appendChild(l2); }
+        if (d.line3) { const l3 = document.createElement('div'); l3.textContent = d.line3; this.stateDescEl.appendChild(l3); }
+    }
+
+    _hideStateItemDesc() {
+        if (this.stateDescEl) this.stateDescEl.innerHTML = '';
+    }
+
+    // 点击 F10 装备页的某个槽位（原版 DSWWeaponClick 三分支）
+    _onEquipSlotClick(slot, equipped, cell) {
+        if (this.pickedItem) {
+            if (this.pickedSource === 'equip') {
+                // 手里拿的是已穿装备：原版直接放回原槽（本地还原，不发消息）
+                this._clearPicked();
+                return;
+            }
+            const sm = this.pickedItem.stdMode;
+            if (!slotAccepts(slot, sm)) {
+                return;    // 槽位不接受这类物品：原版静默忽略
+            }
+            if (sm === 10 && this.self.sex !== 0) { this._log('[系统] 男性服饰。'); return; }
+            if (sm === 11 && this.self.sex !== 1) { this._log('[系统] 女性服饰。'); return; }
+            this.conn.send('takeOnItem', { makeIndex: this.pickedItem.makeIndex, slot });
+            this._clearPicked();
+            return;
+        }
+        if (equipped) {
+            // 空手点有装备的槽位 → 拿起（原版 MovingItem.Index := -(sel+1)）
+            this.pickedItem = equipped;
+            this.pickedSource = 'equip';
+            this.pickedSlot = slot;
+            this._markPicked(cell);
         }
     }
 
@@ -1290,6 +1441,15 @@ export class PlayScene extends Scene {
             + 'display:grid;grid-template-columns:repeat(8,36px);grid-template-rows:repeat(5,32px);'
             + 'grid-auto-rows:32px;grid-auto-columns:36px;row-gap:0;column-gap:0;';
         panel.appendChild(this.bagGridEl);
+        // 拿着已穿装备点背包空白处 → 卸下（原版 DItemGridGridSelect 的 mi<0 分支；
+        // 网格只渲染有物品的格子，空白区域用容器兜底）
+        this.bagGridEl.addEventListener('click', (e) => {
+            if (e.target !== this.bagGridEl) return;
+            if (this.pickedItem && this.pickedSource === 'equip') {
+                this.conn.send('takeOffItem', { slot: this.pickedSlot, makeIndex: this.pickedItem.makeIndex });
+                this._clearPicked();
+            }
+        });
         this.bagPanel = panel;
         this._makeWindowDraggable(panel);
         gui.appendChild(panel);
@@ -1313,6 +1473,8 @@ export class PlayScene extends Scene {
             // 格子显式固定尺寸（36×32，对齐原版 TDGrid ColWidth=36/RowHeight=32）；grid place-items 居中
             cell.style.cssText = 'display:grid;place-items:center;overflow:hidden;cursor:pointer;'
                 + 'width:36px;height:32px;';
+            cell.title = it.name;
+            cell.dataset.makeIndex = String(it.makeIndex);
             cell.addEventListener('mouseenter', () => this._showItemDesc(it));
             cell.addEventListener('mouseleave', () => this._hideItemDesc());
             this._libUrl('items', it.looks).then((url) => {
@@ -1323,8 +1485,14 @@ export class PlayScene extends Scene {
                     cell.appendChild(im);
                 }
             });
+            // 双击：装备直接穿戴（自动选槽，原版 GetTakeOnPosition）；其余交给 useItem（药/书/卷，原版 EatItem）
+            const pos = TAKEON_POS[it.stdMode];
             cell.addEventListener('dblclick', () => {
-                this.conn.send('useItem', { makeIndex: it.makeIndex });
+                if (pos !== undefined) {
+                    this.conn.send('takeOnItem', { makeIndex: it.makeIndex, slot: pos });
+                } else {
+                    this.conn.send('useItem', { makeIndex: it.makeIndex });
+                }
             });
             cell.addEventListener('click', () => this._onBagItemClick(it, cell));
             this.bagGridEl.appendChild(cell);
@@ -1387,11 +1555,19 @@ export class PlayScene extends Scene {
         if (this.bagDescEl) this.bagDescEl.innerHTML = '';
     }
 
-    // 背包物品单击：拿起 → 再点同一格取消 / 点另一格换位（移动）
+    // 背包物品单击：拿起 → 再点同一格取消 / 点另一格换位（移动）/ 拿着已穿装备点背包 = 卸下
     _onBagItemClick(it, cell) {
         if (!this.pickedItem) {
             this.pickedItem = it;            // 拿起
+            this.pickedSource = 'bag';
+            this.pickedSlot = -1;
             this._markPicked(cell);
+            return;
+        }
+        if (this.pickedSource === 'equip') {
+            // 拿着已穿装备点背包格 → 卸下（原版 DItemGridGridSelect 的 mi < 0 分支 → CM_TAKEOFFITEM）
+            this.conn.send('takeOffItem', { slot: this.pickedSlot, makeIndex: this.pickedItem.makeIndex });
+            this._clearPicked();
             return;
         }
         if (this.pickedItem.makeIndex === it.makeIndex) {
@@ -1413,6 +1589,8 @@ export class PlayScene extends Scene {
         if (this._pickedCell) this._pickedCell.style.outline = '';
         this._pickedCell = null;
         this.pickedItem = null;
+        this.pickedSource = null;
+        this.pickedSlot = -1;
     }
 
     // ---- NPC 对话框（原版 DMerchantDlg 样式）----
@@ -2218,6 +2396,8 @@ export class PlayScene extends Scene {
         this.shopGoldEl = null;
         this.shopSellItem = null;
         this.pickedItem = null;
+        this.pickedSource = null;   // 'bag' | 'equip'
+        this.pickedSlot = -1;       // pickedSource === 'equip' 时的槽位号
         this._pickedCell = null;
         const gui = this.manager.winManager.container;
         gui.innerHTML = '';

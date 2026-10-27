@@ -488,6 +488,29 @@ jootm2/
     - **困魔咒钉住循环**（对齐魔法盾泡泡循环思路）：怪物麻痹（`paralyzed`）期间，完整展开动画（20 帧，由 `spellCast` 的 hit 播放一次）播完后，`_renderEffects` 循环播放**末尾 4 帧（1396-1399）**——帧形细长像钉子，把怪物钉在原地；跟随实体偏移（self 走动画/怪物移动过渡）。服务端 `castMagic` 困魔咒/诱惑定身分支补 `sendStats`（之前只设 `paralyzedUntil` 不广播，前端收不到麻痹状态）；前端 `stats` 加 `_paralyzedAt`（麻痹起始时间）。验证（Playwright）：展开期 `hit holyCurtain` 播放 + `_paralyzedAt` 已设；2 秒后 `_paralyzed` 仍 true（循环末尾帧），道士自身 `_paralyzed=false` 无误判。
     - **麻痹到期解除钉子**：`monsterAi` 开头检测 `paralyzedUntil>0 && now>=paralyzedUntil` → 清 `paralyzedUntil` + `sendStats` 广播 `paralyzed=false`（前端 `_paralyzed` 转 false，`_renderEffects` 不再画钉子）。之前到期只靠 `if(now<paralyzedUntil) return` 静默恢复，前端 `_paralyzed` 永远是 true，钉子去不掉。验证（Playwright）：施法后 `paralyzed=true` → 14.7 秒（道士 lv3 = 5+3×3 秒）后 `paralyzed=false`。
 
+98. **装备穿戴（背包双击穿 / 点选物品点 F10 槽位穿 / 从槽位取下）**：
+    - **协议**（对齐原版 `CM_TAKEONITEM=1003` / `CM_TAKEOFFITEM=1004`）：`takeOnItem{makeIndex,slot}`、`takeOffItem{slot,makeIndex}`，`slot` 为 0..12 的 `U_*` 槽位，缺省时退回自动选槽。
+    - **服务端**：`GameService.takeOnItem/takeOffItem`（原版 `ObjBase.pas ServerGetTakeOnItem/ServerGetTakeOffItem`）；`Player.slotAccepts(slot,stdMode)` = 原版 `M2Share.pas IsTakeOnAvailable`（头盔槽只收 15、左手腕槽收 24/25/26、护身符槽收 25）；`canTakeOn` = 原版 `TCreature.CanTakeOn`（男/女衣服性别、`maxHandWeight` 腕力（武器/右手）、`wearWeightEx+weight` 负重、`Need/NeedLevel`），失败提示沿用原版中文串（`男性服饰。/女性服饰。/过重。/不适合您使用。/等级不足`）；穿上时旧装备回背包尾部、`recompute` + `stats` + `bagUpdate` + `broadcastEntityAdd`（外观 dress/weapon 同步）。
+    - **自动选槽**：`Player.slotFor` 补 `30→U_RIGHTHAND`、`25→U_BUJUK`，`24/26` 按原版 `ClFunc.pas GetTakeOnPosition` 改到 `U_ARMRINGR`（戒指先占左、手镯先占右）。
+    - **前端**：`TAKEON_POS`（StdMode→槽位）+ `slotAccepts()` 照抄原版表；背包双击装备发 `takeOnItem`（其余物品仍走 `useItem`，药/书/卷）；F10 装备页 13 个槽加 `click` → `_onEquipSlotClick`（原版 `FState.pas DSWWeaponClick` 三分支：拿着背包物品且槽位匹配 → 穿；空手点有装备的槽 → 拿起（黄框）；拿着已穿装备点槽 → 放回取消）。
+    - **取下**：拿着已穿装备（`pickedSource='equip'`）再点背包格或网格空白处 → `takeOffItem`。
+    - **丢地**：对齐原版 `TCreature.UserDropItem` 只遍历 `ItemList`（背包）、不认 `UseItems`（装备栏）——已穿戴装备必须先放回背包才能丢；直接丢时 `drop` 回提示「请先把装备放回背包再丢弃。」（原版此处回 `SM_DROPITEM_FAIL`，其客户端 `ClientGetDropItemFail` 会把物品塞进背包造成与服务端不同步，故改为明确提示+不改状态）。
+    - **持久化修正**：`persist` 时给已穿戴物品写 `slot` 标记（`ItemInstance.slot`），`distributeItems` 只把带槽位标记的物品放回对应装备槽，其余留在背包 —— 修复「取下装备后重登又被自动穿上」。
+    - 验证（Playwright + WS）：双击木剑/布衣 → 槽 1/槽 0；点选手镯/戒指 → 槽 5（手镯L）/槽 8（戒指R）；点槽 5 拿起后点背包空白 → 手镯回背包；重登后装备仍在原槽且背包里的手镯不会被自动穿；服务端负向用例：蜡烛→项链槽「该物品不能装备到此位置。」、乱 makeIndex「物品不存在。」、makeIndex 不符的取下「该位置没有装备。」。
+    - **属性映射对齐 `ObjBase.pas ApplyItemParameters`**（穿装备后 F10 数值）：装备 AC/MAC 字段按 StdMode 映射成不同属性——武器 5/6：AC=准确/幸运、MAC=攻速/诅咒；项链 19：魔躲/幸运/诅咒；项链/手镯 20/24：准确/敏捷；项链 21：回血/回蓝/攻速；戒指 23：毒抗/解毒/攻速；宝石 53：HP/MP；其余（衣服/头盔/腰带/靴子/护身符/戒指22/手套26）AC/MAC 即防御；DC/MC/SC 所有类型都累加。`Ability` 加 `antiMagic/antiPoison/poisonRecover/healthRecover/spellRecover/hitSpeed/luck/unluck`；`recompute` 每次都重置（否则穿脱多次后 hit/speed 会累加失控）；`sendStats` 补广播 `hit/speed`，`bagUpdate` 补 `wearWeight/handWeight/maxWearWeight/maxHandWeight`，前端 stats/bagUpdate 同步接收 → F10 第 1/2 页实时刷新。
+    - **外观（武器/衣服贴图）**：`dressLooks()=衣服Shape*2+sex`、`weaponShape()=武器Shape*2+sex`（对齐 `GetRelFeature`），`broadcastEntityAdd` 广播 `dress/weapon`，前端 `ActorSprite` 玩家分层。抓帧对比验证：穿布衣(Shape=1)/木剑(Shape=1) → dress=2/weapon=2（白布衣+蓝裤+右手持剑），卸下后恢复裸体外观。
+    - **F10 装备页人物形象**（对齐 `FState.pas DStateWinDirectPaint` 的 `StatePage=0`）：原版是「裸身底图 `Prguse[376/377]` 画在 (38,52)」+「发型/衣服/武器/头盔画在 `(Left+38-7, Top+52+44)=(31,96)` 再叠加纹理自带 `ax/ay`」叠成完整形象；13 个 `DSWDress/DSWWeapon/...` 是**空按钮**（只做点击热区，不画图标）。之前前端把装备图标画在槽位 `cell` 里（flex 居中 + `overflow:hidden`），既位置不对又没叠到人物身上 → 衣服盖不住裸身。修复：新增 `stateFigureEl` 叠加层按原版顺序（发型→衣服→武器→头盔）与坐标绘制，槽位改为透明点击热区；WIL 纹理是 `OffscreenCanvas`（无 `toDataURL`）故拷贝到普通 canvas 再挂 DOM。验证：穿布衣/木剑/头盔 → 人物形象完整覆盖（3 个叠加 canvas）；点槽 0 拾取→点背包卸下 → 衣服从人物消失恢复裸身（2 个 canvas），槽位点击逻辑不受影响。
+    - **F10 整个窗口改用 `Prguse3` 家族**（`prguse3` 是独立库 `Data/Prguse3.wil`，`prguse`/`prguse2` 之外）：
+      - 窗口背景/尺寸：`Prguse[370]`(232×325) → **`Prguse3[207]`(232×362)**，窗口 232×362，内页区 (38,52) 168×234；
+      - 装备页：**`Prguse3[29]`（男）/`[30]`（女）**，168×234，自带 8+4=12 个格子凹槽（含最后一排护身符/腰带/靴子/宝石）；人物形象仍按 `DStateWinDirectPaint` 画 发型/衣服/武器/头盔（slot 0/1/4 不在槽里重复画），其余槽用 `stateitem.looks` 居中显示图标，格子视觉全部来自底图（无 CSS 描边）；
+      - 属性页：`Prguse3[207]` 自带 AC/MAC/DC/MC/SC/HP/MP 标签，文字仍 `(112,99)` 每 20px；
+      - 数值页：`Prguse[382]`(168×199) → **`Prguse3[32]`**(168×234 空白纹理)；
+      - 技能页：`Prguse[383]`(168×199) → **`Prguse3[33]`**(168×234，自带 5 个技能行方框)。
+    - **F10 装备描述显示在底部框**：`Prguse3[207]` 底部信息框约 y=304-354（内页底图到 y=286）。`stateDescEl` `(18,307)` 196×44、11px/12px，`mouseenter` 装备槽时用与背包同一套 `_itemDesc(it)` 显示「名称（黄）+ 重量/持久 + 攻击/魔法/道术/防御/魔御 + 需要等级」，`mouseleave` 清空。验证抓帧：四页（装备/属性/数值/技能）背景与内容均对齐；底部一排 4 格（护身符 28×29）、手镯 20×19、戒指 16×12 正常；悬停衣服 → 底部三行完整描述。
+    - **关于「底部署称号」**：已核对原版——`ObjBase.pas` 无任何称号（Title）字段，只有 `MapTitle`（地图名，画在**屏幕**底部 `DrawScrn.pas` 的 `SCREENHEIGHT-20`）。F10 底部框原版是空的信息区，不是称号区。
+    - **武器与衣服的前后层级随方向/动作帧变化**（原版 `Actor.pas THumActor.DrawChr`）：`if (currentframe in 0..599) wpord := WORDER[Sex, currentframe]`，`wpord=0` 时武器先画（在衣服后面）→ 身体 → 头发；`wpord=1` 时身体 → 头发 → 武器后画（在衣服前面）。`WORDER` 是从原版 `Actor.pas` 的 `Array[0..1, 0..599] of byte` 表原样移植（`frontend/actor/actorData.mjs` 里两个 600 字符串），前端用 `cf`（hum 库相对帧 = 动作段 start + 方向偏移 + rel）查表。验证 8 方向 stand：dir 0/4/5/6/7 武器在后、dir 1/2/3 武器在前（与原版表一致）；抓帧：dir=0 背面剑被身体挡住、dir=2 侧面剑在身前清晰可见。
+    - 验证（Playwright，道士测试 lv3）：裸体 ac 0-0 / dc 1-1 / hit 0；木剑 → dc 3-6、weapon=2；布衣 → ac 2-2、mac 0-1、dress=2；铁手镯(AC=0-1) → hit 0→1；古铜戒指(DC=0-1) → dc 3-6→3-7；青铜头盔(AC=0-1) → ac 2-2→2-3。
+
 关键入口文件：`Main.java`、`service/GameService.java`、`game/GameWorld.java`、`game/npc/*`、`resource/NpcData.java`、`db/Database.java`、`net/*`；前端 `frontend/main.mjs` + `scene/` + `map/` + `ui/` + `gfx/`。
 
 ## 4. 未完成 / 待办（就是「移植整个 M2Server」剩下的部分）
@@ -528,7 +551,7 @@ jootm2/
 
 ## 7. WebSocket JSON 协议
 
-客户端 → 服务端：`login{username,password}` `register` `listCharacters` `createCharacter{name,sex,hair,job}` `deleteCharacter{name}` `enterGame{name}` `noticeOk{name}` `move{dir}` `say{text}` `attack{targetId}` `castMagic{magicId,targetX,targetY,targetId}` `magicKeyChange{magicId,key}` `npcTalk{npcId}` `npcSelect{npcId,value}` `buyItem{npcId,index,count}` `sellItem{npcId,makeIndex}` `pickup{itemId}` `useItem{makeIndex}` `drop{makeIndex,x,y}` `moveItem{makeIndex,targetIndex}` `storageOpen` `storageStore{makeIndex}` `storageTake{makeIndex}` `tradeRequest{targetId}` `tradeAccept{fromId}` `tradeAddItem{makeIndex}` `tradeAddGold{gold}` `tradeConfirm` `tradeCancel` `logout` `ping`
+客户端 → 服务端：`login{username,password}` `register` `listCharacters` `createCharacter{name,sex,hair,job}` `deleteCharacter{name}` `enterGame{name}` `noticeOk{name}` `move{dir}` `say{text}` `attack{targetId}` `castMagic{magicId,targetX,targetY,targetId}` `magicKeyChange{magicId,key}` `npcTalk{npcId}` `npcSelect{npcId,value}` `buyItem{npcId,index,count}` `sellItem{npcId,makeIndex}` `pickup{itemId}` `useItem{makeIndex}` `takeOnItem{makeIndex,slot}` `takeOffItem{slot,makeIndex}` `drop{makeIndex,x,y}` `moveItem{makeIndex,targetIndex}` `storageOpen` `storageStore{makeIndex}` `storageTake{makeIndex}` `tradeRequest{targetId}` `tradeAccept{fromId}` `tradeAddItem{makeIndex}` `tradeAddGold{gold}` `tradeConfirm` `tradeCancel` `logout` `ping`
 
 服务端 → 客户端：`loginResult` `registerResult` `characterList` `createCharacterResult` `deleteCharacterResult` `enterGameResult` `notice{text}` `enterGame{map,player,nearby,groundItems}` `changeMap{map,player,nearby,groundItems}` `entityAdd` `entityRemove` `move` `stats` `attack` `spellCast{casterId,magicId,effect,targetX,targetY}` `fireWall{x,y,duration}` `doorState{x,y,open}` `death` `chat` `systemMessage` `itemDrop{id,name,looks,x,y,gold}` `itemRemove{id}` `bagUpdate{items,gold}` `npcSay{npcId,name,text,options[{label,value}],shop?,goods[{index,name,price,stock}]}` `npcClose{npcId}` `pong`
 

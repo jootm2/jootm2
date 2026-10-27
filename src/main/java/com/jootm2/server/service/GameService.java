@@ -156,6 +156,12 @@ public final class GameService {
                 case "useItem":
                     useItem(session, msg);
                     break;
+                case "takeOnItem":
+                    takeOnItem(session, msg);
+                    break;
+                case "takeOffItem":
+                    takeOffItem(session, msg);
+                    break;
                 case "drop":
                     dropItem(session, msg);
                     break;
@@ -828,13 +834,23 @@ public final class GameService {
         }
     }
 
-    /** 丢弃背包物品到脚下（原版 CM_DROPITEM）。 */
+    /**
+     * 丢弃背包物品到脚下（原版 CM_DROPITEM → TCreature.UserDropItem）。
+     * 原版只遍历 ItemList（背包），不认 UseItems（装备栏）→ 已穿戴装备必须先放回背包才能丢。
+     */
     private void dropItem(PlayerSession session, JsonObject msg) {
         Player p = findBySession(session);
         if (p == null) {
             return;
         }
         int makeIndex = integer(msg, "makeIndex", -1);
+        for (ItemInstance eq : p.equipment) {
+            if (eq != null && eq.makeIndex == makeIndex) {
+                // 原版此处回 SM_DROPITEM_FAIL（客户端会把物品塞进背包造成不同步），这里直接给明确提示
+                world.sendSystem(p, "请先把装备放回背包再丢弃。");
+                return;
+            }
+        }
         if (world.dropItem(p, makeIndex)) {
             world.sendSystem(p, "丢弃了物品。");
             sendBagUpdate(p);
@@ -1027,27 +1043,157 @@ public final class GameService {
         }
     }
 
+    /** 双击装备：按 StdMode 自动选槽（原版 ClFunc.pas GetTakeOnPosition）后穿戴。 */
     private void equip(Player p, ItemTemplate t, ItemInstance it) {
         int slot = Player.slotFor(t);
         if (slot < 0) {
             world.sendSystem(p, "无法装备该物品。");
             return;
         }
-        if (t.needLevel > p.level) {
-            world.sendSystem(p, "等级不足，需要 " + t.needLevel + " 级。");
+        takeOnSlot(p, it, t, slot);
+    }
+
+    /**
+     * 穿戴到客户端指定槽位（原版 CM_TAKEONITEM → TUserHuman.ServerGetTakeOnItem）。
+     * 请求：{type:"takeOnItem", makeIndex:<背包物品唯一号>, slot:<0..12>}；slot 缺省时退回自动选槽。
+     */
+    private void takeOnItem(PlayerSession session, JsonObject msg) {
+        Player p = findBySession(session);
+        if (p == null) {
             return;
         }
-        p.bag.remove(it);
-        ItemInstance old = p.equipment[slot];
-        if (old != null) {
-            p.bag.add(old);
+        ItemInstance found = bagItem(p, integer(msg, "makeIndex", -1));
+        if (found == null) {
+            world.sendSystem(p, "物品不存在。");
+            return;
         }
-        p.equipment[slot] = it;
+        ItemTemplate t = world.itemTemplates.get(found.index);
+        if (t == null) {
+            return;
+        }
+        int slot = integer(msg, "slot", -1);
+        if (slot < 0 || slot >= p.equipment.length) {
+            slot = Player.slotFor(t);
+        }
+        if (slot < 0) {
+            world.sendSystem(p, "无法装备该物品。");
+            return;
+        }
+        takeOnSlot(p, found, t, slot);
+    }
+
+    /**
+     * 卸下指定槽位装备（原版 CM_TAKEOFFITEM → TUserHuman.ServerGetTakeOffItem）。
+     * 请求：{type:"takeOffItem", slot:<0..12>, makeIndex:<已装备物品唯一号>}。
+     */
+    private void takeOffItem(PlayerSession session, JsonObject msg) {
+        Player p = findBySession(session);
+        if (p == null) {
+            return;
+        }
+        int slot = integer(msg, "slot", -1);
+        if (slot < 0 || slot >= p.equipment.length) {
+            return;
+        }
+        ItemInstance cur = p.equipment[slot];
+        int makeIndex = integer(msg, "makeIndex", -1);
+        if (cur == null || (makeIndex >= 0 && cur.makeIndex != makeIndex)) {
+            world.sendSystem(p, "该位置没有装备。");
+            return;
+        }
+        if (p.bag.size() >= GameWorld.BAG_SIZE) {
+            world.sendSystem(p, "背包已满，无法卸下。");
+            return;
+        }
+        p.equipment[slot] = null;
+        p.bag.add(cur);          // 原版 AddItem：卸下的装备追加到背包尾部
         p.recompute(world);
         world.sendStats(p, null);
-        world.sendSystem(p, "装备了 " + t.name + "。");
         sendBagUpdate(p);
+        ItemTemplate t = world.itemTemplates.get(cur.index);
+        world.sendSystem(p, "卸下了 " + (t != null ? t.name : "装备") + "。");
         world.broadcastEntityAdd(p);   // 其他玩家看到 dress/weapon 外观变化
+    }
+
+    /** 把背包里的某件装备穿到指定槽位；成功返回 true。 */
+    private boolean takeOnSlot(Player p, ItemInstance it, ItemTemplate t, int slot) {
+        if (!Player.slotAccepts(slot, t.stdMode)) {
+            world.sendSystem(p, "该物品不能装备到此位置。");
+            return false;
+        }
+        if (!canTakeOn(p, t, slot)) {
+            return false;
+        }
+        ItemInstance old = p.equipment[slot];
+        p.bag.remove(it);
+        p.equipment[slot] = it;
+        if (old != null) {
+            p.bag.add(old);      // 原版 AddItem(pu)：被顶替的旧装备回背包
+        }
+        p.recompute(world);
+        world.sendStats(p, null);
+        sendBagUpdate(p);
+        world.sendSystem(p, "装备了 " + t.name + "。");
+        world.broadcastEntityAdd(p);   // 其他玩家看到 dress/weapon 外观变化
+        return true;
+    }
+
+    /** 穿戴条件（原版 TCreature.CanTakeOn）：性别、腕力/负重、Need/NeedLevel。 */
+    private boolean canTakeOn(Player p, ItemTemplate t, int slot) {
+        if (t.stdMode == 10 && p.sex != 0) {
+            world.sendSystem(p, "男性服饰。");
+            return false;
+        }
+        if (t.stdMode == 11 && p.sex != 1) {
+            world.sendSystem(p, "女性服饰。");
+            return false;
+        }
+        if (slot == MessageIds.U_WEAPON || slot == MessageIds.U_RIGHTHAND) {
+            if (t.weight > p.maxHandWeight()) {
+                world.sendSystem(p, "过重。");
+                return false;
+            }
+        } else if (t.weight + p.wearWeightEx(world, slot) > p.maxWearWeight()) {
+            world.sendSystem(p, "过重。");
+            return false;
+        }
+        switch (t.need) {
+            case 0:
+                if (p.level >= t.needLevel) {
+                    return true;
+                }
+                world.sendSystem(p, "等级不足，需要 " + t.needLevel + " 级。");
+                return false;
+            case 1:
+                if (p.combat.dcMax >= t.needLevel) {
+                    return true;
+                }
+                break;
+            case 2:
+                if (p.combat.mcMax >= t.needLevel) {
+                    return true;
+                }
+                break;
+            case 3:
+                if (p.combat.scMax >= t.needLevel) {
+                    return true;
+                }
+                break;
+            default:
+                break;
+        }
+        world.sendSystem(p, "不适合您使用。");
+        return false;
+    }
+
+    /** 按 MakeIndex 在背包里查物品（不查已装备的）。 */
+    private static ItemInstance bagItem(Player p, int makeIndex) {
+        for (ItemInstance it : p.bag) {
+            if (it.makeIndex == makeIndex) {
+                return it;
+            }
+        }
+        return null;
     }
 
     /** Pushes the full inventory + gold to the player's client. */
@@ -1060,6 +1206,11 @@ public final class GameService {
         o.addProperty("gold", p.gold);
         o.addProperty("dress", p.dressLooks());
         o.addProperty("weapon", p.weaponShape());
+        // 负重/腕力随穿戴变化（F10 状态页第 2 页实时刷新）
+        o.addProperty("wearWeight", p.wearWeight());
+        o.addProperty("handWeight", p.handWeight());
+        o.addProperty("maxWearWeight", p.maxWearWeight());
+        o.addProperty("maxHandWeight", p.maxHandWeight());
         o.add("items", p.itemsJson(world));
         p.session.sendText(o.toString());
     }
@@ -2912,9 +3063,15 @@ public final class GameService {
         r.homeMap = p.homeMap;
         r.homeX = p.homeX;
         r.homeY = p.homeY;
+        // 背包物品不带槽位标记；已穿戴物品记录所在槽位，重登/重启后按槽位原样恢复（见 Player.distributeItems）
         List<ItemInstance> all = new ArrayList<>(p.bag);
-        for (ItemInstance it : p.equipment) {
+        for (ItemInstance it : p.bag) {
+            it.slot = -1;
+        }
+        for (int slot = 0; slot < p.equipment.length; slot++) {
+            ItemInstance it = p.equipment[slot];
             if (it != null) {
+                it.slot = slot;
                 all.add(it);
             }
         }

@@ -18,6 +18,8 @@ public final class ItemInstance {
     public int durability;
     public int durabilityMax;
     public int lucky;          // 武器实例幸运值（祝福油提升，0..7）
+    /** 持久化用的槽位标记：-1=在背包；0..12=已穿戴在该装备槽（仅落盘/读盘用，运行时由 equipment[] 表示）。 */
+    public int slot = -1;
 
     public ItemInstance() {
     }

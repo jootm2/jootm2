@@ -62,6 +62,11 @@ public final class Player extends Actor {
     public final List<ItemInstance> bag = new ArrayList<>();
     public final List<ItemInstance> storage = new ArrayList<>();   // 仓库（独立于背包）
     public final ItemInstance[] equipment = new ItemInstance[13];
+    /**
+     * 药水快捷栏 6 格（原版客户端 ItemArr[0..5]）：存物品 makeIndex（0 = 空）。
+     * 物品本身仍在背包里，这里只是引用（原版客户端是本地移入药水格，服务端 ItemList 不变，吃药按 makeIndex 查背包）。
+     */
+    public final int[] quickSlots = new int[6];
 
     // 装备衍生的特殊属性（recompute 时重算，语义对齐 ObjBase.pas 的 RecalcAbilitys）
     public int luck = 0;                  // 幸运值（武器 SpecialPwr 1-10）
@@ -554,6 +559,12 @@ public final class Player extends Actor {
         o.addProperty("speed", combat.speed);
         o.add("skills", skillsJson(world));
         o.add("items", itemsJson(world));
+        // 药水快捷栏 6 格（原版 ItemArr[0..5]），无效引用下发 0
+        JsonArray qs = new JsonArray();
+        for (int i = 0; i < quickSlots.length; i++) {
+            qs.add(quickSlotValid(i) ? quickSlots[i] : 0);
+        }
+        o.add("quickSlots", qs);
         return o;
     }
 
@@ -571,6 +582,67 @@ public final class Player extends Actor {
             o.add(String.valueOf(e.getKey()), s);
         }
         return o;
+    }
+
+    // ---- 药水快捷栏（原版客户端 ItemArr[0..5]，服务端只存 makeIndex 引用）----
+
+    /** 快捷栏 → 持久化列表（6 个 makeIndex，0 = 空）。 */
+    public List<Integer> quickSlotList() {
+        List<Integer> list = new ArrayList<>(quickSlots.length);
+        for (int v : quickSlots) {
+            list.add(v);
+        }
+        return list;
+    }
+
+    /** 从持久化列表恢复快捷栏（同一 makeIndex 只保留第一处，兼容旧存档里的重复引用）。 */
+    public void loadQuickSlots(List<Integer> list) {
+        java.util.Arrays.fill(quickSlots, 0);
+        if (list == null) {
+            return;
+        }
+        for (int i = 0; i < quickSlots.length && i < list.size(); i++) {
+            Integer v = list.get(i);
+            int mi = v == null ? 0 : v;
+            if (mi <= 0) {
+                continue;
+            }
+            boolean dup = false;
+            for (int j = 0; j < i; j++) {
+                if (quickSlots[j] == mi) {
+                    dup = true;
+                    break;
+                }
+            }
+            quickSlots[i] = dup ? 0 : mi;
+        }
+    }
+
+    /** 背包里按 makeIndex 找物品（找不到返回 null）。 */
+    public ItemInstance bagItem(int makeIndex) {
+        for (ItemInstance it : bag) {
+            if (it.makeIndex == makeIndex) {
+                return it;
+            }
+        }
+        return null;
+    }
+
+    /** 物品离开背包（用掉/丢弃/卖出）时清掉快捷栏对它的引用。 */
+    public void clearQuickRef(int makeIndex) {
+        if (makeIndex <= 0) {
+            return;
+        }
+        for (int i = 0; i < quickSlots.length; i++) {
+            if (quickSlots[i] == makeIndex) {
+                quickSlots[i] = 0;
+            }
+        }
+    }
+
+    /** 快捷栏某格是否还有效（有引用且物品仍在背包）。 */
+    public boolean quickSlotValid(int slot) {
+        return slot >= 0 && slot < quickSlots.length && quickSlots[slot] > 0 && bagItem(quickSlots[slot]) != null;
     }
 
     public JsonArray itemsJson(GameWorld world) {

@@ -82,6 +82,16 @@ public final class GameWorld {
     private final Path envDir;
 
     private final Map<String, List<WorldData.Gate>> gatesBySrc = new HashMap<>();
+    /** mapId → 中文地图名（MapInfo.txt 的第二个字段，HUD 底部“比奇省 289:618”用）。 */
+    private final Map<String, String> mapTitles = new HashMap<>();
+    /** mapId → mmap.wil 索引（MiniMap.txt，原版小地图底图 WMMap）。 */
+    private final Map<String, Integer> mapMiniIndex = new HashMap<>();
+    /**
+     * 昼夜时段（原版 MirDayTime / SM_DAYCHANGING）：0 早上、1 白天、2 傍晚、3 晚上，
+     * 客户端据此画 Prguse[15]/[12]/[13]/[14] 图标（FState.pas:3236-3245）。
+     */
+    public int dayBright = 3;
+    private long lastDayCheckAt = 0;
     private final Set<String> availableMaps = new HashSet<>();
     private List<WorldData.MonGenEntry> monGenEntries = new ArrayList<>();
     private final Map<Long, Npc> npcs = new HashMap<>();
@@ -125,6 +135,7 @@ public final class GameWorld {
 
         scanAvailableMaps();
         loadMapInfo();
+        loadMiniMapIndex();
         this.monGenEntries = WorldData.loadMonGen(envDir.resolve("MonGen.txt"));
         loadUnbindList();
         loadNpcs();
@@ -591,7 +602,39 @@ public final class GameWorld {
             gatesBySrc.computeIfAbsent(g.srcMap, k -> new ArrayList<>()).add(g);
             kept++;
         }
+        // mapId → 中文地图名（原版 PEnvir.MapTitle，HUD 底部显示）
+        for (Map.Entry<String, WorldData.MapDef> e : info.maps.entrySet()) {
+            mapTitles.put(e.getKey(), e.getValue().name);
+        }
         System.out.println("[world] loaded " + info.maps.size() + " map defs, " + kept + " gates");
+    }
+
+    /** 读 MiniMap.txt：mapId → mmap.wil 的小地图索引（原版 WMMap 库，1.5 像素/格）。 */
+    private void loadMiniMapIndex() {
+        Path file = envDir.resolve("MiniMap.txt");
+        if (!java.nio.file.Files.exists(file)) {
+            return;
+        }
+        try {
+            for (String line : java.nio.file.Files.readAllLines(file, java.nio.charset.Charset.forName("GBK"))) {
+                String t = line.trim();
+                if (t.isEmpty() || t.startsWith(";")) {
+                    continue;
+                }
+                String[] parts = t.split("\\s+");
+                if (parts.length < 2) {
+                    continue;
+                }
+                try {
+                    mapMiniIndex.put(parts[0], Integer.parseInt(parts[1]));
+                } catch (NumberFormatException ignored) {
+                    // 非数字行跳过
+                }
+            }
+        } catch (java.io.IOException e) {
+            System.err.println("[world] cannot read MiniMap.txt (" + e.getMessage() + ")");
+        }
+        System.out.println("[world] loaded " + mapMiniIndex.size() + " minimap entries");
     }
 
     public long newId() {
@@ -1041,6 +1084,7 @@ public final class GameWorld {
             }
             applyPoison(a, now);
         }
+        tickDayBright(now);
         closeTimedOutDoors(now);
         tickFireWalls(now);
         tickGroundItems(now);
@@ -1138,6 +1182,42 @@ public final class GameWorld {
             broadcastAround(p.map, o, c[0], c[1], SIGHT_RANGE);
         }
         return made;
+    }
+
+    /** 昼夜时段：每分钟按服务器本地时间重算（原版 FrnEngn.pas ProcessEtc 的 MirDayTime），变化时广播。 */
+    private void tickDayBright(long now) {
+        if (now - lastDayCheckAt < 60_000L) {
+            return;
+        }
+        lastDayCheckAt = now;
+        int b = dayBrightForHour(java.time.LocalTime.now().getHour());
+        if (b == dayBright) {
+            return;
+        }
+        dayBright = b;
+        JsonObject o = new JsonObject();
+        o.addProperty("type", "dayChanging");
+        o.addProperty("dayBright", dayBright);
+        String text = o.toString();
+        for (Actor a : actors.values()) {
+            if (a instanceof Player && ((Player) a).session != null) {
+                ((Player) a).session.sendText(text);
+            }
+        }
+    }
+
+    /** 0 早上(5-9) / 1 白天(10-16) / 2 傍晚(17-19) / 3 晚上(其余)。 */
+    private static int dayBrightForHour(int hour) {
+        if (hour >= 5 && hour <= 9) {
+            return 0;
+        }
+        if (hour >= 10 && hour <= 16) {
+            return 1;
+        }
+        if (hour >= 17 && hour <= 19) {
+            return 2;
+        }
+        return 3;
     }
 
     /** 火墙每秒对踩上的怪物造成伤害。 */
@@ -1427,6 +1507,10 @@ public final class GameWorld {
     /** 宠物击杀：经验归主人。 */
     private void grantExpTo(Player p, Monster m) {
         p.exp += m.template.exp;
+        // 经验增加提示：红底白字（原版聊天板里经验提示是独立配色）
+        if (m.template.exp > 0) {
+            sendSystem(p, "获得经验 " + m.template.exp + " 点。", "#ffffff", "#b00000");
+        }
         int oldLevel = p.level;
         int newLevel = ExperienceTable.levelForExp(p.exp);
         if (newLevel > oldLevel) {
@@ -1434,7 +1518,7 @@ public final class GameWorld {
             p.recompute(this);
             p.hp = p.maxHp;
             p.mp = p.maxMp;
-            sendSystem(p, "恭喜！你升到了 " + newLevel + " 级。");
+            sendSystem(p, "恭喜！你升到了 " + newLevel + " 级。", "#ffff00", "#b00000");
         }
         sendStats(p, null);
     }
@@ -1636,9 +1720,12 @@ public final class GameWorld {
         o.addProperty("type", type);
         JsonObject map = new JsonObject();
         map.addProperty("name", p.map.name);
+        map.addProperty("title", mapTitles.getOrDefault(p.map.name, p.map.name));   // 中文地图名（HUD 底部）
         map.addProperty("width", p.map.width);
         map.addProperty("height", p.map.height);
         o.add("map", map);
+        o.addProperty("dayBright", dayBright);   // 昼夜时段（HUD 天气图标）
+        o.addProperty("miniMapIndex", mapMiniIndex.getOrDefault(p.map.name, -1));   // mmap.wil 索引（-1 = 无小地图）
         o.add("player", p.toPlayerJson(this));
         JsonArray nearby = new JsonArray();
         p.seen.clear();
@@ -1987,9 +2074,26 @@ public final class GameWorld {
     }
 
     public void sendSystem(Player p, String text) {
+        sendSystem(p, text, null, null);
+    }
+
+    /**
+     * 带颜色的系统消息（原版 `SM_SYSMESSAGE` 的 Param 低字节/高字节 = 前景/背景色，
+     * 客户端 `AddChatBoardString(str, fcolor, bcolor)`）。fg/bg 为 CSS 颜色，null = 默认。
+     */
+    public void sendSystem(Player p, String text, String fg, String bg) {
+        if (p.session == null) {
+            return;
+        }
         JsonObject o = new JsonObject();
         o.addProperty("type", "systemMessage");
         o.addProperty("text", text);
+        if (fg != null) {
+            o.addProperty("fg", fg);
+        }
+        if (bg != null) {
+            o.addProperty("bg", bg);
+        }
         p.session.sendText(o.toString());
     }
 

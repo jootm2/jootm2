@@ -162,6 +162,9 @@ public final class GameService {
                 case "takeOffItem":
                     takeOffItem(session, msg);
                     break;
+                case "quickSlot":
+                    quickSlot(session, msg);   // 药水快捷栏设置/清除（原版客户端 ItemArr[0..5]）
+                    break;
                 case "drop":
                     dropItem(session, msg);
                     break;
@@ -531,6 +534,7 @@ public final class GameService {
         }
         p.bag.addAll(rec.items);
         p.storage.addAll(rec.storage);
+        p.loadQuickSlots(rec.quickSlots);   // 药水快捷栏（原版 ItemArr[0..5]）
         p.distributeItems(world);
         p.recompute(world);
         p.hp = p.maxHp;
@@ -757,6 +761,7 @@ public final class GameService {
         }
         int price = Math.max(1, t.price / 2);
         p.bag.remove(found);
+        p.clearQuickRef(found.makeIndex);   // 卖出：清掉快捷栏引用
         p.gold += price;
         world.sendSystem(p, "出售了 " + t.name + "，获得 " + price + " 金币。");
         sendBagUpdate(p);
@@ -852,6 +857,7 @@ public final class GameService {
             }
         }
         if (world.dropItem(p, makeIndex)) {
+            p.clearQuickRef(makeIndex);   // 丢弃：清掉快捷栏引用
             world.sendSystem(p, "丢弃了物品。");
             sendBagUpdate(p);
         } else {
@@ -926,6 +932,7 @@ public final class GameService {
         // 先移除卷：useScroll 内部发 changeMap 快照（含完整 items）时背包已不含卷，
         // 避免客户端瞬移后短暂看到「卷还在」的旧背包状态
         p.bag.remove(it);
+        p.clearQuickRef(it.makeIndex);   // 传送卷用掉：清掉快捷栏引用
         if (world.useScroll(p, t.shape)) {
             world.sendStats(p, null);
             world.sendSystem(p, "使用了 " + t.name + "。");
@@ -970,6 +977,7 @@ public final class GameService {
             return;
         }
         p.bag.remove(it);
+        p.clearQuickRef(it.makeIndex);   // 祝福油用掉：清掉快捷栏引用
         double r = Math.random();
         if (r < 0.5) {
             weapon.lucky++;
@@ -1035,6 +1043,7 @@ public final class GameService {
         }
         if (used) {
             p.bag.remove(it);
+            p.clearQuickRef(it.makeIndex);   // 药水用光：清掉快捷栏引用
             world.sendStats(p, null);
             world.sendSystem(p, "使用了 " + t.name + "。");
             sendBagUpdate(p);
@@ -1211,8 +1220,53 @@ public final class GameService {
         o.addProperty("handWeight", p.handWeight());
         o.addProperty("maxWearWeight", p.maxWearWeight());
         o.addProperty("maxHandWeight", p.maxHandWeight());
+        // 药水快捷栏 6 格（原版 ItemArr[0..5]）：按 makeIndex 下发，前端据此画图标
+        JsonArray qs = new JsonArray();
+        for (int i = 0; i < p.quickSlots.length; i++) {
+            qs.add(p.quickSlotValid(i) ? p.quickSlots[i] : 0);
+        }
+        o.add("quickSlots", qs);
         o.add("items", p.itemsJson(world));
         p.session.sendText(o.toString());
+    }
+
+    /**
+     * 药水快捷栏设置/清除：{@code {slot:0..5, makeIndex:N}}，makeIndex=0 表示清空。
+     * 对齐原版客户端 DBelt1Click：只允许 StdMode &lt;= 3 的消耗品入格；物品仍在背包，这里只存引用。
+     */
+    private void quickSlot(PlayerSession session, JsonObject msg) {
+        Player p = findBySession(session);
+        if (p == null) {
+            return;
+        }
+        int slot = integer(msg, "slot", -1);
+        int makeIndex = integer(msg, "makeIndex", 0);
+        if (slot < 0 || slot >= p.quickSlots.length) {
+            return;
+        }
+        if (makeIndex > 0) {
+            ItemInstance it = p.bagItem(makeIndex);
+            if (it == null) {
+                world.sendSystem(p, "物品不存在。");
+                sendBagUpdate(p);
+                return;
+            }
+            ItemTemplate t = world.itemTemplates.get(it.index);
+            if (t == null || t.stdMode > 3) {
+                world.sendSystem(p, "该物品不能放入快捷栏。");
+                sendBagUpdate(p);
+                return;
+            }
+            // 同一件物品只能占一个格（原版是从背包「移入」格子，不存在重复引用）：
+            // 放到新格时先清掉其他格对同一 makeIndex 的引用，否则一瓶药会在多个格显示、一用全空
+            for (int i = 0; i < p.quickSlots.length; i++) {
+                if (i != slot && p.quickSlots[i] == makeIndex) {
+                    p.quickSlots[i] = 0;
+                }
+            }
+        }
+        p.quickSlots[slot] = makeIndex;
+        sendBagUpdate(p);
     }
 
     private void say(PlayerSession session, JsonObject msg) {
@@ -2810,6 +2864,7 @@ public final class GameService {
             return;
         }
         p.bag.remove(found);
+        p.clearQuickRef(found.makeIndex);   // 存仓：清掉快捷栏引用
         p.storage.add(found);
         world.sendSystem(p, "已存入仓库。");
         sendBagUpdate(p);
@@ -2944,6 +2999,7 @@ public final class GameService {
         List<ItemInstance> mine = (p == t.a) ? t.aItems : t.bItems;
         mine.add(found);
         p.bag.remove(found);
+        p.clearQuickRef(found.makeIndex);   // 交易：清掉快捷栏引用
         Player other = (p == t.a) ? t.b : t.a;
         world.sendSystem(p, "已放入一件物品。");
         world.sendSystem(other, "对方放入了一件物品。");
@@ -3077,6 +3133,7 @@ public final class GameService {
         }
         r.items = all;
         r.storage = new ArrayList<>(p.storage);
+        r.quickSlots = p.quickSlotList();   // 药水快捷栏（原版 ItemArr[0..5]）
         JsonObject sj = new JsonObject();
         for (Map.Entry<Integer, Skill> e : p.skills.entrySet()) {
             JsonObject s = new JsonObject();

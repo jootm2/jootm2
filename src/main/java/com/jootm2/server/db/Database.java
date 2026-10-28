@@ -79,11 +79,18 @@ public final class Database implements AutoCloseable {
                     "items TEXT NOT NULL DEFAULT '[]'," +
                     "storage TEXT NOT NULL DEFAULT '[]'," +
                     "skills TEXT NOT NULL DEFAULT '[]'," +
+                    "quick_slots TEXT NOT NULL DEFAULT '[]'," +
                     "created_at INTEGER NOT NULL," +
                     "FOREIGN KEY (account_id) REFERENCES accounts(id))");
             // 迁移：旧库补 storage 列
             try {
                 st.executeUpdate("ALTER TABLE characters ADD COLUMN storage TEXT NOT NULL DEFAULT '[]'");
+            } catch (SQLException ignored) {
+                // 列已存在
+            }
+            // 迁移：旧库补药水快捷栏列（6 格 makeIndex，原版 ItemArr[0..5]）
+            try {
+                st.executeUpdate("ALTER TABLE characters ADD COLUMN quick_slots TEXT NOT NULL DEFAULT '[]'");
             } catch (SQLException ignored) {
                 // 列已存在
             }

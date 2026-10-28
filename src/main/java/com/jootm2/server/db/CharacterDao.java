@@ -20,6 +20,9 @@ public final class CharacterDao {
     private static final Type ITEM_LIST_TYPE = new TypeToken<List<ItemInstance>>() {
     }.getType();
 
+    private static final Type INT_LIST_TYPE = new TypeToken<List<Integer>>() {
+    }.getType();
+
     private final Database db;
 
     public CharacterDao(Database db) {
@@ -31,7 +34,7 @@ public final class CharacterDao {
         synchronized (c) {
             try (PreparedStatement ps = c.prepareStatement(
                     "SELECT id, account_id, name, sex, hair, job, level, exp, map_name, x, y, dir, " +
-                            "hp, mp, gold, home_map, home_x, home_y, items, storage, skills, created_at " +
+                            "hp, mp, gold, home_map, home_x, home_y, items, storage, skills, quick_slots, created_at " +
                             "FROM characters WHERE account_id = ? ORDER BY id")) {
                 ps.setLong(1, accountId);
                 try (ResultSet rs = ps.executeQuery()) {
@@ -82,7 +85,7 @@ public final class CharacterDao {
         synchronized (c) {
             try (PreparedStatement ps = c.prepareStatement(
                     "SELECT id, account_id, name, sex, hair, job, level, exp, map_name, x, y, dir, " +
-                            "hp, mp, gold, home_map, home_x, home_y, items, storage, skills, created_at " +
+                            "hp, mp, gold, home_map, home_x, home_y, items, storage, skills, quick_slots, created_at " +
                             "FROM characters WHERE name = ?")) {
                 ps.setString(1, name);
                 try (ResultSet rs = ps.executeQuery()) {
@@ -103,8 +106,8 @@ public final class CharacterDao {
         synchronized (c) {
             try (PreparedStatement ps = c.prepareStatement(
                     "INSERT INTO characters (account_id, name, sex, hair, job, level, exp, map_name, x, y, dir, " +
-                            "hp, mp, gold, home_map, home_x, home_y, items, storage, skills, created_at) " +
-                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            "hp, mp, gold, home_map, home_x, home_y, items, storage, skills, quick_slots, created_at) " +
+                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     Statement.RETURN_GENERATED_KEYS)) {
                 ps.setLong(1, r.accountId);
                 ps.setString(2, r.name);
@@ -126,7 +129,8 @@ public final class CharacterDao {
                 ps.setString(18, ItemInstance.GSON.toJson(r.items));
                 ps.setString(19, ItemInstance.GSON.toJson(r.storage));
                 ps.setString(20, r.skills);
-                ps.setLong(21, r.createdAt);
+                ps.setString(21, ItemInstance.GSON.toJson(r.quickSlots));
+                ps.setLong(22, r.createdAt);
                 ps.executeUpdate();
                 try (ResultSet keys = ps.getGeneratedKeys()) {
                     if (keys.next()) {
@@ -145,7 +149,7 @@ public final class CharacterDao {
         synchronized (c) {
             try (PreparedStatement ps = c.prepareStatement(
                     "UPDATE characters SET sex=?, hair=?, job=?, level=?, exp=?, map_name=?, x=?, y=?, dir=?, " +
-                            "hp=?, mp=?, gold=?, home_map=?, home_x=?, home_y=?, items=?, storage=?, skills=? WHERE id=?")) {
+                            "hp=?, mp=?, gold=?, home_map=?, home_x=?, home_y=?, items=?, storage=?, skills=?, quick_slots=? WHERE id=?")) {
                 ps.setInt(1, r.sex);
                 ps.setInt(2, r.hair);
                 ps.setInt(3, r.job);
@@ -164,7 +168,8 @@ public final class CharacterDao {
                 ps.setString(16, ItemInstance.GSON.toJson(r.items));
                 ps.setString(17, ItemInstance.GSON.toJson(r.storage));
                 ps.setString(18, r.skills);
-                ps.setLong(19, r.id);
+                ps.setString(19, ItemInstance.GSON.toJson(r.quickSlots));
+                ps.setLong(20, r.id);
                 ps.executeUpdate();
             } catch (SQLException e) {
                 throw new RuntimeException("update character failed", e);
@@ -215,6 +220,10 @@ public final class CharacterDao {
             r.storage = new ArrayList<>();
         }
         r.skills = rs.getString("skills");
+        r.quickSlots = ItemInstance.GSON.fromJson(rs.getString("quick_slots"), INT_LIST_TYPE);
+        if (r.quickSlots == null) {
+            r.quickSlots = new ArrayList<>();
+        }
         r.createdAt = rs.getLong("created_at");
         return r;
     }

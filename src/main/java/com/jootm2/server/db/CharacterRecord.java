@@ -31,6 +31,8 @@ public final class CharacterRecord {
     public List<ItemInstance> items = new ArrayList<>();
     public List<ItemInstance> storage = new ArrayList<>();
     public String skills = "[]";
+    /** 药水快捷栏 6 格的 makeIndex（0/缺失 = 空），对应原版 ItemArr[0..5]。 */
+    public List<Integer> quickSlots = new ArrayList<>();
     public long createdAt;
 
     public CharacterRecord() {

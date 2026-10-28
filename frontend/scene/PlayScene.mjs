@@ -27,6 +27,10 @@ const SPELL_ANIM_MS = 360;
 // 怪物/NPC 移动过渡时长（ms）：对齐多数怪物 walk 动画 6 帧×120ms=720ms
 const MONSTER_MOVE_DUR = 720;
 
+// 聊天板可见行数（原版 DrawScrn.pas VIEWCHATLINE = 9，行高 12px）
+const VIEWCHATLINE = 9;
+const CHAT_LINE_HEIGHT = 12;
+
 // 装备槽名（对应 MessageIds U_DRESS..U_CHARM）
 const SLOT_NAMES = ['衣服', '武器', '右手', '项链', '头盔', '手镯L', '手镯R', '戒指L', '戒指R', '护身符', '腰带', '靴子', '宝石'];
 
@@ -182,6 +186,7 @@ export class PlayScene extends Scene {
         this._dirAttackHolding = false;  // shift+左键 方向攻击持续状态（按住持续挥刀，松开停止）
         this._dirAttackDir = -1;         // 方向攻击方向（鼠标相对人物，0-7）
         this._shiftDown = false;         // Shift 键按住状态
+        this.chaseTargetId = null;       // 锁定目标（原版 TargetCret：相邻砍、远了走过去）
         this.magicPage = 0;          // 技能页内部分页页码（每页 5 个技能）
         this.groundItems = new Map();// id -> 地面物品
         this.castTarget = null;      // 施法目标（怪物 id）
@@ -213,6 +218,9 @@ export class PlayScene extends Scene {
         }
 
         this._buildHud();
+        this._miniMapIndex = this.snapshot.miniMapIndex;
+        this._loadMiniMapTexture(this._miniMapIndex);   // 小地图底图（mmap.wil）
+        this._setDayBright(this.snapshot.dayBright);   // 昼夜时段图标
         this._keyDown = (e) => this._onKeyDown(e);
         this._keyUp = (e) => this._onKeyUp(e);
         document.addEventListener('keydown', this._keyDown);
@@ -228,40 +236,342 @@ export class PlayScene extends Scene {
         document.addEventListener('mousemove', this._mmHandler);
     }
 
-    // ---- HUD（DOM 简单面板）----
-    _buildHud() {
+    // ---- HUD（对齐原版 TFrmDlg：DBottom 底板 Prguse[1] 800×251 @ y=349）----
+    // 原版布局（屏幕坐标，DBottom.Top = SCREENHEIGHT - 251 = 349）：
+    //   血球/魔法球 (40, Top+91) Prguse[4]（武士 lv<26 用 [5] 容器 + [6] 液体 @ (38, Top+90)）
+    //   等级位图数字 (660, 496)、经验条 (666, 527)、负重条 (666, 560) —— 均用 Prguse[7]/[30..39]
+    //   聊天记录 (208, 470) 374×108（9 行 × 12px）；聊天输入框 (208, 581) 387×12
+    //   地图名 (8, 580)
+    async _buildHud() {
         const gui = this.manager.winManager.container;
         gui.innerHTML = '';
 
-        this.hudEl = document.createElement('div');
-        this.hudEl.style.cssText = 'position:absolute;left:10px;top:8px;font-family:SimSun,serif;'
-            + 'font-size:13px;color:#f0e6c8;text-shadow:1px 1px 0 #000;pointer-events:none;';
-        gui.appendChild(this.hudEl);
+        const HUD_Y = 600 - 251;   // 349
 
-        // 聊天输入框 + 日志
-        const chatBox = document.createElement('div');
-        chatBox.style.cssText = 'position:absolute;left:8px;bottom:8px;width:300px;pointer-events:auto;';
+        // HUD 根容器：覆盖整个 800×600，子元素绝对定位；默认不拦截鼠标
+        const root = document.createElement('div');
+        root.style.cssText = 'position:absolute;left:0;top:0;width:800px;height:600px;pointer-events:none;'
+            + 'font-family:SimSun,serif;color:#fff;';
+        this.hudEl = root;
+        gui.appendChild(root);
+
+        // 底板 Prguse[1]（800×251）
+        this._libUrl('prguse', 1).then((url) => {
+            if (!url || !root.isConnected) return;
+            const bg = document.createElement('img');
+            bg.src = url; bg.draggable = false;
+            bg.style.cssText = `position:absolute;left:0;top:${HUD_Y}px;width:800px;height:251px;`;
+            root.insertBefore(bg, root.firstChild);
+        });
+
+        // 血球/魔法球（canvas：按 HP/MP 比例纵向裁切，液面从下往上）
+        const warriorBall = this.self && this.self.job === 0 && this.self.level < 26;
+        this.vitalsCanvas = document.createElement('canvas');
+        this.vitalsCanvas.width = warriorBall ? 96 : 92;
+        this.vitalsCanvas.height = warriorBall ? 92 : 90;
+        this.vitalsCanvas.style.cssText = 'position:absolute;'
+            + `left:${warriorBall ? 38 : 40}px;top:${HUD_Y + (warriorBall ? 90 : 91)}px;`;
+        root.appendChild(this.vitalsCanvas);
+
+        // 等级（位图数字 Prguse[30..39]，8px/位，首位前空 8px；锚点 (660, 496)）
+        this.levelCanvas = document.createElement('canvas');
+        this.levelCanvas.width = 32;
+        this.levelCanvas.height = 14;
+        this.levelCanvas.style.cssText = `position:absolute;left:660px;top:${HUD_Y + 147}px;`;
+        root.appendChild(this.levelCanvas);
+
+        // 经验条 / 负重条（Prguse[7] 76×13，右端裁宽度）
+        this.expBarEl = this._mkHudBar(666, HUD_Y + 178);
+        this.loadBarEl = this._mkHudBar(666, HUD_Y + 211);
+
+        // 地图名 + 坐标（屏幕底部）
+        this.mapNameEl = document.createElement('div');
+        this.mapNameEl.style.cssText = 'position:absolute;left:8px;top:576px;font-size:12px;color:#fff;'
+            + 'text-shadow:1px 1px 0 #000;';
+        root.appendChild(this.mapNameEl);
+
+        // 系统消息飘字（原版 DrawScrn.pas AddSysMsg：屏幕 (30,40) 起、行距 16、绿色、3 秒、最多 10 条）
+        this.sysMsgs = [];
+        this.sysMsgEl = document.createElement('div');
+        this.sysMsgEl.style.cssText = 'position:absolute;left:30px;top:40px;width:520px;pointer-events:none;'
+            + 'font-size:12px;';
+        root.appendChild(this.sysMsgEl);
+
+        // 昼夜时段图标（原版 FState.pas:3236-3245 —— Prguse[15]早/[12]白/[13]傍/[14]晚 @ (748, Top+79)）
+        // 注意：本服不需要蜡烛照明，因此只画图标，不做任何黑暗/视野渲染
+        this.dayIconEl = document.createElement('img');
+        this.dayIconEl.draggable = false;
+        this.dayIconEl.style.cssText = `position:absolute;left:748px;top:${HUD_Y + 79}px;display:none;`
+            + 'image-rendering:pixelated;';
+        root.appendChild(this.dayIconEl);
+        this._dayBright = -1;
+
+        // 小地图（原版 PlayScn.pas DrawMiniMap：右上 (SCREENWIDTH-120, 0)、120×120、1 格 = 1 像素）
+        this.miniMapCanvas = document.createElement('canvas');
+        this.miniMapCanvas.width = 120;
+        this.miniMapCanvas.height = 120;
+        this.miniMapCanvas.style.cssText = 'position:absolute;left:680px;top:0;width:120px;height:120px;'
+            + 'display:none;pointer-events:none;image-rendering:pixelated;';
+        root.appendChild(this.miniMapCanvas);
+        this._miniMapTex = null;
+        this._miniMapScale = 1.5;   // mmap 底图 1.5 像素/格；兜底自生成图 1 像素/格
+        this._miniMapStyle = 0;     // 0=关、1=半透明、2=不透明（原版 ViewMiniMapStyle）
+
+        // 聊天记录区（208,470，374×108 = 9 行 × 12px）
+        // 原版没有滚动条：固定 9 行窗口 + ChatBoardTop 偏移，↑↓/PgUp/PgDn 滚动（ClMain.pas:1902-1925）
         this.chatLog = document.createElement('div');
-        this.chatLog.style.cssText = 'height:70px;overflow-y:auto;background:rgba(0,0,0,0.55);'
-            + 'padding:4px 6px;font-size:12px;color:#d8c9a0;border-radius:3px;margin-bottom:4px;';
+        // 背景留空：露出底板 Prguse[1] 自带的白色聊天区（原版就是在白色区域上逐行刷背景色/文字色）
+        this.chatLog.style.cssText = 'position:absolute;left:208px;top:470px;width:374px;height:108px;'
+            + 'overflow:hidden;pointer-events:auto;font-size:12px;line-height:12px;color:#008000;';
+        this.chatLog.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this._scrollChat(e.deltaY > 0 ? 3 : -3);
+        }, { passive: false });
+        root.appendChild(this.chatLog);
+        this.chatLines = [];      // {text, color}
+        this.chatBoardTop = 0;    // 原版 DScreen.ChatBoardTop
+        this._renderChat();       // 先渲染 9 个空行，保证固定行高窗口
+
+        // 聊天输入框（208,581，387×12；原版 clSilver 底、默认隐藏，回车/斜杠唤出）
         this.chatInput = document.createElement('input');
         this.chatInput.type = 'text';
-        this.chatInput.placeholder = '回车发送聊天…';
-        this.chatInput.style.cssText = 'width:100%;box-sizing:border-box;background:rgba(0,0,0,0.55);'
-            + 'color:#f0e6c8;border:1px solid #5a4a2a;border-radius:3px;padding:4px 6px;font-size:12px;';
+        this.chatInput.maxLength = 70;
+        this.chatInput.style.cssText = 'position:absolute;left:208px;top:580px;width:387px;height:14px;'
+            + 'box-sizing:border-box;background:#c0c0c0;color:#000;border:none;outline:none;'
+            + 'font-family:SimSun,serif;font-size:12px;padding:0 2px;pointer-events:auto;display:none;';
         this.chatInput.addEventListener('keydown', (e) => {
-            if (e.key !== 'Enter') return;
-            const t = this.chatInput.value.trim();
-            if (t) this.conn.send('say', { text: t });
-            this.chatInput.value = '';
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+                const t = this.chatInput.value.trim();
+                if (t) this.conn.send('say', { text: t });
+                this.chatInput.value = '';
+                this.chatInput.blur();
+                this.chatInput.style.display = 'none';
+            } else if (e.key === 'Escape') {
+                this.chatInput.value = '';
+                this.chatInput.blur();
+                this.chatInput.style.display = 'none';
+            }
         });
-        chatBox.appendChild(this.chatLog);
-        chatBox.appendChild(this.chatInput);
-        gui.appendChild(chatBox);
+        root.appendChild(this.chatInput);
+
+        // 右上 4 个功能按钮（按下态 Prguse[8..11]，抬起态烘焙在底板上；坐标相对 DBottom）
+        const topBtns = [
+            { x: 643, y: 61, icon: 8, tip: '装备', action: () => { this.statePage = 0; this._toggleStateWin(); } },
+            { x: 682, y: 41, icon: 9, tip: '背包', action: () => this._toggleBag() },
+            { x: 722, y: 21, icon: 10, tip: '技能', action: () => this._openSkillSetup() },
+            { x: 764, y: 11, icon: 11, tip: '声音', action: () => this._toggleSound() },
+        ];
+        for (const b of topBtns) {
+            this._addHudButton(root, b.x, HUD_Y + b.y, 24, 24, b.icon, b.tip, b.action);
+        }
+
+        // 底板中部/右下按钮（Prguse 128..142，28×13）
+        const botBtns = [
+            { x: 219, icon: 130, tip: '小地图(V)', action: () => this._toggleMiniMap() },
+            { x: 249, icon: 132, tip: '交易', action: () => this._log('交易功能未开放。') },
+            { x: 279, icon: 134, tip: '行会', action: () => this._log('行会功能未开放。') },
+            { x: 309, icon: 128, tip: '编组', action: () => this._log('编组功能未开放。') },
+            // 属性加点：原版只有「有可分配点数」时才显示（且会闪烁），当前没有属性点系统 → 默认隐藏
+            { x: 339, icon: 140, tip: '属性加点', hidden: true, action: () => this._log('暂无可分配点数。') },
+            { x: 530, icon: 136, tip: '退出角色', action: () => this._logout() },
+            { x: 560, icon: 138, tip: '退出游戏', action: () => this._logout() },
+        ];
+        for (const b of botBtns) {
+            const btn = this._addHudButton(root, b.x, HUD_Y + 104, 28, 13, b.icon, b.tip, b.action, true);
+            if (b.hidden) {
+                btn.style.display = 'none';
+            }
+        }
+
+        // 药水快捷栏 6 格（原版 DBelt1..6：Left 285/328/371/415/459/503，Top 59，32×29；
+        // 图标 WBagItem[Looks] 居中、右下角位图数字 1..6）
+        this.quickCellEls = [];
+        const quickXs = [285, 328, 371, 415, 459, 503];
+        for (let i = 0; i < 6; i++) {
+            const cell = document.createElement('div');
+            cell.style.cssText = `position:absolute;left:${quickXs[i]}px;top:${HUD_Y + 59}px;width:32px;height:29px;`
+                + 'cursor:pointer;pointer-events:auto;overflow:hidden;';
+            cell.dataset.quick = String(i);
+            cell.title = `快捷栏 ${i + 1}`;
+            cell.addEventListener('click', () => this._onQuickSlotClick(i));
+            // 双击使用（原版 DBelt1DblClick → EatItem）
+            cell.addEventListener('dblclick', () => this._useQuickSlot(i));
+            root.appendChild(cell);
+            const icon = document.createElement('img');
+            icon.draggable = false;
+            icon.style.cssText = 'position:absolute;left:0;top:0;display:none;';
+            cell.appendChild(icon);
+            // 格号（原版 PomiTextOut(Left+13, Top+19)，位图数字 Prguse[31..36]）
+            const num = document.createElement('canvas');
+            num.width = 8;
+            num.height = 12;
+            num.style.cssText = 'position:absolute;left:13px;top:16px;';
+            cell.appendChild(num);
+            this._libUrl('prguse', 30 + i + 1).then((url) => {
+                if (!url) return;
+                const im = new Image();
+                im.onload = () => num.getContext('2d').drawImage(im, 0, 0);
+                im.src = url;
+            });
+            this.quickCellEls.push({ cell, icon });
+        }
+
+        this._hudKey = null;
+        this._refreshQuickSlots();
+        this._renderHud();
 
         // 背包窗口（F9）/ 状态窗口（F10）—— 原版 DItemBag / DStateWin
         this._buildStateWin();
         this._buildBag();
+    }
+
+    /**
+     * HUD 按钮。
+     * - alwaysShow=false（右上 4 个 8..11）：原版只在按下时画 FaceIndex，抬起态烘焙在底板上；
+     * - alwaysShow=true（底部一排 128..142）：原版 DBotGroupDirectPaint 抬起画 N、按下画 N+1。
+     */
+    _addHudButton(root, x, y, w, h, iconIdx, tip, action, alwaysShow) {
+        const btn = document.createElement('div');
+        btn.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;`
+            + 'cursor:pointer;pointer-events:auto;';
+        btn.title = tip;
+        root.appendChild(btn);
+        const mkImg = (idx, shown) => {
+            const img = document.createElement('img');
+            img.draggable = false;
+            img.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;'
+                + `display:${shown ? 'block' : 'none'};`;
+            btn.appendChild(img);
+            this._libUrl('prguse', idx).then((url) => { if (url && img.isConnected) img.src = url; });
+            return img;
+        };
+        if (alwaysShow) {
+            const upImg = mkImg(iconIdx, true);       // 抬起态 N
+            const downImg = mkImg(iconIdx + 1, false); // 按下态 N+1
+            btn.addEventListener('mousedown', () => { upImg.style.display = 'none'; downImg.style.display = 'block'; });
+            btn.addEventListener('mouseup', () => { upImg.style.display = 'block'; downImg.style.display = 'none'; });
+            btn.addEventListener('mouseleave', () => { upImg.style.display = 'block'; downImg.style.display = 'none'; });
+        } else {
+            const downImg = mkImg(iconIdx, false);
+            btn.addEventListener('mousedown', () => { downImg.style.display = 'block'; });
+            btn.addEventListener('mouseup', () => { downImg.style.display = 'none'; });
+            btn.addEventListener('mouseleave', () => { downImg.style.display = 'none'; });
+        }
+        btn.addEventListener('click', () => action());
+        return btn;
+    }
+
+    /** 音效开关（原版 TogglePlaySoundEffect）。 */
+    _toggleSound() {
+        this._soundOn = !this._soundOn;
+        this._log(this._soundOn ? '[系统] 音效已开启。' : '[系统] 音效已关闭。');
+    }
+
+    /** 退出到选择角色（原版 Alt-X / 退出角色）。 */
+    _logout() {
+        this.conn.send('logout');
+    }
+
+    /** 经验/负重条：Prguse[7]（76×13），靠裁宽度表现比例。 */
+    _mkHudBar(x, y) {
+        const el = document.createElement('div');
+        el.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:0;height:13px;`
+            + 'background-repeat:no-repeat;background-position:left center;background-size:76px 13px;';
+        this._libUrl('prguse', 7).then((url) => {
+            if (url && el.isConnected) el.style.backgroundImage = `url(${url})`;
+        });
+        this.hudEl.appendChild(el);
+        return el;
+    }
+
+    /** 刷新药水快捷栏：按 makeIndex 从背包取 looks 画居中图标（原版 DBelt1DirectPaint）。 */
+    _refreshQuickSlots() {
+        if (!this.quickCellEls || !this.self) return;
+        const p = this.self;
+        const qs = p.quickSlots || [];
+        for (let i = 0; i < this.quickCellEls.length; i++) {
+            const { cell, icon } = this.quickCellEls[i];
+            const mi = qs[i] || 0;
+            const it = mi > 0 ? (p.items || []).find(x => x.makeIndex === mi) : null;
+            if (!it) {
+                icon.style.display = 'none';
+                icon.removeAttribute('src');
+                cell.title = `快捷栏 ${i + 1}（空）`;
+                continue;
+            }
+            cell.title = `${it.name}（快捷栏 ${i + 1}）`;
+            // 药水格图标用 Items.wil（原版 WBagItem），不是 stateitem（那是装备/状态窗口用的）
+            this._libUrl('items', it.looks).then((url) => {
+                if (!url || !icon.isConnected) return;
+                icon.onload = () => {
+                    // 原版：Draw(Left + (Width-w) div 2, Top + (Height-h) div 2)
+                    icon.style.left = Math.max(0, Math.floor((32 - icon.naturalWidth) / 2)) + 'px';
+                    icon.style.top = Math.max(0, Math.floor((29 - icon.naturalHeight) / 2)) + 'px';
+                };
+                icon.src = url;
+                icon.style.display = 'block';
+            });
+        }
+    }
+
+    /** 点药水格：拿着背包药品 → 放入；空手且格里有物品 → 使用（原版 DBelt1Click / DBelt1DblClick）。 */
+    /**
+     * 单击药水格（对齐原版 DBelt1Click）：空手拿起 / 放下 / 移动；使用是双击（DBelt1DblClick）。
+     * 拿起后点背包 → 从快捷栏移出（物品回背包网格）；点另一格 → 移到那格。
+     */
+    _onQuickSlotClick(slot) {
+        const p = this.self;
+        if (!p) return;
+        const mi = (p.quickSlots || [])[slot] || 0;
+        const it = mi > 0 ? (p.items || []).find(x => x.makeIndex === mi) : null;
+
+        if (!this.pickedItem) {
+            if (!it) return;   // 空格：什么都不做（原版也只在有物品时拿起）
+            this.pickedItem = it;
+            this.pickedSource = 'quick';
+            this.pickedSlot = slot;
+            this._markPicked(this.quickCellEls[slot].cell);
+            return;
+        }
+        if (this.pickedSource === 'quick') {
+            if (this.pickedSlot === slot) {
+                this._clearPicked();   // 点同一格：放下（取消选中）
+                return;
+            }
+            // 移到另一格：先清原格再设新格
+            this.conn.send('quickSlot', { slot: this.pickedSlot, makeIndex: 0 });
+            this.conn.send('quickSlot', { slot, makeIndex: this.pickedItem.makeIndex });
+            this._clearPicked();
+            return;
+        }
+        if (this.pickedSource === 'bag') {
+            // 从背包放进快捷栏（原版 DBelt1Click 的放下分支）
+            this.conn.send('quickSlot', { slot, makeIndex: this.pickedItem.makeIndex });
+            this._clearPicked();
+            return;
+        }
+        this._log('请先把这个装备放回背包。');   // 拿着已穿装备时不接受
+    }
+
+    /** 数字键 1..6 使用对应快捷栏（原版 DBelt 快捷键）。 */
+    _useQuickSlot(slot) {
+        const p = this.self;
+        if (!p) return;
+        const mi = (p.quickSlots || [])[slot] || 0;
+        if (mi <= 0) {
+            return;   // 空格静默（原版也不提示）
+        }
+        this.conn.send('useItem', { makeIndex: mi });
+    }
+
+    /** 唤出聊天输入框（回车 / 斜杠键，对齐原版 ClMain 的 Enter/@/!/ / 处理）。 */
+    _openChatInput(prefill) {
+        if (!this.chatInput) return;
+        this.chatInput.style.display = 'block';
+        this.chatInput.value = prefill || '';
+        this.chatInput.focus();
     }
 
     // F1-F8 施法：按快捷键 key（F11 技能设置页绑定）查找技能
@@ -317,10 +627,26 @@ export class PlayScene extends Scene {
     _onKeyDown(e) {
         if (e.target === this.chatInput) return;
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { this._shiftDown = true; return; }
-        if (e.code === 'Space') { e.preventDefault(); this._attackNearest(); }
-        if (e.code === 'F9') { e.preventDefault(); this._toggleBag(); }          // 原版 VK_F9 = 背包
-        if (e.code === 'F10') { e.preventDefault(); this._toggleStateWin(); }    // 原版 VK_F10 = 状态/装备属性
-        if (e.code === 'F12') { e.preventDefault(); this._openSkillSetup(); }    // 原版 VK_F11=技能设置，macOS F11 被系统拦截(显示桌面)改用 F12
+        // 回车 / @ / ! / 斜杠 唤出聊天输入框（对齐原版 ClMain.pas:2005-2027）
+        if (e.key === 'Enter' || e.key === '@' || e.key === '!' || e.key === '/') {
+            e.preventDefault();
+            this._openChatInput(e.key === '/' || e.key === '@' || e.key === '!' ? e.key : '');
+            return;
+        }
+        // 数字键 1..6 使用药水快捷栏（原版 DBelt1..6）
+        if (e.code >= 'Digit1' && e.code <= 'Digit6') {
+            e.preventDefault();
+            this._useQuickSlot(Number(e.code.substring(5)) - 1);
+            return;
+        }
+        // 聊天板滚动（原版 ClMain.pas:1902-1925：↑↓ 单行、PgUp/PgDn 翻 9 行）
+        if (e.code === 'ArrowUp') { e.preventDefault(); this._scrollChat(-1); return; }
+        if (e.code === 'ArrowDown') { e.preventDefault(); this._scrollChat(1); return; }
+        if (e.code === 'PageUp') { e.preventDefault(); this._scrollChat(-VIEWCHATLINE); return; }
+        if (e.code === 'PageDown') { e.preventDefault(); this._scrollChat(VIEWCHATLINE); return; }
+        // Space 不绑定攻击（原版 `ClMain.pas` 里没有 VK_SPACE 分支）
+        // 背包(F9)/状态(F10)/技能(F12) 不接快捷键——统一走 HUD 右上角的按钮（状态/背包/技能/声音）
+        // 小地图同样只用底板按钮切换
         if (e.code >= 'F1' && e.code <= 'F8') {
             e.preventDefault();
             this._castFromSlot(Number(e.code.substring(1)));
@@ -333,17 +659,6 @@ export class PlayScene extends Scene {
             // 松开 Shift：停止方向攻击（即使左键仍按住）
             this._dirAttackHolding = false;
         }
-    }
-
-    _attackNearest() {
-        if (!this.self) return;
-        let best = null, bestDist = 2;
-        for (const e of this.entities.values()) {
-            if (e.type !== 'monster') continue;
-            const d = Math.max(Math.abs(e.x - this.self.x), Math.abs(e.y - this.self.y));
-            if (d <= 1 && d < bestDist) { bestDist = d; best = e; }
-        }
-        if (best) this._tryAttack(best.id);
     }
 
     // 攻击前判定（对齐原版 CanNextAction + CanNextHit）：
@@ -372,6 +687,43 @@ export class PlayScene extends Scene {
             this.self._actionAt = Date.now();
         }
         this.conn.send('dirAttack', { dir });
+    }
+
+    /** 8 方向：自身指向目标格（原版 GetNextDirection，0上 1右上 2右 3右下 4下 5左下 6左 7左上）。 */
+    _dirTo(tx, ty) {
+        if (!this.self) return -1;
+        const sx = Math.sign(tx - this.self.x);
+        const sy = Math.sign(ty - this.self.y);
+        if (sx === 0 && sy === 0) return -1;
+        if (sy < 0) return sx > 0 ? 1 : (sx < 0 ? 7 : 0);
+        if (sy > 0) return sx > 0 ? 3 : (sx < 0 ? 5 : 4);
+        return sx > 0 ? 2 : 6;
+    }
+
+    /**
+     * 锁定目标追击（原版 `ClMain.pas:2664-2689` 主循环：`if TargetCret <> nil then AttackTarget(TargetCret)`）。
+     * 原版 `AttackTarget`：相邻 → 发 CM_HIT 砍；不相邻 → `TargetX/TargetY := 目标旁边格子` 走过去。
+     * 这里等价实现：距离 <= 1 砍（_tryAttack 内部有 IsIdle + CanNextHit 节流），远了每隔 WalkInterval 朝目标走一步。
+     */
+    _tickChase(now) {
+        if (this.chaseTargetId == null || !this.self) return;
+        const t = this.entities.get(this.chaseTargetId);
+        if (!t || t.alive === false || (t.hp != null && t.hp <= 0)) {
+            this.chaseTargetId = null;
+            this.castTarget = null;
+            return;
+        }
+        const d = Math.max(Math.abs(t.x - this.self.x), Math.abs(t.y - this.self.y));
+        if (d <= 1) {
+            this._tryAttack(t.id);
+            return;
+        }
+        if (!this._isIdle()) return;
+        if (now - this._lastMoveAt < WALK_INTERVAL) return;
+        const dir = this._dirTo(t.x, t.y);
+        if (dir < 0) return;
+        this.conn.send('move', { dir, run: false });
+        this._lastMoveAt = now;
     }
 
     // 角色是否空闲（动作已完成）：self 无动作或已回到 stand
@@ -406,15 +758,26 @@ export class PlayScene extends Scene {
         const run = e.button === 2;   // 左键走、右键跑
         const { mx, my } = this._mouseXY(e);
 
-        // 按住 Shift + 左键：进入方向攻击持续状态（原版 ClMain.pas:2546 `(target<>nil) or (ssShift in Shift)`，
-        // 按 shift 时无论点中怪/NPC/空地都朝方向挥刀，不对话不移动不拾取）。
-        // 不要求前方有目标（空挥也持续）；主循环按攻速间隔持续触发，松开左键或 Shift 即停。
+        // Shift + 左键（原版 ClMain.pas:2546 `if (target <> nil) or (ssShift in Shift)`）：
+        //   ① 点中目标（怪/玩家/NPC）→ 强制攻击该目标（绕过「只能打怪」的筛选，NPC 由服务端拒绝）
+        //   ② 没点中任何目标 → 朝鼠标方向空挥，并进入「按住持续挥刀」状态（松开左键/Shift 停）
         if (e.button === 0 && (e.shiftKey || this._shiftDown)) {
+            const target = this._actorAtScreen(mx, my, 'monster')
+                || this._actorAtScreen(mx, my, 'player')
+                || this._actorAtScreen(mx, my, 'npc');
+            if (target && target.id !== this.self.id) {
+                this.castTarget = target.id;   // 红框高亮
+                if (target.type === 'monster' || target.type === 'player') {
+                    this.chaseTargetId = target.id;   // 锁定（NPC 不追）
+                }
+                this._tryAttack(target.id);
+                return;
+            }
             const dir = this._dirFromMouse(e);
             if (dir >= 0) {
                 this._dirAttackHolding = true;
                 this._dirAttackDir = dir;
-                this._dirAttack(dir);   // 立即先打一次
+                this._dirAttack(dir);   // 立即先挥一刀
                 return;
             }
         }
@@ -425,12 +788,13 @@ export class PlayScene extends Scene {
             const monster = this._actorAtScreen(mx, my, 'monster');
             if (monster && monster.hp > 0) {
                 const d = this._dist(this.self, monster);
-                // 1 格正常攻击；2 格且刺杀开关开启 → 隔位刺杀（忽视防御）
+                this.castTarget = monster.id;    // 红框高亮
+                this.chaseTargetId = monster.id; // 锁定（原版 TargetCret：相邻砍、远了自动走过去）
+                // 1 格正常攻击；2 格且刺杀开关开启 → 隔位刺杀（忽视防御）；更远则由 _tickChase 走过去
                 if (d <= 1 || (d === 2 && this.self._longHit)) {
-                    this.castTarget = monster.id;   // 红框高亮
                     this._tryAttack(monster.id);
-                    return;
                 }
+                return;
             }
             const npc = this._actorAtScreen(mx, my, 'npc');
             if (npc) {
@@ -442,11 +806,12 @@ export class PlayScene extends Scene {
             const player = this._actorAtScreen(mx, my, 'player');
             if (player && player.id !== this.self.id) {
                 const pd = this._dist(this.self, player);
+                this.castTarget = player.id;
+                this.chaseTargetId = player.id;  // 锁定（原版 TargetCret）
                 if (pd <= 1 || (pd === 2 && this.self._longHit)) {
-                    this.castTarget = player.id;   // 红框高亮
                     this._tryAttack(player.id);
-                    return;
                 }
+                return;
             }
             const { tx, ty } = this._gridFromMouse(e);
             const gi = this._groundAt(tx, ty);
@@ -457,6 +822,7 @@ export class PlayScene extends Scene {
         }
 
         // 空地移动：记录方向，按住持续朝该方向移动（主循环按间隔节流，快速点击不累计）
+        this.chaseTargetId = null;   // 手动移动 → 取消锁定目标
         const dir = this._dirFromMouse(e);
         if (dir < 0) return;
         this._holding = true;
@@ -736,10 +1102,18 @@ export class PlayScene extends Scene {
                 break;
             }
             case 'chat':
-                this._log(`${msg.name}: ${msg.text}`);
+                // 聊天板是白色底（底板自带），普通聊天用黑色字
+                this._log(`${msg.name}: ${msg.text}`, '#000000');
                 break;
             case 'systemMessage':
-                this._log(`[系统] ${msg.text}`);
+                // 原版 AddSysMsg 是 clGreen（深绿 #008000，白底上可读）；
+                // 服务端可带 fg/bg 覆盖（如经验增加 = 红底白字）
+                this._log(msg.text, msg.fg || '#008000', msg.bg || null);
+                this._addSysMsg(msg.text);
+                break;
+            case 'dayChanging':
+                // 昼夜时段变化（原版 SM_DAYCHANGING），只换图标、不做变暗
+                this._setDayBright(msg.dayBright);
                 break;
             case 'itemDrop':
                 this.groundItems.set(msg.id, msg);
@@ -758,9 +1132,12 @@ export class PlayScene extends Scene {
                     if (msg.handWeight !== undefined) this.self.handWeight = msg.handWeight;
                     if (msg.maxWearWeight !== undefined) this.self.maxWearWeight = msg.maxWearWeight;
                     if (msg.maxHandWeight !== undefined) this.self.maxHandWeight = msg.maxHandWeight;
+                    // 药水快捷栏 6 格（原版 ItemArr[0..5]）
+                    if (msg.quickSlots) this.self.quickSlots = msg.quickSlots;
                 }
                 this._refreshBag();
                 this._refreshStateWin();
+                this._refreshQuickSlots();
                 if (this.shopGoldEl) this.shopGoldEl.textContent = '金币 ' + (this.self.gold || 0);
                 // 卖出后投放框物品自动消失（被卖的物品已不在背包）
                 if (this.shopSellItem) {
@@ -782,11 +1159,16 @@ export class PlayScene extends Scene {
                 this._mouseDir = -1;
                 this._viewX = null;   // 重置卷动中心
                 this.castTarget = null;
+                this.chaseTargetId = null;   // 换图取消锁定
                 this._clearPicked();   // 换图丢弃手中拿起的物品状态
                 if (msg.player) { this.self = msg.player; this.entities.set(msg.player.id, msg.player); }
                 for (const e of msg.nearby || []) this.entities.set(e.id, e);
                 for (const g of msg.groundItems || []) this.groundItems.set(g.id, g);
-                if (msg.map) this.mapActor.enter(msg.map.name).catch(console.error);
+                if (msg.map) {
+                    this.mapActor.enter(msg.map.name)
+                        .then(() => { this._miniMapIndex = msg.miniMapIndex; this._loadMiniMapTexture(this._miniMapIndex); })
+                        .catch(console.error);
+                }
                 break;
             }
             default:
@@ -794,13 +1176,223 @@ export class PlayScene extends Scene {
         }
     }
 
-    _log(text) {
+    /**
+     * 追加一条聊天（原版 DScreen.AddChatBoardString(str, fcolor, bcolor)）：
+     * fg 前景色、bg 背景色（null = 透明，露出底板白色聊天区）；缓冲上限 200 行，在底部时自动跟随。
+     */
+    _log(text, fg, bg) {
         if (!this.chatLog) return;
-        const line = document.createElement('div');
-        line.textContent = text;
-        this.chatLog.appendChild(line);
-        this.chatLog.scrollTop = this.chatLog.scrollHeight;
-        while (this.chatLog.children.length > 100) this.chatLog.removeChild(this.chatLog.firstChild);
+        this.chatLines.push({ text, fg: fg || '#008000', bg: bg || null });
+        if (this.chatLines.length > 200) {
+            this.chatLines.shift();
+            if (this.chatBoardTop > 0) {
+                this.chatBoardTop--;   // 原版 DrawScrn.pas:182-185：删头行时同步回退
+            }
+        }
+        // 原版 DrawScrn.pas:186-188：最后一行不在窗口内则 ChatBoardTop++（自动跟随，不打断手动上翻）
+        if (this.chatLines.length - this.chatBoardTop > VIEWCHATLINE) {
+            this.chatBoardTop++;
+        }
+        this._renderChat();
+    }
+
+    /** 渲染聊天板 9 行窗口（无滚动条，纯 ChatBoardTop 偏移）。 */
+    _renderChat() {
+        if (!this.chatLog) return;
+        const lines = this.chatLines;
+        const maxTop = Math.max(0, lines.length - 1);
+        this.chatBoardTop = Math.max(0, Math.min(this.chatBoardTop, maxTop));
+        this.chatLog.innerHTML = '';
+        for (let i = 0; i < VIEWCHATLINE; i++) {
+            const idx = this.chatBoardTop + i;
+            const line = lines[idx];
+            const d = document.createElement('div');
+            // 每行独立前景/背景色（原版 ChatStrs 的 Objects / ChatBks）
+            d.style.cssText = `height:${CHAT_LINE_HEIGHT}px;line-height:${CHAT_LINE_HEIGHT}px;`
+                + 'white-space:pre;overflow:hidden;'
+                + (line ? `color:${line.fg};` + (line.bg ? `background:${line.bg};` : '') : 'color:transparent;');
+            d.textContent = line ? line.text : '';
+            this.chatLog.appendChild(d);
+        }
+    }
+
+    /** 滚动聊天板（原版 ↑↓ ±1、PgUp/PgDn ±VIEWCHATLINE；滚轮走这里）。 */
+    _scrollChat(delta) {
+        if (!this.chatLines) return;
+        this.chatBoardTop = Math.max(0, Math.min(this.chatBoardTop + delta, Math.max(0, this.chatLines.length - 1)));
+        this._renderChat();
+    }
+
+    /** 昼夜时段图标：0 早(Prguse[15]) / 1 白([12]) / 2 傍([13]) / 3 晚([14])。只画图标，不做黑暗渲染。 */
+    _setDayBright(b) {
+        if (!this.dayIconEl || b == null || b === this._dayBright) return;
+        this._dayBright = b;
+        const idx = [15, 12, 13, 14][b] != null ? [15, 12, 13, 14][b] : 15;
+        this._libUrl('prguse', idx).then((url) => {
+            if (!url || !this.dayIconEl) return;
+            this.dayIconEl.src = url;
+            this.dayIconEl.style.display = 'block';
+        });
+    }
+
+    /**
+     * 加载小地图底图：直接用客户端资源 mmap.wil（原版 `FrmMain.WMMap`），
+     * 索引来自服务端 MiniMap.txt（`mapSnapshot.miniMapIndex`，-1 = 该地图没有小地图）。
+     * 图是 1.5 像素/格（原版 DrawMiniMap 的 `XX*48 div 32`）。
+     */
+    async _loadMiniMapTexture(index) {
+        // 优先用 mmap.wil（原版 WMMap，1.5 像素/格，索引来自 MiniMap.txt）
+        if (index != null && index >= 0) {
+            const lib = getLib('mmap');
+            if (lib) {
+                try {
+                    const tex = await lib.getTexture(index);
+                    if (tex && tex.canvas) {
+                        this._miniMapTex = tex.canvas;
+                        this._miniMapScale = 1.5;
+                        return;
+                    }
+                } catch (e) {
+                    /* 落到兜底 */
+                }
+            }
+        }
+        // 兜底：MiniMap.txt 没登记该地图 / mmap 里缺这张图 → 用地图 tiles 临时生成 1 像素/格
+        this._buildMiniMapTexture();
+    }
+
+    /**
+     * 兜底缩略图：从 mapActor.map.tiles 生成，再放大到 **1.5 像素/格**（与 mmap.wil 一致，
+     * 这样切到没有小地图的地图时，120×120 窗口覆盖的格数不变，视觉大小一致）。
+     */
+    _buildMiniMapTexture() {
+        const map = this.mapActor && this.mapActor.map;
+        if (!map || !map.tiles) {
+            this._miniMapTex = null;
+            return;
+        }
+        const w = map.width;
+        const h = map.height;
+        const raw = document.createElement('canvas');
+        raw.width = w;
+        raw.height = h;
+        const rctx = raw.getContext('2d');
+        const img = rctx.createImageData(w, h);
+        const d = img.data;
+        for (let x = 0; x < w; x++) {
+            const col = map.tiles[x];
+            if (!col) {
+                continue;
+            }
+            for (let y = 0; y < h; y++) {
+                const t = col[y];
+                const i = (y * w + x) * 4;
+                if (!t) {
+                    d[i + 3] = 0;
+                } else if (t.canStand) {
+                    d[i] = 96; d[i + 1] = 116; d[i + 2] = 72; d[i + 3] = 255;
+                } else {
+                    d[i] = 44; d[i + 1] = 42; d[i + 2] = 40; d[i + 3] = 255;
+                }
+            }
+        }
+        rctx.putImageData(img, 0, 0);
+        // 缩放：大地图用原版的 1.5 像素/格；小地图（室内十几~几十格）放大到填满 120×120 窗口，最多 8 倍
+        const scale = Math.max(1.5, Math.min(8, 120 / Math.max(w, h)));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * scale));
+        c.height = Math.max(1, Math.round(h * scale));
+        const ctx = c.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(raw, 0, 0, c.width, c.height);
+        this._miniMapTex = c;
+        this._miniMapScale = scale;
+    }
+
+    /** 绘制小地图：裁剪玩家周围 120×120 格 + 自己（白）/怪物（红）/NPC（黄）/其他玩家（蓝）点。 */
+    _renderMiniMap() {
+        const cv = this.miniMapCanvas;
+        if (!cv) return;
+        if (!this._miniMapStyle || !this.self || !this._miniMapTex) {
+            cv.style.display = 'none';
+            return;
+        }
+        cv.style.display = 'block';
+        const ctx = cv.getContext('2d');
+        const tex = this._miniMapTex;
+        const p = this.self;
+        // 原版 DrawMiniMap：mx = (XX*48) div 32（= 格坐标 × 1.5，mmap 底图）
+        // 兜底自生成图是 1 像素/格，用 _miniMapScale 区分
+        // rc.Left/Top = max(0, 格坐标*scale - 60)，rc.Right/Bottom = min(图宽高, +120)
+        // —— 不往右下钳制：玩家超出底图范围时该方向自然留空（原版同样）
+        const sc = this._miniMapScale || 1.5;
+        const px = Math.round(p.x * sc);
+        const py = Math.round(p.y * sc);
+        const sx = Math.max(0, px - 60);
+        const sy = Math.max(0, py - 60);
+        const w = Math.min(120, tex.width - sx);
+        const h = Math.min(120, tex.height - sy);
+        ctx.clearRect(0, 0, 120, 120);
+        ctx.globalAlpha = this._miniMapStyle === 1 ? 0.75 : 1;
+        if (w > 0 && h > 0) {
+            ctx.drawImage(tex, sx, sy, w, h, 0, 0, w, h);
+        }
+        ctx.globalAlpha = 1;
+        const dot = (gx, gy, color) => {
+            const mx = Math.round(gx * sc) - sx;
+            const my = Math.round(gy * sc) - sy;
+            if (mx < 1 || my < 1 || mx >= 119 || my >= 119) return;
+            ctx.fillStyle = color;
+            ctx.fillRect(mx - 1, my - 1, 3, 3);
+        };
+        for (const e of this.entities.values()) {
+            if (e.id === p.id || e.alive === false) continue;
+            if (e.type === 'monster') {
+                dot(e.x, e.y, '#f87171');
+            } else if (e.type === 'npc') {
+                dot(e.x, e.y, '#e5c07b');
+            } else {
+                dot(e.x, e.y, '#7dd3fc');
+            }
+        }
+        dot(p.x, p.y, '#ffffff');
+    }
+
+    /** V 键：小地图 关闭 → 半透明 → 不透明 → 关闭（原版 ViewMiniMapStyle 1/2/0）。 */
+    _toggleMiniMap() {
+        this._miniMapStyle = (this._miniMapStyle + 1) % 3;
+        if (this._miniMapStyle && !this._miniMapTex) {
+            this._loadMiniMapTexture(this._miniMapIndex != null ? this._miniMapIndex : -1);
+        }
+        this._log(this._miniMapStyle === 0 ? '小地图：关闭'
+            : (this._miniMapStyle === 1 ? '小地图：半透明' : '小地图：不透明'), '#e8d9b0');
+    }
+
+    /** 屏幕上方系统消息飘字（原版 DScreen.AddSysMsg：3 秒后消失、最多 10 条）。 */
+    _addSysMsg(text) {
+        if (!this.sysMsgEl) return;
+        const now = Date.now();
+        this.sysMsgs = this.sysMsgs.filter(m => now - m.at < 3000);
+        this.sysMsgs.push({ text, at: now });
+        if (this.sysMsgs.length > 10) {
+            this.sysMsgs.shift();
+        }
+        this._renderSysMsgs();
+        clearTimeout(this._sysMsgTimer);
+        this._sysMsgTimer = setTimeout(() => this._renderSysMsgs(), 3100);
+    }
+
+    _renderSysMsgs() {
+        if (!this.sysMsgEl) return;
+        const now = Date.now();
+        this.sysMsgs = this.sysMsgs.filter(m => now - m.at < 3000);
+        this.sysMsgEl.innerHTML = '';
+        for (const m of this.sysMsgs) {
+            const d = document.createElement('div');
+            d.style.cssText = 'height:16px;line-height:16px;color:#00ff00;text-shadow:1px 1px 0 #000;white-space:pre;';
+            d.textContent = m.text;
+            this.sysMsgEl.appendChild(d);
+        }
     }
 
     // ---- 背包面板（F9，原版 DItemBag）----
@@ -855,7 +1447,7 @@ export class PlayScene extends Scene {
         if (!open) this._refreshStateWin();
     }
 
-    // F12：打开/关闭技能设置页（原版 VK_F11 → StatePage:=3 → OpenMyStatus 是 toggle 窗口）
+    // 技能按钮：打开/关闭技能设置页（原版 VK_F11 → StatePage:=3 → OpenMyStatus 是 toggle 窗口）
     _openSkillSetup() {
         if (!this.stateWin) this._buildStateWin();
         const open = this.stateWin.style.display === 'block';
@@ -1333,8 +1925,8 @@ export class PlayScene extends Scene {
             if (!slotAccepts(slot, sm)) {
                 return;    // 槽位不接受这类物品：原版静默忽略
             }
-            if (sm === 10 && this.self.sex !== 0) { this._log('[系统] 男性服饰。'); return; }
-            if (sm === 11 && this.self.sex !== 1) { this._log('[系统] 女性服饰。'); return; }
+            if (sm === 10 && this.self.sex !== 0) { this._log('男性服饰。'); return; }
+            if (sm === 11 && this.self.sex !== 1) { this._log('女性服饰。'); return; }
             this.conn.send('takeOnItem', { makeIndex: this.pickedItem.makeIndex, slot });
             this._clearPicked();
             return;
@@ -1448,6 +2040,12 @@ export class PlayScene extends Scene {
             if (this.pickedItem && this.pickedSource === 'equip') {
                 this.conn.send('takeOffItem', { slot: this.pickedSlot, makeIndex: this.pickedItem.makeIndex });
                 this._clearPicked();
+                return;
+            }
+            if (this.pickedItem && this.pickedSource === 'quick') {
+                // 拿着快捷栏物品点背包空白处 → 从快捷栏取出（物品回到背包网格）
+                this.conn.send('quickSlot', { slot: this.pickedSlot, makeIndex: 0 });
+                this._clearPicked();
             }
         });
         this.bagPanel = panel;
@@ -1464,7 +2062,10 @@ export class PlayScene extends Scene {
         // 背包物品（8 列网格，图标居中）：双击使用、单击拿起（原版 GetItemCursor 交互）
         this.bagGridEl.innerHTML = '';
         this._clearPicked();   // 同时清 pickedItem：解包/买卖等刷新后，避免残留旧引用触发误换位
-        const bagItems = items.filter(x => x.slot === undefined);
+        // 快捷栏里的物品从背包网格里「移出」（原版 ItemArr[0..5] 是独立于背包 6..45 的槽，
+        // 物品是从背包移进快捷栏的，所以背包里看不到它；服务端 bag 不变，这里只是视图过滤）
+        const quickSet = new Set((this.self.quickSlots || []).filter(v => v > 0));
+        const bagItems = items.filter(x => x.slot === undefined && !quickSet.has(x.makeIndex));
         // 网格只显示 8×5=40 格（原版 ItemArr[6..45]），第 41-46 个在溢出区（ItemArr[46..51]，
         // 原版 DItemGrid 不渲染）——服务端容量 MAXBAGITEM=46，用完网格物品后溢出区自动前移
         const visibleItems = bagItems.slice(0, 40);
@@ -1567,6 +2168,12 @@ export class PlayScene extends Scene {
         if (this.pickedSource === 'equip') {
             // 拿着已穿装备点背包格 → 卸下（原版 DItemGridGridSelect 的 mi < 0 分支 → CM_TAKEOFFITEM）
             this.conn.send('takeOffItem', { slot: this.pickedSlot, makeIndex: this.pickedItem.makeIndex });
+            this._clearPicked();
+            return;
+        }
+        if (this.pickedSource === 'quick') {
+            // 拿着快捷栏物品点背包格 → 从快捷栏取出（清引用，物品回到背包网格）
+            this.conn.send('quickSlot', { slot: this.pickedSlot, makeIndex: 0 });
             this._clearPicked();
             return;
         }
@@ -1952,6 +2559,8 @@ export class PlayScene extends Scene {
         if (this._dirAttackHolding && this.self && this._dirAttackDir >= 0) {
             this._dirAttack(this._dirAttackDir);
         }
+        // 锁定目标追击（原版 TargetCret + AttackTarget）：相邻砍、远了走一步
+        this._tickChase(now);
         // NPC 对话框走远自动关闭（原版：离开打开时的位置 >= 8 格即 CloseMDlg）
         if (this.npcDlg && this._npcDlgX != null) {
             if (Math.abs(this.self.x - this._npcDlgX) >= 8
@@ -2026,6 +2635,7 @@ export class PlayScene extends Scene {
         this._renderEffects(ctx, vcx, vcy, shiftX, shiftY);
         this._renderGroundItems(ctx);
         this._renderHud();
+        this._renderMiniMap();
     }
 
     // 实体精灵缓存（entityAdd 替换对象后重建）
@@ -2371,7 +2981,86 @@ export class PlayScene extends Scene {
     _renderHud() {
         if (!this.hudEl || !this.self) return;
         const p = this.self;
-        this.hudEl.textContent = `${p.name}  Lv.${p.level}  HP ${p.hp}/${p.maxHp}  MP ${p.mp}/${p.maxMp}`;
+        // 只在数值变化时重绘（每帧重画 canvas 浪费）
+        const key = `${p.hp}/${p.maxHp}/${p.mp}/${p.maxMp}/${p.level}/${p.exp}/${p.maxExp}/${p.weight}/${p.maxWeight}/${p.x}/${p.y}`;
+        if (this._hudKey === key) return;
+        this._hudKey = key;
+        this._renderVitals();
+        this._renderLevelNumber();
+        // 经验条 / 负重条（Prguse[7]，76px 满宽）
+        if (this.expBarEl && p.maxExp > 0) {
+            this.expBarEl.style.width = Math.max(0, Math.min(76, Math.round(76 * (p.exp || 0) / p.maxExp))) + 'px';
+        }
+        if (this.loadBarEl && p.maxWeight > 0) {
+            this.loadBarEl.style.width = Math.max(0, Math.min(76, Math.round(76 * (p.weight || 0) / p.maxWeight))) + 'px';
+        }
+        // 地图名 + 坐标（原版 DrawScrn.pas:462，屏幕底部）
+        if (this.mapNameEl) {
+            const map = this.snapshot && this.snapshot.map ? this.snapshot.map : null;
+            const title = (map && (map.title || map.name)) || '';
+            this.mapNameEl.textContent = `${title} ${p.x}:${p.y}`.trim();
+        }
+    }
+
+    /** 血球/魔法球：Prguse[4]（HP 左半 + MP 右半，各按比例纵向裁切）；
+     *  武士且 lv<26 用 Prguse[5] 容器 + Prguse[6] 红色液体（对齐 FState.pas:3249-3280）。 */
+    async _renderVitals() {
+        const p = this.self;
+        if (!p || !this.vitalsCanvas) return;
+        const lib = getLib('prguse');
+        if (!lib) return;
+        const ctx = this.vitalsCanvas.getContext('2d');
+        ctx.clearRect(0, 0, this.vitalsCanvas.width, this.vitalsCanvas.height);
+        try {
+            if (p.job === 0 && p.level < 26) {
+                const base = await lib.getTexture(5);
+                const liquid = await lib.getTexture(6);
+                if (base) ctx.drawImage(base.canvas, 0, 0);
+                if (liquid) {
+                    const h = liquid.canvas.height;
+                    const top = Math.round(h / Math.max(1, p.maxHp) * (p.maxHp - p.hp));
+                    if (top < h) {
+                        ctx.drawImage(liquid.canvas, 0, top, liquid.canvas.width, h - top, 0, top, liquid.canvas.width, h - top);
+                    }
+                }
+            } else {
+                const d = await lib.getTexture(4);
+                if (d) {
+                    const w = d.canvas.width;
+                    const h = d.canvas.height;
+                    const half = w >> 1;
+                    const hpTop = Math.round(h / Math.max(1, p.maxHp) * (p.maxHp - p.hp));
+                    if (hpTop < h) ctx.drawImage(d.canvas, 0, hpTop, half - 1, h - hpTop, 0, hpTop, half - 1, h - hpTop);
+                    const mpTop = Math.round(h / Math.max(1, p.maxMp) * (p.maxMp - p.mp));
+                    if (mpTop < h) {
+                        ctx.drawImage(d.canvas, half + 1, mpTop, w - half - 1, h - mpTop, half + 1, mpTop, w - half - 1, h - mpTop);
+                    }
+                }
+            }
+        } catch (e) {
+            /* 纹理未就绪时忽略 */
+        }
+    }
+
+    /** 等级：位图数字 Prguse[30..39]（8px/位，首位前空 8px，对齐 PomiTextOut）。 */
+    async _renderLevelNumber() {
+        const p = this.self;
+        if (!p || !this.levelCanvas) return;
+        const lib = getLib('prguse');
+        if (!lib) return;
+        const ctx = this.levelCanvas.getContext('2d');
+        ctx.clearRect(0, 0, this.levelCanvas.width, this.levelCanvas.height);
+        const s = String(p.level);
+        try {
+            for (let i = 0; i < s.length; i++) {
+                const digit = s.charCodeAt(i) - 48;
+                if (digit < 0 || digit > 9) continue;
+                const tex = await lib.getTexture(30 + digit);
+                if (tex) ctx.drawImage(tex.canvas, (i + 1) * 8, 0);
+            }
+        } catch (e) {
+            /* ignore */
+        }
     }
 
     onExit() {
